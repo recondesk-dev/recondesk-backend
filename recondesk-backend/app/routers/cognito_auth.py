@@ -24,15 +24,29 @@ _log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/cognito", tags=["Cognito Auth (Dev)"])
 
-# Development-only in-memory identity mapping store
-_identity_store: CognitoIdentityStore = InMemoryCognitoIdentityStore()
+# Development / testing identity mapping store
+_identity_store: Optional[CognitoIdentityStore] = None
 
 
 def get_identity_store() -> CognitoIdentityStore:
+    global _identity_store
+    if _identity_store is not None:
+        return _identity_store
+
+    try:
+        from app.aurora import is_aurora_enabled, get_aurora_database_url
+        if is_aurora_enabled() or get_aurora_database_url():
+            from app.cognito_aurora_store import SQLAlchemyCognitoIdentityStore
+            _identity_store = SQLAlchemyCognitoIdentityStore()
+            return _identity_store
+    except Exception as exc:
+        _log.warning("Could not initialize SQLAlchemyCognitoIdentityStore: %s. Using in-memory fallback.", exc)
+
+    _identity_store = InMemoryCognitoIdentityStore()
     return _identity_store
 
 
-def set_identity_store(store: CognitoIdentityStore) -> None:
+def set_identity_store(store: Optional[CognitoIdentityStore]) -> None:
     global _identity_store
     _identity_store = store
 
@@ -47,10 +61,20 @@ def get_ownership_verifier() -> Callable[[str, str, dict[str, Any]], bool]:
 
 
 def _lookup_profile_by_id(user_id: str) -> Optional[dict[str, Any]]:
+    store = get_identity_store()
+    if hasattr(store, "get_user_profile_by_id"):
+        profile = store.get_user_profile_by_id(user_id)
+        if profile is not None:
+            return profile
     return get_user_profile(user_id)
 
 
 def _lookup_profile_by_email(email: str) -> Optional[dict[str, Any]]:
+    store = get_identity_store()
+    if hasattr(store, "get_user_profile_by_email"):
+        profile = store.get_user_profile_by_email(email)
+        if profile is not None:
+            return profile
     try:
         from app.database import get_supabase
         sb = get_supabase()
@@ -80,6 +104,11 @@ class CognitoStatusResponse(BaseModel):
     domain_url: Optional[str] = None
     authorize_url: Optional[str] = None
     token_url: Optional[str] = None
+
+
+class LookupMappingResponse(BaseModel):
+    account_mapping_status: str  # "verified_mapping_found" or "pending_trusted_mapping_phase"
+    user_id: Optional[str] = None
 
 
 class AccountLinkingRequest(BaseModel):
@@ -299,3 +328,90 @@ async def cognito_link_account(
         "user_id": user_id,
         "cognito_sub": claims.get("sub"),
     }
+
+
+@router.post("/lookup-mapping", response_model=LookupMappingResponse)
+async def cognito_lookup_mapping(
+    claims: dict[str, Any] = Depends(get_current_cognito_claims),
+    config: CognitoConfig = Depends(get_cognito_config),
+    store: CognitoIdentityStore = Depends(get_identity_store),
+) -> LookupMappingResponse:
+    """Look up whether an exact, verified Cognito identity mapping exists in Aurora.
+
+    Security Enforcement:
+      1. Authenticated strictly via Cognito Bearer access-token verification.
+      2. Derives cognito_sub strictly from the verified token's 'sub' claim.
+      3. Derives user pool from the verified token's issuer and configured COGNITO_USER_POOL_ID.
+      4. Does not accept or trust any identity parameters from the request body or query string.
+      5. Missing/invalid/expired token or non-access token returns HTTP 401.
+      6. Valid token with no valid mapping returns fail-closed pending status.
+      7. Response returns ONLY account_mapping_status and user_id (when mapping is valid).
+    """
+    sub = claims.get("sub")
+    if not sub or not isinstance(sub, str):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Verified token missing or invalid 'sub' claim",
+        )
+
+    configured_pool = config.COGNITO_USER_POOL_ID.strip()
+    expected_issuer = config.issuer
+
+    # Validate issuer matches configured User Pool
+    iss = claims.get("iss", "")
+    if iss != expected_issuer:
+        _log.warning(
+            "Token issuer mismatch in lookup-mapping: expected %r, got %r",
+            expected_issuer,
+            iss,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token was issued by an untrusted Cognito User Pool.",
+        )
+
+    # Validate token_use is strictly 'access'
+    if claims.get("token_use") != "access":
+        _log.warning(
+            "Token use mismatch in lookup-mapping: expected 'access', got %r",
+            claims.get("token_use"),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token_use: expected 'access'",
+        )
+
+    # Query Aurora trusted store with verified sub and configured pool
+    mapping_result = None
+    if hasattr(store, "lookup_trusted_mapping"):
+        mapping_result = store.lookup_trusted_mapping(
+            sub,
+            pool_id=configured_pool,
+            profile_lookup_fn=_lookup_profile_by_id,
+        )
+    else:
+        mapping = store.get_mapping_by_sub(sub, pool_id=configured_pool)
+        if (
+            mapping
+            and mapping.verified
+            and mapping.cognito_user_pool_id == configured_pool
+            and mapping.cognito_sub == sub
+        ):
+            profile = _lookup_profile_by_id(mapping.user_id)
+            if profile and profile.get("is_active", True):
+                mapping_result = {
+                    "user_id": mapping.user_id,
+                    "cognito_sub": mapping.cognito_sub,
+                    "is_verified": True,
+                }
+
+    if mapping_result and mapping_result.get("user_id"):
+        return LookupMappingResponse(
+            account_mapping_status="verified_mapping_found",
+            user_id=str(mapping_result["user_id"]),
+        )
+
+    return LookupMappingResponse(
+        account_mapping_status="pending_trusted_mapping_phase",
+        user_id=None,
+    )

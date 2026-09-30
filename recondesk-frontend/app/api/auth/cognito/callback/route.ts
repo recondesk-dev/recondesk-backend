@@ -13,6 +13,7 @@ import {
   verifyCognitoIdToken,
   verifyCognitoAccessToken,
 } from "@/lib/cognito/jwt";
+import { lookupCognitoMapping } from "@/lib/cognito/mapping";
 
 /**
  * Handles the OAuth 2.0 Authorization Code callback from Cognito.
@@ -170,29 +171,50 @@ export async function GET(request: NextRequest) {
     return res;
   }
 
-  // REQUIREMENT 2 & 10: Do NOT create an authenticated ReconDesk session until
-  // the authenticated Cognito identity has been resolved through a trusted ReconDesk
-  // account mapping. Keep the Cognito feature disabled until that mapping is implemented.
-  const secure = isSecureCookie(request.nextUrl.protocol);
+  // 3. Trusted Cognito-to-Aurora identity mapping lookup via backend (Requirements 1, 2, 3, 4, 5, 8, 9)
+  let mappingResult;
+  try {
+    mappingResult = await lookupCognitoMapping({
+      accessToken: tokenResponse.access_token,
+    });
+  } catch (err: unknown) {
+    const detail = err instanceof Error ? err.message : "Unknown lookup failure";
+    console.warn(`[Cognito OAuth] Mapping lookup failed (failing closed): ${detail}`);
+    mappingResult = {
+      account_mapping_status: "pending_trusted_mapping_phase" as const,
+      user_id: null,
+    };
+  }
 
-  // Return identity verification status without establishing an active ReconDesk session.
-  // Persistent account mapping is kept as a separate migration phase.
-  const response = NextResponse.json(
-    {
-      status: "identity_verified",
-      cognito_sub: idClaims.sub,
-      token_use: idClaims.token_use,
-      access_token_use: accessClaims.token_use,
-      account_mapping_status: "pending_trusted_mapping_phase",
-      message: (
-        "Cognito identity successfully verified. Active ReconDesk session creation " +
-        "remains disabled until trusted Aurora account mapping is implemented."
-      ),
-      sanitized_next: sanitizedNextPath,
-    },
-    { status: 200 }
-  );
+  const isVerifiedFound =
+    mappingResult.account_mapping_status === "verified_mapping_found" &&
+    typeof mappingResult.user_id === "string" &&
+    mappingResult.user_id.trim().length > 0;
 
+  // Safe development response (Requirements 7, 8, 9)
+  // Do NOT establish an authenticated ReconDesk session yet (Requirement 7)
+  const responsePayload: Record<string, unknown> = {
+    status: "identity_verified",
+    cognito_sub: idClaims.sub,
+    token_use: idClaims.token_use,
+    access_token_use: accessClaims.token_use,
+    account_mapping_status: isVerifiedFound
+      ? "verified_mapping_found"
+      : "pending_trusted_mapping_phase",
+    sanitized_next: sanitizedNextPath,
+  };
+
+  if (isVerifiedFound) {
+    responsePayload.user_id = mappingResult.user_id!.trim();
+    responsePayload.message = "Trusted Aurora account mapping verified for Cognito identity.";
+  } else {
+    responsePayload.message = (
+      "Cognito identity successfully verified. Active ReconDesk session creation " +
+      "remains disabled until trusted Aurora account mapping is implemented."
+    );
+  }
+
+  const response = NextResponse.json(responsePayload, { status: 200 });
   clearHandshakeCookies(response);
   return response;
 }

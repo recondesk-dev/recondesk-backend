@@ -25,6 +25,8 @@ import {
   buildCognitoAuthorizeUrl,
 } from "../lib/cognito/oauth.ts";
 
+import { lookupCognitoMapping } from "../lib/cognito/mapping.ts";
+
 // Helper to generate RSA key pair and JWKS
 function generateTestJwks() {
   const { publicKey, privateKey } = crypto.generateKeyPairSync("rsa", {
@@ -720,5 +722,164 @@ describe("Cognito Exact User Pool ID Enforcement & Verification", () => {
       assert.ok(!err.message.includes("test-secret"));
       assert.ok(!err.message.includes(badAudToken));
     }
+  });
+});
+
+describe("Cognito-to-Aurora Trusted Account Mapping Lookup", () => {
+  const verifiedUserId = "1fa557d7-5f6f-4539-9e0c-3e75a71a9a6c";
+  const dummyAccessToken = "eyTestAccessToken123";
+
+  test("verified mapping found: sends Bearer header with no identity body and returns verified_mapping_found with user_id", async () => {
+    let capturedUrl = "";
+    let capturedOpts = null;
+
+    const mockFetch = async (url, opts) => {
+      capturedUrl = url;
+      capturedOpts = opts;
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          account_mapping_status: "verified_mapping_found",
+          user_id: verifiedUserId,
+        }),
+      };
+    };
+
+    const res = await lookupCognitoMapping({
+      accessToken: dummyAccessToken,
+      fetchFn: mockFetch,
+    });
+
+    assert.ok(capturedUrl.endsWith("/api/v1/auth/cognito/lookup-mapping"));
+    assert.equal(capturedOpts.method, "POST");
+    assert.equal(capturedOpts.headers["Authorization"], `Bearer ${dummyAccessToken}`);
+    assert.equal(capturedOpts.body, undefined);
+
+    assert.equal(res.account_mapping_status, "verified_mapping_found");
+    assert.equal(res.user_id, verifiedUserId);
+  });
+
+  test("missing mapping: returns pending_trusted_mapping_phase and user_id=null", async () => {
+    const mockFetch = async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        account_mapping_status: "pending_trusted_mapping_phase",
+        user_id: null,
+      }),
+    });
+
+    const res = await lookupCognitoMapping({
+      accessToken: dummyAccessToken,
+      fetchFn: mockFetch,
+    });
+
+    assert.equal(res.account_mapping_status, "pending_trusted_mapping_phase");
+    assert.equal(res.user_id, null);
+  });
+
+  test("missing or empty access token: fails closed without network call", async () => {
+    let called = false;
+    const mockFetch = async () => {
+      called = true;
+      throw new Error("Should not be called");
+    };
+
+    const resEmpty = await lookupCognitoMapping({
+      accessToken: "",
+      fetchFn: mockFetch,
+    });
+    assert.equal(resEmpty.account_mapping_status, "pending_trusted_mapping_phase");
+    assert.equal(resEmpty.user_id, null);
+    assert.equal(called, false);
+
+    const resWhitespace = await lookupCognitoMapping({
+      accessToken: "   ",
+      fetchFn: mockFetch,
+    });
+    assert.equal(resWhitespace.account_mapping_status, "pending_trusted_mapping_phase");
+    assert.equal(resWhitespace.user_id, null);
+    assert.equal(called, false);
+  });
+
+  test("backend HTTP 401 (unauthorized / invalid token): fails closed to pending_trusted_mapping_phase", async () => {
+    const mockFetch = async () => ({
+      ok: false,
+      status: 401,
+      json: async () => ({ detail: "Invalid token" }),
+    });
+
+    const res = await lookupCognitoMapping({
+      accessToken: "invalid-token",
+      fetchFn: mockFetch,
+    });
+
+    assert.equal(res.account_mapping_status, "pending_trusted_mapping_phase");
+    assert.equal(res.user_id, null);
+  });
+
+  test("backend HTTP 403 (forbidden): fails closed to pending_trusted_mapping_phase", async () => {
+    const mockFetch = async () => ({
+      ok: false,
+      status: 403,
+      json: async () => ({ detail: "Token use mismatch" }),
+    });
+
+    const res = await lookupCognitoMapping({
+      accessToken: "wrong-use-token",
+      fetchFn: mockFetch,
+    });
+
+    assert.equal(res.account_mapping_status, "pending_trusted_mapping_phase");
+    assert.equal(res.user_id, null);
+  });
+
+  test("backend HTTP 500 (internal error): fails closed to pending_trusted_mapping_phase", async () => {
+    const mockFetch = async () => ({
+      ok: false,
+      status: 500,
+      json: async () => ({ detail: "Database unavailable" }),
+    });
+
+    const res = await lookupCognitoMapping({
+      accessToken: dummyAccessToken,
+      fetchFn: mockFetch,
+    });
+
+    assert.equal(res.account_mapping_status, "pending_trusted_mapping_phase");
+    assert.equal(res.user_id, null);
+  });
+
+  test("malformed response json: fails closed to pending_trusted_mapping_phase", async () => {
+    const mockFetch = async () => ({
+      ok: true,
+      status: 200,
+      json: async () => {
+        throw new Error("Invalid JSON");
+      },
+    });
+
+    const res = await lookupCognitoMapping({
+      accessToken: dummyAccessToken,
+      fetchFn: mockFetch,
+    });
+
+    assert.equal(res.account_mapping_status, "pending_trusted_mapping_phase");
+    assert.equal(res.user_id, null);
+  });
+
+  test("network failure or timeout: fails closed to pending_trusted_mapping_phase", async () => {
+    const mockFailingFetch = async () => {
+      throw new Error("Network connection refused");
+    };
+
+    const res = await lookupCognitoMapping({
+      accessToken: dummyAccessToken,
+      fetchFn: mockFailingFetch,
+    });
+
+    assert.equal(res.account_mapping_status, "pending_trusted_mapping_phase");
+    assert.equal(res.user_id, null);
   });
 });

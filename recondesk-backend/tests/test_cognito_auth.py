@@ -717,3 +717,352 @@ class TestCognitoEndpoints:
         finally:
             app.dependency_overrides.clear()
             set_cognito_jwks_cache_for_testing(None)
+
+    def test_lookup_mapping_valid_access_token_and_verified_mapping(
+        self, client, rsa_key_pair
+    ):
+        """Requirement 12: Valid access token + verified mapping returns 200 with user_id."""
+        from app.cognito_config import get_cognito_config
+        from app.routers.cognito_auth import get_identity_store
+
+        priv, _, jwks = rsa_key_pair
+        sub = "d1a38dfa-20e1-70bb-061d-eb14138ccd11"
+        user_id = "1fa557d7-5f6f-4539-9e0c-3e75a71a9a6c"
+        pool_id = "ap-south-1_nvlPYMvFh"
+
+        test_cfg = CognitoConfig(
+            COGNITO_REGION="ap-south-1",
+            COGNITO_USER_POOL_ID=pool_id,
+            COGNITO_CLIENT_ID="2qui5lp7if0g4lftbrag7o6sce",
+            COGNITO_AUTH_ENABLED=True,
+        )
+        app.dependency_overrides[get_cognito_config] = lambda: test_cfg
+        set_cognito_jwks_cache_for_testing(jwks)
+
+        store = InMemoryCognitoIdentityStore(default_pool_id=pool_id)
+        store._mappings_by_sub[(pool_id, sub)] = CognitoIdentityMapping(
+            cognito_sub=sub,
+            user_id=user_id,
+            email="verified@example.com",
+            mapping_method="admin_provisioned",
+            verified=True,
+            cognito_user_pool_id=pool_id,
+        )
+        store.set_user_profile(user_id, {"id": user_id, "email": "verified@example.com", "is_active": True})
+        app.dependency_overrides[get_identity_store] = lambda: store
+
+        try:
+            now = int(time.time())
+            token = _sign_test_token(
+                priv,
+                {
+                    "sub": sub,
+                    "iss": test_cfg.issuer,
+                    "client_id": test_cfg.COGNITO_CLIENT_ID,
+                    "token_use": "access",
+                    "exp": now + 3600,
+                },
+            )
+            resp = client.post(
+                "/api/v1/auth/cognito/lookup-mapping",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["account_mapping_status"] == "verified_mapping_found"
+            assert data["user_id"] == user_id
+            assert "email" not in data
+            assert "cognito_sub" not in data
+        finally:
+            app.dependency_overrides.clear()
+            set_cognito_jwks_cache_for_testing(None)
+
+    def test_lookup_mapping_valid_token_and_no_mapping(
+        self, client, rsa_key_pair
+    ):
+        """Requirement 12: Valid token + no mapping returns pending status."""
+        from app.cognito_config import get_cognito_config
+        from app.routers.cognito_auth import get_identity_store
+
+        priv, _, jwks = rsa_key_pair
+        sub = str(uuid.uuid4())
+        pool_id = "ap-south-1_nvlPYMvFh"
+
+        test_cfg = CognitoConfig(
+            COGNITO_REGION="ap-south-1",
+            COGNITO_USER_POOL_ID=pool_id,
+            COGNITO_CLIENT_ID="2qui5lp7if0g4lftbrag7o6sce",
+            COGNITO_AUTH_ENABLED=True,
+        )
+        app.dependency_overrides[get_cognito_config] = lambda: test_cfg
+        set_cognito_jwks_cache_for_testing(jwks)
+
+        store = InMemoryCognitoIdentityStore(default_pool_id=pool_id)
+        app.dependency_overrides[get_identity_store] = lambda: store
+
+        try:
+            now = int(time.time())
+            token = _sign_test_token(
+                priv,
+                {
+                    "sub": sub,
+                    "iss": test_cfg.issuer,
+                    "client_id": test_cfg.COGNITO_CLIENT_ID,
+                    "token_use": "access",
+                    "exp": now + 3600,
+                },
+            )
+            resp = client.post(
+                "/api/v1/auth/cognito/lookup-mapping",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["account_mapping_status"] == "pending_trusted_mapping_phase"
+            assert data["user_id"] is None
+        finally:
+            app.dependency_overrides.clear()
+            set_cognito_jwks_cache_for_testing(None)
+
+    def test_lookup_mapping_forged_or_invalid_token(self, client):
+        """Requirement 12: Forged or invalid token returns HTTP 401."""
+        from app.cognito_config import get_cognito_config
+
+        test_cfg = CognitoConfig(COGNITO_AUTH_ENABLED=True)
+        app.dependency_overrides[get_cognito_config] = lambda: test_cfg
+
+        try:
+            # 1. Missing Authorization header
+            resp1 = client.post("/api/v1/auth/cognito/lookup-mapping")
+            assert resp1.status_code == 401
+
+            # 2. Forged / random token
+            resp2 = client.post(
+                "/api/v1/auth/cognito/lookup-mapping",
+                headers={"Authorization": "Bearer totally-forged-random-token"},
+            )
+            assert resp2.status_code == 401
+        finally:
+            app.dependency_overrides.clear()
+
+    def test_lookup_mapping_id_token_supplied_instead_of_access_token(
+        self, client, rsa_key_pair
+    ):
+        """Requirement 12: ID token supplied instead of access token returns HTTP 401."""
+        from app.cognito_config import get_cognito_config
+
+        priv, _, jwks = rsa_key_pair
+        test_cfg = CognitoConfig(
+            COGNITO_REGION="ap-south-1",
+            COGNITO_USER_POOL_ID="ap-south-1_nvlPYMvFh",
+            COGNITO_CLIENT_ID="2qui5lp7if0g4lftbrag7o6sce",
+            COGNITO_AUTH_ENABLED=True,
+        )
+        app.dependency_overrides[get_cognito_config] = lambda: test_cfg
+        set_cognito_jwks_cache_for_testing(jwks)
+
+        try:
+            now = int(time.time())
+            id_token = _sign_test_token(
+                priv,
+                {
+                    "sub": str(uuid.uuid4()),
+                    "iss": test_cfg.issuer,
+                    "aud": test_cfg.COGNITO_CLIENT_ID,
+                    "token_use": "id",  # ID token!
+                    "exp": now + 3600,
+                },
+            )
+            resp = client.post(
+                "/api/v1/auth/cognito/lookup-mapping",
+                headers={"Authorization": f"Bearer {id_token}"},
+            )
+            assert resp.status_code == 401
+        finally:
+            app.dependency_overrides.clear()
+            set_cognito_jwks_cache_for_testing(None)
+
+    def test_lookup_mapping_wrong_issuer(self, client, rsa_key_pair):
+        """Requirement 12: Wrong issuer returns HTTP 401."""
+        from app.cognito_config import get_cognito_config
+
+        priv, _, jwks = rsa_key_pair
+        test_cfg = CognitoConfig(
+            COGNITO_REGION="ap-south-1",
+            COGNITO_USER_POOL_ID="ap-south-1_nvlPYMvFh",
+            COGNITO_CLIENT_ID="2qui5lp7if0g4lftbrag7o6sce",
+            COGNITO_AUTH_ENABLED=True,
+        )
+        app.dependency_overrides[get_cognito_config] = lambda: test_cfg
+        set_cognito_jwks_cache_for_testing(jwks)
+
+        try:
+            now = int(time.time())
+            bad_token = _sign_test_token(
+                priv,
+                {
+                    "sub": str(uuid.uuid4()),
+                    "iss": "https://cognito-idp.ap-south-1.amazonaws.com/ap-south-1_wrongPool",
+                    "client_id": test_cfg.COGNITO_CLIENT_ID,
+                    "token_use": "access",
+                    "exp": now + 3600,
+                },
+            )
+            resp = client.post(
+                "/api/v1/auth/cognito/lookup-mapping",
+                headers={"Authorization": f"Bearer {bad_token}"},
+            )
+            assert resp.status_code == 401
+        finally:
+            app.dependency_overrides.clear()
+            set_cognito_jwks_cache_for_testing(None)
+
+    def test_lookup_mapping_wrong_client_id(self, client, rsa_key_pair):
+        """Requirement 12: Wrong client_id returns HTTP 401."""
+        from app.cognito_config import get_cognito_config
+
+        priv, _, jwks = rsa_key_pair
+        test_cfg = CognitoConfig(
+            COGNITO_REGION="ap-south-1",
+            COGNITO_USER_POOL_ID="ap-south-1_nvlPYMvFh",
+            COGNITO_CLIENT_ID="2qui5lp7if0g4lftbrag7o6sce",
+            COGNITO_AUTH_ENABLED=True,
+        )
+        app.dependency_overrides[get_cognito_config] = lambda: test_cfg
+        set_cognito_jwks_cache_for_testing(jwks)
+
+        try:
+            now = int(time.time())
+            bad_token = _sign_test_token(
+                priv,
+                {
+                    "sub": str(uuid.uuid4()),
+                    "iss": test_cfg.issuer,
+                    "client_id": "unauthorized-client-id",
+                    "token_use": "access",
+                    "exp": now + 3600,
+                },
+            )
+            resp = client.post(
+                "/api/v1/auth/cognito/lookup-mapping",
+                headers={"Authorization": f"Bearer {bad_token}"},
+            )
+            assert resp.status_code == 401
+        finally:
+            app.dependency_overrides.clear()
+            set_cognito_jwks_cache_for_testing(None)
+
+    def test_lookup_mapping_expired_token(self, client, rsa_key_pair):
+        """Requirement 12: Expired token returns HTTP 401."""
+        from app.cognito_config import get_cognito_config
+
+        priv, _, jwks = rsa_key_pair
+        test_cfg = CognitoConfig(
+            COGNITO_REGION="ap-south-1",
+            COGNITO_USER_POOL_ID="ap-south-1_nvlPYMvFh",
+            COGNITO_CLIENT_ID="2qui5lp7if0g4lftbrag7o6sce",
+            COGNITO_AUTH_ENABLED=True,
+        )
+        app.dependency_overrides[get_cognito_config] = lambda: test_cfg
+        set_cognito_jwks_cache_for_testing(jwks)
+
+        try:
+            now = int(time.time())
+            expired_token = _sign_test_token(
+                priv,
+                {
+                    "sub": str(uuid.uuid4()),
+                    "iss": test_cfg.issuer,
+                    "client_id": test_cfg.COGNITO_CLIENT_ID,
+                    "token_use": "access",
+                    "exp": now - 300,  # Expired
+                },
+            )
+            resp = client.post(
+                "/api/v1/auth/cognito/lookup-mapping",
+                headers={"Authorization": f"Bearer {expired_token}"},
+            )
+            assert resp.status_code == 401
+        finally:
+            app.dependency_overrides.clear()
+            set_cognito_jwks_cache_for_testing(None)
+
+    def test_lookup_mapping_caller_attempts_to_spoof_another_sub(
+        self, client, rsa_key_pair
+    ):
+        """Requirement 12: Caller attempts to spoof another sub in body/query.
+
+        Endpoint must derive sub strictly from verified token, ignoring caller's spoofed parameters.
+        """
+        from app.cognito_config import get_cognito_config
+        from app.routers.cognito_auth import get_identity_store
+
+        priv, _, jwks = rsa_key_pair
+        sub_a = "sub-caller-valid-token-aaa"
+        user_id_a = "user-aaa-111"
+
+        sub_b = "sub-target-victim-bbb"
+        user_id_b = "user-bbb-222"
+
+        pool_id = "ap-south-1_nvlPYMvFh"
+
+        test_cfg = CognitoConfig(
+            COGNITO_REGION="ap-south-1",
+            COGNITO_USER_POOL_ID=pool_id,
+            COGNITO_CLIENT_ID="2qui5lp7if0g4lftbrag7o6sce",
+            COGNITO_AUTH_ENABLED=True,
+        )
+        app.dependency_overrides[get_cognito_config] = lambda: test_cfg
+        set_cognito_jwks_cache_for_testing(jwks)
+
+        store = InMemoryCognitoIdentityStore(default_pool_id=pool_id)
+        # Both sub_a and sub_b have verified mappings
+        store._mappings_by_sub[(pool_id, sub_a)] = CognitoIdentityMapping(
+            cognito_sub=sub_a,
+            user_id=user_id_a,
+            email="caller@example.com",
+            mapping_method="admin_provisioned",
+            verified=True,
+            cognito_user_pool_id=pool_id,
+        )
+        store.set_user_profile(user_id_a, {"id": user_id_a, "email": "caller@example.com", "is_active": True})
+
+        store._mappings_by_sub[(pool_id, sub_b)] = CognitoIdentityMapping(
+            cognito_sub=sub_b,
+            user_id=user_id_b,
+            email="victim@example.com",
+            mapping_method="admin_provisioned",
+            verified=True,
+            cognito_user_pool_id=pool_id,
+        )
+        store.set_user_profile(user_id_b, {"id": user_id_b, "email": "victim@example.com", "is_active": True})
+
+        app.dependency_overrides[get_identity_store] = lambda: store
+
+        try:
+            now = int(time.time())
+            token_a = _sign_test_token(
+                priv,
+                {
+                    "sub": sub_a,
+                    "iss": test_cfg.issuer,
+                    "client_id": test_cfg.COGNITO_CLIENT_ID,
+                    "token_use": "access",
+                    "exp": now + 3600,
+                },
+            )
+            # Caller supplies token for sub_a, but tries to send sub_b in body and query
+            resp = client.post(
+                f"/api/v1/auth/cognito/lookup-mapping?cognito_sub={sub_b}",
+                headers={"Authorization": f"Bearer {token_a}"},
+                json={"cognito_sub": sub_b, "user_id": user_id_b},
+            )
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["account_mapping_status"] == "verified_mapping_found"
+            # Must resolve to user_id_a (derived strictly from token), NOT spoofed user_id_b!
+            assert data["user_id"] == user_id_a
+            assert data["user_id"] != user_id_b
+        finally:
+            app.dependency_overrides.clear()
+            set_cognito_jwks_cache_for_testing(None)

@@ -178,6 +178,106 @@ class SQLAlchemyCognitoIdentityStore(CognitoIdentityStore):
                 return None
             return record.to_domain()
 
+    def lookup_trusted_mapping(
+        self,
+        cognito_sub: str,
+        pool_id: Optional[str] = None,
+        profile_lookup_fn: Optional[Callable[[str], Optional[dict[str, Any]]]] = None,
+    ) -> Optional[dict[str, Any]]:
+        """Look up an exact, verified Cognito identity mapping in Aurora.
+
+        Requirements:
+          - Exact match on cognito_user_pool_id and cognito_sub
+          - is_verified must be True
+          - Mapped user_profiles row must exist and have is_active == True
+          - Never matches on email alone; never auto-creates mappings.
+        """
+        sub = str(cognito_sub or "").strip()
+        if not sub:
+            return None
+        target_pool = (pool_id or self._user_pool_id).strip()
+        if not target_pool:
+            return None
+
+        with self._get_session() as session:
+            stmt = select(CognitoUserMappingModel).where(
+                CognitoUserMappingModel.cognito_user_pool_id == target_pool,
+                CognitoUserMappingModel.cognito_sub == sub,
+                CognitoUserMappingModel.is_verified.is_(True),
+            )
+            mapping = session.scalar(stmt)
+            if mapping is None:
+                return None
+
+            profile_stmt = select(UserProfileModel).where(
+                UserProfileModel.id == mapping.user_id,
+                UserProfileModel.is_active.is_(True),
+            )
+            profile = session.scalar(profile_stmt)
+            if profile is None:
+                return None
+
+            return {
+                "user_id": str(mapping.user_id),
+                "cognito_sub": mapping.cognito_sub,
+                "cognito_user_pool_id": mapping.cognito_user_pool_id,
+                "email": mapping.email,
+                "mapping_method": mapping.mapping_method,
+                "is_verified": True,
+                "profile": {
+                    "id": str(profile.id),
+                    "email": profile.email,
+                    "role": profile.role,
+                    "is_active": bool(profile.is_active),
+                    "full_name": profile.full_name,
+                    "firm_name": profile.firm_name,
+                },
+            }
+
+    def get_user_profile_by_id(
+        self, user_id: str
+    ) -> Optional[dict[str, Any]]:
+        """Fetch user profile from Aurora public.user_profiles by primary key UUID."""
+        uid = str(user_id or "").strip()
+        if not uid:
+            return None
+        with self._get_session() as session:
+            profile = session.scalar(
+                select(UserProfileModel).where(UserProfileModel.id == uid)
+            )
+            if profile is None:
+                return None
+            return {
+                "id": str(profile.id),
+                "email": profile.email,
+                "role": profile.role,
+                "is_active": bool(profile.is_active),
+                "full_name": profile.full_name,
+                "firm_name": profile.firm_name,
+            }
+
+    def get_user_profile_by_email(
+        self, email: str
+    ) -> Optional[dict[str, Any]]:
+        """Fetch user profile from Aurora public.user_profiles by email."""
+        clean_email = str(email or "").strip().lower()
+        if not clean_email:
+            return None
+        with self._get_session() as session:
+            profile = session.scalar(
+                select(UserProfileModel).where(UserProfileModel.email.ilike(clean_email))
+            )
+            if profile is None:
+                return None
+            return {
+                "id": str(profile.id),
+                "email": profile.email,
+                "role": profile.role,
+                "is_active": bool(profile.is_active),
+                "full_name": profile.full_name,
+                "firm_name": profile.firm_name,
+            }
+
     def save_mapping(self, mapping: CognitoIdentityMapping) -> None:
         """Persist or update an unverified identity mapping.
 

@@ -78,6 +78,22 @@ class CognitoIdentityStore:
     ) -> Optional[CognitoIdentityMapping]:
         raise NotImplementedError
 
+    def lookup_trusted_mapping(
+        self,
+        cognito_sub: str,
+        pool_id: Optional[str] = None,
+        profile_lookup_fn: Optional[Callable[[str], Optional[dict[str, Any]]]] = None,
+    ) -> Optional[dict[str, Any]]:
+        """Look up an exact, verified Cognito identity mapping.
+
+        Requirements:
+          - Exact match on cognito_user_pool_id and cognito_sub
+          - is_verified must be True
+          - Mapped user_profiles row must exist and have is_active == True
+          - Never matches on email alone; never auto-creates mappings.
+        """
+        raise NotImplementedError
+
     def save_mapping(self, mapping: CognitoIdentityMapping) -> None:
         """Persist or update an unverified identity mapping.
         Direct insertion or modification of verified mappings via save_mapping() is prohibited.
@@ -127,8 +143,63 @@ class InMemoryCognitoIdentityStore(CognitoIdentityStore):
         # Keyed by (pool_id, sub) and (pool_id, user_id)
         self._mappings_by_sub: dict[tuple[str, str], CognitoIdentityMapping] = {}
         self._mappings_by_user_id: dict[tuple[str, str], CognitoIdentityMapping] = {}
+        self._profiles: dict[str, dict[str, Any]] = {}
         self._tokens: dict[str, dict[str, Any]] = {}
         self._secret = secrets.token_bytes(32)
+
+    def set_user_profile(self, user_id: str, profile: dict[str, Any]) -> None:
+        """Register or mock a user profile in memory."""
+        self._profiles[str(user_id)] = profile
+
+    def get_user_profile_by_id(self, user_id: str) -> Optional[dict[str, Any]]:
+        return self._profiles.get(str(user_id))
+
+    def get_user_profile_by_email(self, email: str) -> Optional[dict[str, Any]]:
+        clean_email = str(email or "").strip().lower()
+        for p in self._profiles.values():
+            if str(p.get("email") or "").strip().lower() == clean_email:
+                return p
+        return None
+
+    def lookup_trusted_mapping(
+        self,
+        cognito_sub: str,
+        pool_id: Optional[str] = None,
+        profile_lookup_fn: Optional[Callable[[str], Optional[dict[str, Any]]]] = None,
+    ) -> Optional[dict[str, Any]]:
+        """Look up verified mapping in memory store enforcing all invariants."""
+        sub = str(cognito_sub or "").strip()
+        if not sub:
+            return None
+        target_pool = (pool_id or self.default_pool_id).strip()
+        if not target_pool:
+            return None
+
+        mapping = self._mappings_by_sub.get((target_pool, sub))
+        if not mapping or not mapping.verified:
+            return None
+        if mapping.cognito_user_pool_id != target_pool or mapping.cognito_sub != sub:
+            return None
+
+        # Look up profile
+        profile = None
+        if profile_lookup_fn:
+            profile = profile_lookup_fn(mapping.user_id)
+        if profile is None:
+            profile = self._profiles.get(mapping.user_id)
+
+        if not profile or not profile.get("is_active", True):
+            return None
+
+        return {
+            "user_id": mapping.user_id,
+            "cognito_sub": mapping.cognito_sub,
+            "cognito_user_pool_id": mapping.cognito_user_pool_id,
+            "email": mapping.email,
+            "mapping_method": mapping.mapping_method,
+            "is_verified": True,
+            "profile": profile,
+        }
 
     def get_mapping_by_sub(
         self, cognito_sub: str, pool_id: Optional[str] = None

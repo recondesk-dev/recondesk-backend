@@ -106,7 +106,15 @@ class CognitoUserMappingModel(Base):
     is_verified = Column(Boolean, nullable=False, default=False)
     provisioned_by = Column(String(128), nullable=True)
     linking_ip = Column(String(64), nullable=True)
-    metadata_json = Column(JSON, nullable=False, default=dict)
+    # Explicitly map Python attribute 'metadata_json' to the database column 'metadata'
+    # to avoid colliding with SQLAlchemy's reserved 'metadata' attribute on declarative models
+    # while preserving the Aurora table column name 'metadata' (JSONB NOT NULL DEFAULT '{}'::jsonb).
+    metadata_json = Column(
+        "metadata",
+        JSON().with_variant(JSONB, "postgresql"),
+        nullable=False,
+        default=dict,
+    )
     created_at = Column(
         DateTime(timezone=True),
         nullable=False,

@@ -787,3 +787,279 @@ class TestRateLimitingAndLogSanitization:
         logged_text = caplog.text
         assert secret_password not in logged_text
         assert secret_jwt not in logged_text
+
+
+# ─── 8. Trusted Mapping Lookup Tests ──────────────────────────────────────────
+
+class TestLookupTrustedMapping:
+    """Requirement 10: Tests for lookup_trusted_mapping in SQLAlchemyCognitoIdentityStore."""
+
+    def test_verified_mapping_found(self, sqlite_engine, aurora_store):
+        user_id = "1fa557d7-5f6f-4539-9e0c-3e75a71a9a6c"
+        sub = "d1a38dfa-20e1-70bb-061d-eb14138ccd11"
+        pool_id = "ap-south-1_nvlPYMvFh"
+
+        _create_user_profile(sqlite_engine, user_id, "aurora_user@example.com", is_active=True)
+
+        aurora_store.admin_provision_mapping(
+            user_id=user_id,
+            cognito_sub=sub,
+            email="aurora_user@example.com",
+            provisioned_by="admin-system",
+            pool_id=pool_id,
+        )
+
+        res = aurora_store.lookup_trusted_mapping(cognito_sub=sub, pool_id=pool_id)
+        assert res is not None
+        assert res["user_id"] == user_id
+        assert res["cognito_sub"] == sub
+        assert res["cognito_user_pool_id"] == pool_id
+        assert res["is_verified"] is True
+        assert res["profile"]["id"] == user_id
+        assert res["profile"]["is_active"] is True
+
+    def test_missing_mapping_returns_none(self, sqlite_engine, aurora_store):
+        missing_sub = str(uuid.uuid4())
+        res = aurora_store.lookup_trusted_mapping(cognito_sub=missing_sub)
+        assert res is None
+
+    def test_unverified_mapping_rejected(self, sqlite_engine, aurora_store):
+        user_id = str(uuid.uuid4())
+        sub = str(uuid.uuid4())
+        pool_id = "ap-south-1_nvlPYMvFh"
+
+        _create_user_profile(sqlite_engine, user_id, "unverified@example.com", is_active=True)
+
+        # Directly insert unverified mapping record
+        session_factory = sessionmaker(bind=sqlite_engine)
+        with session_factory() as session:
+            record = CognitoUserMappingModel(
+                cognito_user_pool_id=pool_id,
+                cognito_sub=sub,
+                user_id=user_id,
+                email="unverified@example.com",
+                mapping_method="admin_provisioned",
+                is_verified=False,  # Unverified!
+            )
+            session.add(record)
+            session.commit()
+
+        res = aurora_store.lookup_trusted_mapping(cognito_sub=sub, pool_id=pool_id)
+        assert res is None
+
+    def test_inactive_user_rejected(self, sqlite_engine, aurora_store):
+        user_id = str(uuid.uuid4())
+        sub = str(uuid.uuid4())
+        pool_id = "ap-south-1_nvlPYMvFh"
+
+        # Create inactive user profile
+        _create_user_profile(sqlite_engine, user_id, "inactive@example.com", is_active=False)
+
+        # Insert verified mapping for inactive user
+        session_factory = sessionmaker(bind=sqlite_engine)
+        with session_factory() as session:
+            record = CognitoUserMappingModel(
+                cognito_user_pool_id=pool_id,
+                cognito_sub=sub,
+                user_id=user_id,
+                email="inactive@example.com",
+                mapping_method="admin_provisioned",
+                is_verified=True,
+            )
+            session.add(record)
+            session.commit()
+
+        res = aurora_store.lookup_trusted_mapping(cognito_sub=sub, pool_id=pool_id)
+        assert res is None
+
+    def test_wrong_pool_rejected(self, sqlite_engine, aurora_store):
+        user_id = str(uuid.uuid4())
+        sub = str(uuid.uuid4())
+        valid_pool = "ap-south-1_nvlPYMvFh"
+        wrong_pool = "ap-south-1_wrongPool123"
+
+        _create_user_profile(sqlite_engine, user_id, "wrongpool@example.com", is_active=True)
+
+        aurora_store.admin_provision_mapping(
+            user_id=user_id,
+            cognito_sub=sub,
+            email="wrongpool@example.com",
+            provisioned_by="admin-system",
+            pool_id=valid_pool,
+        )
+
+        # Lookup with wrong pool ID must reject
+        res = aurora_store.lookup_trusted_mapping(cognito_sub=sub, pool_id=wrong_pool)
+        assert res is None
+
+    def test_wrong_sub_rejected(self, sqlite_engine, aurora_store):
+        user_id = str(uuid.uuid4())
+        sub = str(uuid.uuid4())
+        wrong_sub = str(uuid.uuid4())
+        pool_id = "ap-south-1_nvlPYMvFh"
+
+        _create_user_profile(sqlite_engine, user_id, "wrongsub@example.com", is_active=True)
+
+        aurora_store.admin_provision_mapping(
+            user_id=user_id,
+            cognito_sub=sub,
+            email="wrongsub@example.com",
+            provisioned_by="admin-system",
+            pool_id=pool_id,
+        )
+
+        # Lookup with wrong sub must reject
+        res = aurora_store.lookup_trusted_mapping(cognito_sub=wrong_sub, pool_id=pool_id)
+        assert res is None
+
+
+# ─── 10. Schema & Column Mapping Regression Tests ─────────────────────────────
+
+class TestCognitoUserMappingMetadataColumnSchema:
+    """Regression tests verifying that SQLAlchemy models accurately target the Aurora
+    table's 'metadata' column and NEVER emit 'metadata_json' in SQL queries.
+    """
+
+    def test_sqlalchemy_emits_metadata_and_never_metadata_json(self):
+        """Task 5: Prove SQLAlchemy queries the actual 'metadata' column and does not emit
+        'metadata_json' as the database column name in SELECT, INSERT, or UPDATE statements.
+        """
+        from sqlalchemy import insert, update
+        from sqlalchemy.dialects import postgresql
+
+        pg = postgresql.dialect()
+
+        # 1. SELECT statement
+        select_stmt = select(CognitoUserMappingModel)
+        select_sql = str(select_stmt.compile(dialect=pg))
+        assert "cognito_user_mappings.metadata" in select_sql
+        assert "metadata_json" not in select_sql, (
+            "SQLAlchemy must NOT emit 'metadata_json' as a column in SELECT queries! "
+            f"Emitted SQL: {select_sql}"
+        )
+
+        # 2. INSERT statement
+        insert_stmt = insert(CognitoUserMappingModel)
+        insert_sql = str(insert_stmt.compile(dialect=pg))
+        assert "metadata" in insert_sql
+        assert "metadata_json" not in insert_sql, (
+            "SQLAlchemy must NOT emit 'metadata_json' in INSERT statements! "
+            f"Emitted SQL: {insert_sql}"
+        )
+
+        # 3. UPDATE statement
+        update_stmt = (
+            update(CognitoUserMappingModel)
+            .where(CognitoUserMappingModel.cognito_sub == "test-sub")
+            .values(metadata_json={"updated": True})
+        )
+        update_sql = str(update_stmt.compile(dialect=pg))
+        assert "metadata" in update_sql
+        assert "metadata_json" not in update_sql, (
+            "SQLAlchemy must NOT emit 'metadata_json' in UPDATE statements! "
+            f"Emitted SQL: {update_sql}"
+        )
+
+    def test_model_table_column_metadata_is_named_metadata(self):
+        """Verify the underlying Table column object is named 'metadata' and keyed 'metadata'."""
+        table = CognitoUserMappingModel.__table__
+        assert "metadata" in table.c
+        assert "metadata_json" not in table.c
+        assert table.c["metadata"].name == "metadata"
+        assert table.c.metadata.name == "metadata"
+        # The Python model attribute exists and maps to the column
+        assert hasattr(CognitoUserMappingModel, "metadata_json")
+
+    def test_orm_queries_table_with_actual_aurora_column_metadata(self, sqlite_engine):
+        """Prove that the ORM seamlessly queries a table created with the column 'metadata'
+        (as created by migration 20260930183000_create_cognito_user_mappings.up.sql)
+        and reads/writes metadata_json without schema mismatch errors.
+        """
+        user_id = str(uuid.uuid4())
+        sub = str(uuid.uuid4())
+        pool_id = "ap-south-1_nvlPYMvFh"
+
+        _create_user_profile(sqlite_engine, user_id, "meta_test@example.com", is_active=True)
+
+        session_factory = sessionmaker(bind=sqlite_engine)
+        with session_factory() as session:
+            record = CognitoUserMappingModel(
+                cognito_user_pool_id=pool_id,
+                cognito_sub=sub,
+                user_id=user_id,
+                email="meta_test@example.com",
+                mapping_method="admin_provisioned",
+                is_verified=True,
+                metadata_json={"env": "aurora_test", "role": "developer"},
+            )
+            session.add(record)
+            session.commit()
+
+        # Query the record via ORM select
+        with session_factory() as session:
+            loaded = session.scalar(
+                select(CognitoUserMappingModel).where(
+                    CognitoUserMappingModel.cognito_sub == sub
+                )
+            )
+            assert loaded is not None
+            assert loaded.metadata_json == {"env": "aurora_test", "role": "developer"}
+
+        # Verify raw SQL: the column in sqlite_engine is indeed named 'metadata'
+        with sqlite_engine.connect() as conn:
+            from sqlalchemy import text
+            result = conn.execute(
+                text("SELECT metadata FROM cognito_user_mappings WHERE cognito_sub = :sub"),
+                {"sub": sub},
+            ).scalar()
+            assert result is not None
+            assert "aurora_test" in str(result)
+
+    def test_admin_provisioning_preserves_and_updates_metadata(self, sqlite_engine, aurora_store):
+        """Verify that admin_provision_mapping writes metadata to metadata_json
+        and subsequent lookups/updates maintain it consistently.
+        """
+        user_id = str(uuid.uuid4())
+        sub = str(uuid.uuid4())
+        pool_id = "ap-south-1_nvlPYMvFh"
+
+        _create_user_profile(sqlite_engine, user_id, "admin_meta@example.com", is_active=True)
+
+        # 1. Admin provision with initial metadata
+        aurora_store.admin_provision_mapping(
+            user_id=user_id,
+            cognito_sub=sub,
+            email="admin_meta@example.com",
+            provisioned_by="test-admin",
+            metadata={"source": "onboarding_migration", "batch": 42},
+            pool_id=pool_id,
+        )
+
+        session_factory = sessionmaker(bind=sqlite_engine)
+        with session_factory() as session:
+            rec = session.scalar(
+                select(CognitoUserMappingModel).where(
+                    CognitoUserMappingModel.cognito_sub == sub
+                )
+            )
+            assert rec is not None
+            assert rec.metadata_json == {"source": "onboarding_migration", "batch": 42}
+
+        # 2. Re-provision / update metadata
+        aurora_store.admin_provision_mapping(
+            user_id=user_id,
+            cognito_sub=sub,
+            email="admin_meta@example.com",
+            provisioned_by="test-admin-2",
+            metadata={"source": "onboarding_migration", "batch": 43, "verified": True},
+            pool_id=pool_id,
+        )
+
+        with session_factory() as session:
+            rec = session.scalar(
+                select(CognitoUserMappingModel).where(
+                    CognitoUserMappingModel.cognito_sub == sub
+                )
+            )
+            assert rec is not None
+            assert rec.metadata_json == {"source": "onboarding_migration", "batch": 43, "verified": True}
