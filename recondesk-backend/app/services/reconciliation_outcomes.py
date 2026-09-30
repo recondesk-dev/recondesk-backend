@@ -646,16 +646,16 @@ def build_outcome_rows(
         )
         is_r37a = bool((not is_itc_avail) and is_non_filer)
 
+        pr_rd = pcell.get("record_data") or {}
+        pr_ineligible = str(p.get("itc_eligible") or pr_rd.get("itc_eligible") or pr_rd.get("ITC Eligible") or "").strip().upper() in ("N", "NO", "INELIGIBLE")
         is_blocked_credit = bool(
-            (not is_itc_avail)
-            and (
-                bflag
-                or (
-                    itc_rsn
-                    and any(
-                        k in itc_rsn.lower()
-                        for k in ("17(5)", "17 (5)", "blocked", "ineligible", "sec 17")
-                    )
+            bflag
+            or pr_ineligible
+            or (
+                itc_rsn
+                and any(
+                    k in itc_rsn.lower()
+                    for k in ("17(5)", "17 (5)", "blocked", "ineligible", "sec 17")
                 )
             )
         )
@@ -1363,7 +1363,7 @@ def build_outcome_rows(
         if not gid:
             continue
         if any(
-            x.id in (f"bc:{gid}", f"pm:{gid}") and x.category == "blocked_credit" for x in rows
+            x.id in (f"bc:{gid}", f"pm:{gid}") for x in rows
         ):
             continue
         gcell = gstr_m.get(gid) or {}

@@ -3311,7 +3311,10 @@ def _build_reconcile_summary(
                 if r.category == "matched"
                 and getattr(r, "itc_available", True)
                 and not getattr(r, "is_rcm", False)
-                and getattr(r, "supply_type", "") != "ISD"
+                and getattr(r, "supply_type", "") not in ("ISD", "IMPORT_GOODS")
+                and not getattr(r, "is_credit_note", False)
+                and str(getattr(r, "document_type", "")).upper() not in ("CREDIT_NOTE", "CREDIT NOTE", "CRN", "CN")
+                and not getattr(r, "blocked_credit_flag", False)
             ),
             2,
         ),
@@ -3321,6 +3324,22 @@ def _build_reconcile_summary(
                 _paise_to_rupees(r.amount or 0)
                 for r in outcome_rows
                 if getattr(r, "supply_type", "") == "ISD"
+                and r.category == "matched"
+                and getattr(r, "itc_available", True)
+            ),
+            2,
+        ),
+        "import_goods_count": sum(
+            1 for r in outcome_rows
+            if getattr(r, "supply_type", "") in ("IMPORT_GOODS", "IMPG", "IMPGSEZ")
+            and r.category == "matched"
+            and getattr(r, "itc_available", True)
+        ),
+        "import_goods_itc_amount": round(
+            sum(
+                _paise_to_rupees(r.amount or 0)
+                for r in outcome_rows
+                if getattr(r, "supply_type", "") in ("IMPORT_GOODS", "IMPG", "IMPGSEZ")
                 and r.category == "matched"
                 and getattr(r, "itc_available", True)
             ),
@@ -3340,19 +3359,23 @@ def _build_reconcile_summary(
             sum(_paise_to_rupees(r.amount or 0) for r in outcome_rows if r.category == "time_barred_itc"),
             2,
         ),
-        "ineligible_itc_count": sum(
-            1 for r in outcome_rows
+        "ineligible_itc_count": len({
+            (str(r.supplier_gstin or "").strip().upper(), str(r.invoice_number or "").strip().upper())
+            for r in outcome_rows
             if r.category == "blocked_credit"
             or getattr(r, "blocked_credit_flag", False)
             or getattr(r, "itc_available", True) is False
-        ),
+        }),
         "ineligible_itc_amount": round(
             sum(
                 _paise_to_rupees(r.amount or 0)
-                for r in outcome_rows
-                if r.category == "blocked_credit"
-                or getattr(r, "blocked_credit_flag", False)
-                or getattr(r, "itc_available", True) is False
+                for r in {
+                    (str(r.supplier_gstin or "").strip().upper(), str(r.invoice_number or "").strip().upper()): r
+                    for r in outcome_rows
+                    if r.category == "blocked_credit"
+                    or getattr(r, "blocked_credit_flag", False)
+                    or getattr(r, "itc_available", True) is False
+                }.values()
             ),
             2,
         ),

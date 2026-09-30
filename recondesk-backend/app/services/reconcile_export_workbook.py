@@ -373,13 +373,41 @@ def build_excel_workbook_bytes(
                 and getattr(_o, "itc_available", True) is not False
             )
 
+        def _row_is_blocked(ap, _o):
+            pd = ap.get("pr_data") if isinstance(ap.get("pr_data"), dict) else {}
+            _orow_cat = getattr(_o, "category", None) or ""
+            return bool(
+                ap.get("itc_available") is False
+                or getattr(_o, "itc_available", True) is False
+                or ap.get("category") == "blocked_credit"
+                or _orow_cat == "blocked_credit"
+                or getattr(_o, "blocked_credit_flag", False)
+                or str(pd.get("itc_eligibility") or ap.get("itc_eligibility") or "").strip().upper() in ("N", "NO", "INELIGIBLE")
+            )
+
+        def _row_is_import_goods(ap, _o):
+            pd = ap.get("pr_data") if isinstance(ap.get("pr_data"), dict) else {}
+            gd = ap.get("gstr2b_data") if isinstance(ap.get("gstr2b_data"), dict) else {}
+            st = str(ap.get("supply_type") or getattr(_o, "supply_type", "") or pd.get("supply_type") or gd.get("supply_type") or "").strip().upper()
+            return st in ("IMPORT_GOODS", "IMPG", "IMPGSEZ") or str(ap.get("section") or "").upper() in ("IMPG", "IMPGSEZ")
+
+        def _row_is_cn(ap, _o):
+            pd = ap.get("pr_data") if isinstance(ap.get("pr_data"), dict) else {}
+            gd = ap.get("gstr2b_data") if isinstance(ap.get("gstr2b_data"), dict) else {}
+            return bool(
+                ap.get("is_credit_note")
+                or getattr(_o, "is_credit_note", False)
+                or str(ap.get("document_type") or "").upper().replace(" ", "_") in ("CREDIT_NOTE", "CRN", "CN")
+                or str(pd.get("document_type") or pd.get("doc_type") or "").upper().replace(" ", "_") in ("CREDIT_NOTE", "CRN", "CN")
+                or str(gd.get("document_type") or gd.get("doc_type") or "").upper().replace(" ", "_") in ("CREDIT_NOTE", "CRN", "CN")
+            )
+
         eligible_dom_amt = summary.get("matched_eligible_itc_amount")
         if eligible_dom_amt is None:
             eligible_dom_amt = sum(
                 float(ap.get("amount") or 0)
                 for ap, _o in matched_pairs
-                if ap.get("itc_available") is not False
-                and getattr(_o, "itc_available", True) is not False
+                if not _row_is_blocked(ap, _o)
                 and not bool(ap.get("is_rcm") or getattr(_o, "is_rcm", False))
                 and not (
                     ap.get("supply_type") == "ISD"
@@ -387,6 +415,17 @@ def build_excel_workbook_bytes(
                     or (isinstance(ap.get("gstr2b_data"), dict) and ap.get("gstr2b_data", {}).get("supply_type") == "ISD")
                     or str(ap.get("document_type") or "").upper() == "ISD"
                 )
+                and not _row_is_import_goods(ap, _o)
+                and not _row_is_cn(ap, _o)
+            )
+
+        import_goods_amt = summary.get("import_goods_itc_amount")
+        if import_goods_amt is None:
+            import_goods_amt = sum(
+                float(ap.get("amount") or 0)
+                for ap, _o in matched_pairs
+                if _row_is_import_goods(ap, _o)
+                and not _row_is_blocked(ap, _o)
             )
 
         rcm_itc_amt = summary.get("rcm_itc_amount")
@@ -409,21 +448,20 @@ def build_excel_workbook_bytes(
                 for r in time_barred_rows
             )
 
-        ineligible_amt = summary.get("ineligible_itc_amount")
-        if ineligible_amt is None or float(ineligible_amt or 0) == 0:
+        ineligible_amt = sum(
+            float(r.get("amount") or 0)
+            for r in section17_rows
+        )
+        if float(ineligible_amt or 0) == 0:
             ineligible_amt = sum(
-                float(r.get("amount") or 0)
-                for r in section17_rows
+                float(ap.get("amount") or 0)
+                for ap, _o in matched_pairs
+                if _row_is_blocked(ap, _o)
             )
-            if float(ineligible_amt or 0) == 0:
-                ineligible_amt = sum(
-                    float(ap.get("amount") or 0)
-                    for ap, _o in matched_pairs
-                    if ap.get("itc_available") is False or getattr(_o, "itc_available", True) is False
-                )
 
         statutory_stats = [
             ("Eligible Domestic ITC [Table 4(A)(5)]", _rs_int(float(eligible_dom_amt or 0))),
+            ("Import of Goods [Table 4(A)(1)]", _rs_int(float(import_goods_amt or 0))),
             ("Inward Supplies from ISD [Table 4(A)(4)]", _rs_int(float(isd_itc_amt or 0))),
             ("Inward RCM Eligible ITC [Table 4(A)(3)]", _rs_int(float(rcm_itc_amt or 0))),
             ("Inward RCM Cash Liability [Table 3.1(d)]", _rs_int(float(rcm_liab_amt or 0))),
@@ -542,9 +580,29 @@ def build_excel_workbook_bytes(
                 or str(pd.get("itc_eligibility") or api_row.get("itc_eligibility") or "").strip().upper() in ("N", "NO", "INELIGIBLE")
             )
 
-            dec_what = api_row.get("decision_what")
-            dec_why = api_row.get("decision_why")
-            dec_next = api_row.get("decision_next")
+            is_import_goods = bool(
+                api_row.get("supply_type") in ("IMPORT_GOODS", "IMPG", "IMPGSEZ")
+                or getattr(_orow, "supply_type", "") in ("IMPORT_GOODS", "IMPG", "IMPGSEZ")
+                or str(gd.get("supply_type") or "").upper() in ("IMPORT_GOODS", "IMPG", "IMPGSEZ")
+                or str(pd.get("supply_type") or "").upper() in ("IMPORT_GOODS", "IMPG", "IMPGSEZ")
+                or str(gd.get("section") or "").upper() in ("IMPG", "IMPGSEZ")
+                or str(api_row.get("document_type") or "").upper() in ("BILL_OF_ENTRY", "BOE")
+                or str(gd.get("document_type") or "").upper() in ("BILL_OF_ENTRY", "BOE")
+                or str(pd.get("document_type") or "").upper() in ("BILL_OF_ENTRY", "BOE")
+            )
+            is_sez = bool(
+                not is_import_goods
+                and (
+                    api_row.get("supply_type") in ("SEZ", "SEZWOP", "SEZWP")
+                    or getattr(_orow, "supply_type", "") in ("SEZ", "SEZWOP", "SEZWP")
+                    or str(gd.get("supply_type") or "").upper() in ("SEZ", "SEZWOP", "SEZWP")
+                    or str(pd.get("supply_type") or "").upper() in ("SEZ", "SEZWOP", "SEZWP")
+                )
+            )
+
+            dec_what = api_row.get("decision_what") or getattr(_orow, "decision_what", None)
+            dec_why = api_row.get("decision_why") or getattr(_orow, "decision_why", None)
+            dec_next = api_row.get("decision_next") or getattr(_orow, "decision_next", None)
 
             if is_blocked_or_ineligible:
                 supply_type = "INELIGIBLE"
@@ -561,6 +619,14 @@ def build_excel_workbook_bytes(
                 supply_type = "ISD"
                 gstr3b_table = "Table 4(A)(4)"
                 doc_type_disp = f"{_doc_type_display(api_row.get('document_type'), api_row)} (ISD 4A4)"
+            elif is_import_goods:
+                supply_type = "IMPORT_GOODS"
+                gstr3b_table = "Table 4(A)(1)"
+                doc_type_disp = f"{_doc_type_display(api_row.get('document_type'), api_row)} (Import Goods 4A1)"
+            elif is_sez:
+                supply_type = "SEZ"
+                gstr3b_table = "Table 4(A)(5)"
+                doc_type_disp = f"{_doc_type_display(api_row.get('document_type'), api_row)} (SEZ 4A5)"
             elif is_cn:
                 supply_type = "CREDIT NOTE"
                 gstr3b_table = "Table 4(B)(2)"

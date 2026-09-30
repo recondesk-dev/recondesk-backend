@@ -523,10 +523,26 @@ def classify_statutory_treatment_for_matched(
         or str(p.get("document_type") or p_rd.get("document_type") or p_rd.get("Document Type") or "").strip().upper() == "ISD"
         or str(g.get("section") or g_rd.get("section") or "").strip().upper() in ("ISD", "ISDA")
     )
+    is_import_goods = bool(
+        str(g.get("supply_type") or g_rd.get("supply_type") or g_rd.get("Supply Type") or "").strip().upper() in ("IMPORT_GOODS", "IMPG", "IMPGSEZ")
+        or str(p.get("supply_type") or p_rd.get("supply_type") or p_rd.get("Supply Type") or "").strip().upper() in ("IMPORT_GOODS", "IMPG", "IMPGSEZ")
+        or str(g.get("section") or g_rd.get("section") or "").strip().upper() in ("IMPG", "IMPGSEZ")
+    )
+    is_sez = bool(
+        not is_import_goods
+        and (
+            str(g.get("supply_type") or g_rd.get("supply_type") or g_rd.get("Supply Type") or "").strip().upper() in ("SEZ", "SEZWOP", "SEZWP")
+            or str(p.get("supply_type") or p_rd.get("supply_type") or p_rd.get("Supply Type") or "").strip().upper() in ("SEZ", "SEZWOP", "SEZWP")
+        )
+    )
     if is_rcm:
         supply_type = "RCM"
     elif is_isd:
         supply_type = "ISD"
+    elif is_import_goods:
+        supply_type = "IMPORT_GOODS"
+    elif is_sez:
+        supply_type = "SEZ"
     else:
         supply_type = "REGULAR"
 
@@ -678,6 +694,50 @@ def classify_statutory_treatment_for_matched(
             blocked_credit_flag=False,
         )
 
+    # CASE 3c: Import of Goods (Bill of Entry) with ITC Available
+    if is_import_goods:
+        imp_what = "Inward Supply from Import of Goods (Bill of Entry)"
+        imp_why = "Import of goods on Bill of Entry via ICEGATE/Customs. ITC available under Table 4(A)(1)."
+        imp_next = "Claim eligible IGST credit in GSTR-3B Table 4(A)(1). Do not report under Table 4(A)(5)."
+        return StatutoryClassification(
+            itc_status=ITCEligibilityStatus.AVAILABLE,
+            is_rcm=False,
+            is_itc_available=True,
+            normalized_reason=None,
+            source_reason=None,
+            supply_type="IMPORT_GOODS",
+            liability_table=None,
+            claim_table="4(A)(1)",
+            decision_what=imp_what,
+            decision_why=imp_why,
+            decision_next=imp_next,
+            category="matched",
+            rule37a_flag=False,
+            blocked_credit_flag=False,
+        )
+
+    # CASE 3d: Special Economic Zone (SEZ) Inward Supply
+    if is_sez:
+        sez_what = "Inward Supply from SEZ Unit/Developer"
+        sez_why = "Supplies received from SEZ unit or developer on tax invoice."
+        sez_next = "Claim eligible ITC in GSTR-3B Table 4(A)(5) (or Table 4(A)(1) if Bill of Entry). Verify SEZ endorsement."
+        return StatutoryClassification(
+            itc_status=ITCEligibilityStatus.AVAILABLE,
+            is_rcm=False,
+            is_itc_available=True,
+            normalized_reason=None,
+            source_reason=None,
+            supply_type="SEZ",
+            liability_table=None,
+            claim_table="4(A)(5)",
+            decision_what=sez_what,
+            decision_why=sez_why,
+            decision_next=sez_next,
+            category="matched",
+            rule37a_flag=False,
+            blocked_credit_flag=False,
+        )
+
     # CASE 4: Standard Regular Eligible Inward Supply
     return StatutoryClassification(
         itc_status=ITCEligibilityStatus.AVAILABLE,
@@ -711,10 +771,24 @@ def classify_statutory_treatment_for_gstr_only(
         or str(g.get("document_type") or g_rd.get("document_type") or g_rd.get("Document Type") or "").strip().upper() == "ISD"
         or str(g.get("section") or g_rd.get("section") or "").strip().upper() in ("ISD", "ISDA")
     )
+    is_import_goods = bool(
+        str(g.get("supply_type") or g_rd.get("supply_type") or g_rd.get("Supply Type") or "").strip().upper() in ("IMPORT_GOODS", "IMPG", "IMPGSEZ")
+        or str(g.get("section") or g_rd.get("section") or "").strip().upper() in ("IMPG", "IMPGSEZ")
+    )
+    is_sez = bool(
+        not is_import_goods
+        and (
+            str(g.get("supply_type") or g_rd.get("supply_type") or g_rd.get("Supply Type") or "").strip().upper() in ("SEZ", "SEZWOP", "SEZWP")
+        )
+    )
     if is_rcm:
         supply_type = "RCM"
     elif is_isd:
         supply_type = "ISD"
+    elif is_import_goods:
+        supply_type = "IMPORT_GOODS"
+    elif is_sez:
+        supply_type = "SEZ"
     else:
         supply_type = "REGULAR"
 
@@ -746,7 +820,7 @@ def classify_statutory_treatment_for_gstr_only(
         )
 
     # Eligible GSTR-only invoice
-    claim_table = "4(A)(3)" if is_rcm else ("4(A)(4)" if is_isd else "4(A)(5)")
+    claim_table = "4(A)(3)" if is_rcm else ("4(A)(4)" if is_isd else ("4(A)(1)" if is_import_goods else "4(A)(5)"))
     liability_table = "3.1(d)" if is_rcm else None
     if is_rcm:
         d_what = "RCM Inward Supply Missing in Books"
@@ -756,6 +830,14 @@ def classify_statutory_treatment_for_gstr_only(
         d_what = "ISD Inward Supply Missing in Books"
         d_why = "Input Service Distributor invoice present in GSTR-2B but not found in Purchase Register."
         d_next = "Verify & book in purchase register; claim ISD credit under GSTR-3B Table 4(A)(4)."
+    elif is_import_goods:
+        d_what = "Import Goods Missing in Books (Bill of Entry)"
+        d_why = "Bill of Entry present in GSTR-2B (ICEGATE) but not entered in purchase register."
+        d_next = "Enter Bill of Entry in purchase register; claim IGST credit in GSTR-3B Table 4(A)(1)."
+    elif is_sez:
+        d_what = "SEZ Inward Supply Missing in Books"
+        d_why = "SEZ invoice present in GSTR-2B but not found in Purchase Register."
+        d_next = "Verify & book invoice in purchase register to claim SEZ ITC in GSTR-3B."
     else:
         d_what = "Inward Supply Missing in Books"
         d_why = "Invoice present in GSTR-2B but not found in Purchase Register."

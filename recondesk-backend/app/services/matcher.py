@@ -62,6 +62,12 @@ _RE_AMENDMENT_PREFIX = re.compile(
 _RE_AMENDMENT_NORM = re.compile(
     r"^(?:AMD|AMEND|AMENDMENT|REV|MOD)", re.IGNORECASE
 )
+_RE_BRANCH_SUFFIX = re.compile(
+    r"[/-](?:BR|BRANCH|HO|UNIT|PLANT|DEPOT)\d*$", re.IGNORECASE
+)
+_RE_BRANCH_NORM = re.compile(
+    r"(?:BR|BRANCH|HO|UNIT|PLANT|DEPOT)\d+$", re.IGNORECASE
+)
 
 
 
@@ -309,6 +315,24 @@ def is_invoice_format_variant(
     ocr_b = ocr_canonical_invoice(nb)
     if ocr_a and ocr_b and ocr_a == ocr_b:
         return True
+
+    # Check 0: Branch suffix variant (e.g. SI-02392-A/BR01 vs SI-02392-A)
+    raw_a_str = str(a_raw or a or "")
+    raw_b_str = str(b_raw or b or "")
+    raw_a_s = _RE_BRANCH_SUFFIX.sub("", raw_a_str)
+    raw_b_s = _RE_BRANCH_SUFFIX.sub("", raw_b_str)
+    if raw_a_s != raw_a_str or raw_b_s != raw_b_str:
+        norm_as = normalize_invoice_number(raw_a_s)
+        norm_bs = normalize_invoice_number(raw_b_s)
+        if norm_as and norm_bs:
+            if norm_as == norm_bs or is_invoice_format_variant(norm_as, norm_bs, raw_a_s, raw_b_s):
+                return True
+
+    norm_a_s = _RE_BRANCH_NORM.sub("", na)
+    norm_b_s = _RE_BRANCH_NORM.sub("", nb)
+    if (norm_a_s != na or norm_b_s != nb) and norm_a_s and norm_b_s:
+        if norm_a_s == norm_b_s or is_invoice_format_variant(norm_a_s, norm_b_s):
+            return True
 
     # Check 1: Shared prefix and financial-year expansion or omission
     # e.g. DS/26/78 (DS2678) vs DS-2026-00078 (DS202678), or INV/24-25/78 vs INV-78
