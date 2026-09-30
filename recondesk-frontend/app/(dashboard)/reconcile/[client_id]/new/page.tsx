@@ -388,7 +388,14 @@ export default function NewReconcileWizardPage() {
             setErr("This run does not belong to this client.");
             return;
           }
-          // Cancelled/complete/error runs cannot accept uploads — drop the dead
+          // If run already completed, navigate straight to results.
+          if (r.status === "complete") {
+            if (!cancelled) {
+              router.replace(`/reconcile/runs/${qRunId}/results`);
+            }
+            return;
+          }
+          // Cancelled/error runs cannot accept uploads — drop the dead
           // run_id so Continue creates/resumes an active draft instead of 409s.
           if (isTerminalWizardStatus(r.status)) {
             if (!cancelled) {

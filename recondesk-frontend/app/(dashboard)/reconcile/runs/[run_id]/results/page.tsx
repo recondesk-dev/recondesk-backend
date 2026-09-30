@@ -1127,6 +1127,7 @@ export default function ReconcileResultsPage() {
   );
   const [itcOnHoldFilter, setItcOnHoldFilter] = useState<"ALL" | "RULE37A" | "BLOCKED_CREDIT">("ALL");
   const [itcOnHoldSearch, setItcOnHoldSearch] = useState("");
+  const [retryingRun, setRetryingRun] = useState(false);
 
   const searchParams = useSearchParams();
   const tabFromUrl = searchParams?.get("tab");
@@ -3030,6 +3031,19 @@ export default function ReconcileResultsPage() {
     authToken,
   ]);
 
+  const handleRetryRun = async () => {
+    if (!authToken || !runId || retryingRun) return;
+    try {
+      setRetryingRun(true);
+      await reconcileRunsApi.retryFailed(authToken, runId);
+      await mutateSummary();
+    } catch (e: any) {
+      alert(e?.detail || e?.message || "Failed to retry reconciliation run.");
+    } finally {
+      setRetryingRun(false);
+    }
+  };
+
   if (tokenState === null) {
     return (
       <div className="flex min-h-[40vh] items-center justify-center text-gray-500">
@@ -3049,20 +3063,6 @@ export default function ReconcileResultsPage() {
   if (!runId) {
     return <div className="p-8 text-gray-600">Invalid run.</div>;
   }
-
-  const [retryingRun, setRetryingRun] = useState(false);
-  const handleRetryRun = async () => {
-    if (!authToken || !runId || retryingRun) return;
-    try {
-      setRetryingRun(true);
-      await reconcileRunsApi.retryFailed(authToken, runId);
-      await mutateSummary();
-    } catch (e: any) {
-      alert(e?.detail || e?.message || "Failed to retry reconciliation run.");
-    } finally {
-      setRetryingRun(false);
-    }
-  };
 
   const runStatus = (summary?.status ?? "").toUpperCase();
   const isProcessing = [
