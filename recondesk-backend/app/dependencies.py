@@ -8,3 +8,8 @@ from app.auth import (  # noqa: F401
     require_admin,
     require_role,
 )
+from app.aurora import (  # noqa: F401
+    check_aurora_health,
+    get_aurora_db,
+    is_aurora_enabled,
+)
