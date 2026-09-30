@@ -10,7 +10,7 @@ DO $$
 BEGIN
     -- Refuse rollback if ANY identity mappings exist to prevent accidental data loss
     IF EXISTS (
-        SELECT 1 FROM information_schema.tables 
+        SELECT 1 FROM information_schema.tables
         WHERE table_schema = 'public' AND table_name = 'cognito_user_mappings'
     ) THEN
         IF EXISTS (SELECT 1 FROM public.cognito_user_mappings LIMIT 1) THEN
@@ -20,7 +20,7 @@ BEGIN
 
     -- Refuse rollback if ANY linking-token audit records exist
     IF EXISTS (
-        SELECT 1 FROM information_schema.tables 
+        SELECT 1 FROM information_schema.tables
         WHERE table_schema = 'public' AND table_name = 'cognito_account_linking_tokens'
     ) THEN
         IF EXISTS (SELECT 1 FROM public.cognito_account_linking_tokens LIMIT 1) THEN
