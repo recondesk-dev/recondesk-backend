@@ -4,10 +4,10 @@ import logging
 from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response, status
-from supabase_auth import User
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from app.auth import (
+    AuthenticatedUser,
     get_current_active_user,
     get_current_user,
     get_current_user_id,
@@ -371,7 +371,7 @@ async def login(request: Request, payload: LoginRequest):
 @limiter.limit("200/minute")
 async def logout(
     request: Request,
-    user: User = Depends(get_current_user),
+    user: AuthenticatedUser = Depends(get_current_user),
 ):
     """Sign out the currently authenticated user."""
     db = get_db()
@@ -381,13 +381,14 @@ async def logout(
         "LOGOUT",
         "user",
         str(user.id),
-        {},
+        {"auth_provider": user.auth_provider},
         ip_address=ip,
     )
-    try:
-        db.auth.sign_out()
-    except Exception:
-        pass
+    if user.auth_provider == "supabase":
+        try:
+            db.auth.sign_out()
+        except Exception:
+            pass
 
 
 # ── GET /auth/me ─────────────────────────────────────────────────────────────

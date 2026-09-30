@@ -10,10 +10,9 @@ from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import JSONResponse
-from supabase_auth import User
 from pydantic import BaseModel, ConfigDict
 
-from app.auth import get_current_active_user, get_current_user, require_admin
+from app.auth import AuthenticatedUser, get_current_active_user, get_current_user, require_admin
 from app.database import ensure_user_profile, get_supabase, get_user_profile
 from app.routers.reconciliation_api import _parse_uuid
 from app.services.billing_gate import assert_gstin_capacity
@@ -81,7 +80,7 @@ class GSTINValidateRequest(BaseModel):
 @router.post("/validate-gstin")
 async def validate_gstin_endpoint(
     body: GSTINValidateRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: AuthenticatedUser = Depends(get_current_user),
 ):
     """Normalize GSTIN; always 200 with {valid: bool, ...}."""
     raw = body.gstin

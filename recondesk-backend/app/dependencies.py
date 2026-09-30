@@ -1,6 +1,8 @@
 """Reusable FastAPI dependencies (re-exports + role checks)."""
 
 from app.auth import (  # noqa: F401
+    AuthProvider,
+    AuthenticatedUser,
     get_current_active_user,
     get_current_user,
     get_current_user_id,

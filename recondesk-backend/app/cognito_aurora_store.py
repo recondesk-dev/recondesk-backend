@@ -24,6 +24,7 @@ from app.cognito_identity import (
     CognitoIdentityError,
     CognitoIdentityMapping,
     CognitoIdentityStore,
+    InMemoryCognitoIdentityStore,
     is_strict_email_verified,
 )
 from app.models.cognito_schema import (
@@ -734,3 +735,46 @@ class SQLAlchemyCognitoIdentityStore(CognitoIdentityStore):
                 raise CognitoIdentityError(
                     _sanitize_db_message(exc, "Database transaction failed during account linking.")
                 ) from exc
+
+
+# Singleton instance for identity store
+_identity_store: Optional[CognitoIdentityStore] = None
+
+
+def get_identity_store() -> CognitoIdentityStore:
+    """Return the configured Cognito identity mapping store (SQLAlchemy/Aurora or InMemory fallback).
+
+    Security Invariant:
+      If Aurora is enabled or configured, failure to initialize the SQLAlchemy store
+      must FAIL CLOSED. It must never silently fall back to InMemoryCognitoIdentityStore,
+      nor leak database credentials, connection URLs, or raw exception strings.
+    """
+    global _identity_store
+    if _identity_store is not None:
+        return _identity_store
+
+    from app.aurora import is_aurora_enabled, get_aurora_database_url
+
+    aurora_configured = bool(is_aurora_enabled() or get_aurora_database_url())
+
+    if aurora_configured:
+        try:
+            _identity_store = SQLAlchemyCognitoIdentityStore()
+            return _identity_store
+        except Exception as exc:
+            _log.error(
+                "Failed to initialize SQLAlchemyCognitoIdentityStore: %s",
+                type(exc).__name__,
+            )
+            raise CognitoIdentityError(
+                "Failed to initialize Aurora identity mapping store."
+            ) from None
+
+    _identity_store = InMemoryCognitoIdentityStore()
+    return _identity_store
+
+
+def set_identity_store(store: Optional[CognitoIdentityStore]) -> None:
+    """Override or reset the identity mapping store (useful for tests)."""
+    global _identity_store
+    _identity_store = store

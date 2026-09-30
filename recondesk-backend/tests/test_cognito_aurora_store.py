@@ -8,18 +8,25 @@ import tempfile
 import time
 import uuid
 from typing import Optional
+from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
-from app.cognito_aurora_store import SQLAlchemyCognitoIdentityStore, verify_ownership_proof
+from app.cognito_aurora_store import (
+    SQLAlchemyCognitoIdentityStore,
+    get_identity_store,
+    set_identity_store,
+    verify_ownership_proof,
+)
 from app.cognito_identity import (
     CognitoAccountConflictError,
     CognitoAccountLinkingRequiredError,
     CognitoIdentityError,
     CognitoIdentityMapping,
+    InMemoryCognitoIdentityStore,
     resolve_cognito_user_id,
 )
 from app.models.cognito_schema import (
@@ -1063,3 +1070,84 @@ class TestCognitoUserMappingMetadataColumnSchema:
             )
             assert rec is not None
             assert rec.metadata_json == {"source": "onboarding_migration", "batch": 43, "verified": True}
+
+
+class TestIdentityStoreResolutionAndHardening:
+    """Tests proving hardened behavior of get_identity_store() and set_identity_store():
+
+    1. Aurora configured + SQLAlchemy store init failure does NOT fall back to in-memory store,
+       fails closed by raising sanitized CognitoIdentityError, and logs only safe exception class.
+    2. Aurora not configured may use in-memory development/test store.
+    3. Explicit test injection via set_identity_store() still works.
+    """
+
+    def test_aurora_configured_init_failure_fails_closed_without_in_memory_fallback(self, caplog):
+        """When Aurora is configured but SQLAlchemyCognitoIdentityStore fails to initialize,
+        it must raise CognitoIdentityError, NEVER return an InMemoryCognitoIdentityStore,
+        and log only safe exception class (type(exc).__name__).
+        """
+        set_identity_store(None)
+        secret_password = "super_secret_aurora_password_123"
+        fake_db_url = f"postgresql+psycopg2://user:{secret_password}@aurora-prod.internal:5432/recondesk"
+
+        with patch("app.aurora.is_aurora_enabled", return_value=True), \
+             patch("app.aurora.get_aurora_database_url", return_value=fake_db_url), \
+             patch("app.cognito_aurora_store.SQLAlchemyCognitoIdentityStore") as mock_sql_store:
+
+            class FakeDBConnectionError(Exception):
+                pass
+
+            mock_sql_store.side_effect = FakeDBConnectionError(f"connection to {fake_db_url} refused")
+
+            with caplog.at_level(logging.ERROR, logger="recondesk.cognito.store"):
+                with pytest.raises(CognitoIdentityError) as exc_info:
+                    get_identity_store()
+
+            # 1. Error message must be sanitized and never leak credentials or raw text
+            err_msg = str(exc_info.value)
+            assert secret_password not in err_msg
+            assert "aurora-prod.internal" not in err_msg
+            assert "connection to" not in err_msg
+            assert err_msg == "Failed to initialize Aurora identity mapping store."
+
+            # 2. In-memory store must NOT have been created or returned
+            from app.cognito_aurora_store import _identity_store
+            assert not isinstance(_identity_store, InMemoryCognitoIdentityStore)
+
+            # 3. Log must record ONLY the exception class name, not raw exception text or secrets
+            assert secret_password not in caplog.text
+            assert "aurora-prod.internal" not in caplog.text
+            assert "FakeDBConnectionError" in caplog.text
+
+    def test_aurora_not_configured_uses_in_memory_store(self):
+        """When Aurora is genuinely not enabled/configured, in-memory store is selected."""
+        set_identity_store(None)
+        with patch("app.aurora.is_aurora_enabled", return_value=False), \
+             patch("app.aurora.get_aurora_database_url", return_value=""):
+            store = get_identity_store()
+            assert isinstance(store, InMemoryCognitoIdentityStore)
+
+    def test_explicit_test_injection_via_set_identity_store(self):
+        """set_identity_store() allows explicit injection regardless of Aurora configuration."""
+        mock_custom_store = MagicMock(spec=InMemoryCognitoIdentityStore)
+        set_identity_store(mock_custom_store)
+        try:
+            with patch("app.aurora.is_aurora_enabled", return_value=True), \
+                 patch("app.aurora.get_aurora_database_url", return_value="postgresql+psycopg2://..."):
+                store = get_identity_store()
+                assert store is mock_custom_store
+        finally:
+            set_identity_store(None)
+
+    def test_aurora_configured_success_returns_sqlalchemy_store(self, sqlite_engine):
+        """When Aurora is configured and healthy, returns SQLAlchemyCognitoIdentityStore."""
+        set_identity_store(None)
+        session_factory = sessionmaker(bind=sqlite_engine, autoflush=False, expire_on_commit=False)
+        real_store = SQLAlchemyCognitoIdentityStore(session_factory=session_factory)
+
+        with patch("app.aurora.is_aurora_enabled", return_value=True), \
+             patch("app.aurora.get_aurora_database_url", return_value="postgresql+psycopg2://localhost:5432/test"), \
+             patch("app.cognito_aurora_store.SQLAlchemyCognitoIdentityStore", return_value=real_store):
+            store = get_identity_store()
+            assert isinstance(store, SQLAlchemyCognitoIdentityStore)
+            assert store is real_store

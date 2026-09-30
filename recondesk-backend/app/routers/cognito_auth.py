@@ -24,31 +24,7 @@ _log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/cognito", tags=["Cognito Auth (Dev)"])
 
-# Development / testing identity mapping store
-_identity_store: Optional[CognitoIdentityStore] = None
-
-
-def get_identity_store() -> CognitoIdentityStore:
-    global _identity_store
-    if _identity_store is not None:
-        return _identity_store
-
-    try:
-        from app.aurora import is_aurora_enabled, get_aurora_database_url
-        if is_aurora_enabled() or get_aurora_database_url():
-            from app.cognito_aurora_store import SQLAlchemyCognitoIdentityStore
-            _identity_store = SQLAlchemyCognitoIdentityStore()
-            return _identity_store
-    except Exception as exc:
-        _log.warning("Could not initialize SQLAlchemyCognitoIdentityStore: %s. Using in-memory fallback.", exc)
-
-    _identity_store = InMemoryCognitoIdentityStore()
-    return _identity_store
-
-
-def set_identity_store(store: Optional[CognitoIdentityStore]) -> None:
-    global _identity_store
-    _identity_store = store
+from app.cognito_aurora_store import get_identity_store, set_identity_store
 
 
 def get_ownership_verifier() -> Callable[[str, str, dict[str, Any]], bool]:
