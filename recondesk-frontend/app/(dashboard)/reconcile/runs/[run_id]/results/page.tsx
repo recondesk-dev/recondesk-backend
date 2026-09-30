@@ -8,7 +8,7 @@ import {
   type Rule37MarkPaidTarget,
 } from "@/components/reconcile/Rule37MarkPaidModal";
 import { Table4DispositionModal, type Table4BlockingRecordItem } from "@/components/reconcile/Table4DispositionModal";
-import { gstr3bApi, type Gstr3bTable4WorkpaperResponse } from "@/lib/api";
+import { gstr3bApi, reconcileRunsApi, type Gstr3bTable4WorkpaperResponse } from "@/lib/api";
 import { ReconcilePaginationFooter } from "@/components/reconcile/ReconcilePaginationFooter";
 import { AuditObservationsPanel } from "@/components/AuditObservationsPanel";
 import { RcmReconciliationPanel } from "@/components/reconcile/RcmReconciliationPanel";
@@ -1038,19 +1038,29 @@ function PriorityBadge({ priority }: { priority?: string | null }) {
 function SectionError({
   message,
   onRetry,
+  isLoading,
 }: {
   message: string;
   onRetry: () => void;
+  isLoading?: boolean;
 }) {
   return (
-    <div className="rounded-2xl border border-red-200 bg-white p-4 text-[13px] text-red-600">
-      {message}{" "}
+    <div className="rounded-2xl border border-red-200 bg-white p-4 text-[13px] text-red-600 flex flex-wrap items-center justify-between gap-3">
+      <span>{message}</span>
       <button
         type="button"
-        className="min-h-[44px] font-medium underline"
+        disabled={isLoading}
+        className="min-h-[36px] px-3 py-1 rounded-md bg-red-50 hover:bg-red-100 text-red-700 font-medium text-xs border border-red-200 transition-colors disabled:opacity-50 inline-flex items-center gap-1.5 shrink-0"
         onClick={onRetry}
       >
-        Retry
+        {isLoading ? (
+          <>
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            Retrying...
+          </>
+        ) : (
+          "Retry"
+        )}
       </button>
     </div>
   );
@@ -3040,6 +3050,20 @@ export default function ReconcileResultsPage() {
     return <div className="p-8 text-gray-600">Invalid run.</div>;
   }
 
+  const [retryingRun, setRetryingRun] = useState(false);
+  const handleRetryRun = async () => {
+    if (!authToken || !runId || retryingRun) return;
+    try {
+      setRetryingRun(true);
+      await reconcileRunsApi.retryFailed(authToken, runId);
+      await mutateSummary();
+    } catch (e: any) {
+      alert(e?.detail || e?.message || "Failed to retry reconciliation run.");
+    } finally {
+      setRetryingRun(false);
+    }
+  };
+
   const runStatus = (summary?.status ?? "").toUpperCase();
   const isProcessing = [
     "PROCESSING",
@@ -3076,7 +3100,8 @@ export default function ReconcileResultsPage() {
       <div className="box-border -mx-8 -mt-8 min-h-screen min-w-0 w-[calc(100%+4rem)] max-w-[calc(100%+4rem)] overflow-x-hidden px-8 py-10">
         <SectionError
           message={runFailMsg}
-          onRetry={() => void mutateSummary()}
+          onRetry={() => void handleRetryRun()}
+          isLoading={retryingRun}
         />
       </div>
     );
@@ -3098,7 +3123,8 @@ export default function ReconcileResultsPage() {
                 ? runFailMsg
                 : "Failed to load summary."
             }
-            onRetry={() => void mutateSummary()}
+            onRetry={() => void (isRunFailed ? handleRetryRun() : mutateSummary())}
+            isLoading={isRunFailed ? retryingRun : false}
           />
         )}
         {/* Auth resolved with a token but summary not yet populated — brief

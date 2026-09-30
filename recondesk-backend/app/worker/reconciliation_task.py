@@ -1488,13 +1488,21 @@ def execute_reconciliation(run_id: str) -> None:
         review_pr_count = len(state.consumed_pr_ids) - matched_count
         skipped_count = sum(1 for r in pr_current if r.get("match_status") == "skipped")
         unmatched_notes_count = len(state.unmatched_notes)
+        gstr_note_count = sum(
+            1 for n in state.unmatched_notes if n.get("side") == "GSTR" or n.get("gstr_id")
+        )
 
         assert (
-            matched_count + missed_itc_count + review_gstr_count + gstr_duplicate_count
+            matched_count
+            + missed_itc_count
+            + review_gstr_count
+            + gstr_duplicate_count
+            + gstr_note_count
             == len(gstr_matcher)
         ), (
             f"GSTR Data Loss! Matched:{matched_count} Missed:{missed_itc_count} "
-            f"Review:{review_gstr_count} Duplicates:{gstr_duplicate_count} Total:{len(gstr_matcher)}"
+            f"Review:{review_gstr_count} Duplicates:{gstr_duplicate_count} "
+            f"Notes:{gstr_note_count} Total:{len(gstr_matcher)}"
         )
         
         assert (
