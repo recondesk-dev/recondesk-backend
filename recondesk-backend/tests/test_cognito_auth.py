@@ -110,6 +110,52 @@ class TestCognitoConfig:
         assert safe_dict["has_client_secret"] is True
         assert secret not in str(safe_dict)
 
+    def test_cognito_domain_endpoint_construction(self):
+        cfg = CognitoConfig(
+            COGNITO_DOMAIN="https://ap-south-1nvlpymvfh.auth.ap-south-1.amazoncognito.com",
+            COGNITO_REGION="ap-south-1",
+        )
+        assert cfg.domain_url == "https://ap-south-1nvlpymvfh.auth.ap-south-1.amazoncognito.com"
+        assert cfg.authorize_url == "https://ap-south-1nvlpymvfh.auth.ap-south-1.amazoncognito.com/oauth2/authorize"
+        assert cfg.token_url == "https://ap-south-1nvlpymvfh.auth.ap-south-1.amazoncognito.com/oauth2/token"
+        safe = cfg.get_safe_dict()
+        assert safe["domain"] == "https://ap-south-1nvlpymvfh.auth.ap-south-1.amazoncognito.com"
+        assert safe["domain_url"] == "https://ap-south-1nvlpymvfh.auth.ap-south-1.amazoncognito.com"
+        assert safe["authorize_url"] == "https://ap-south-1nvlpymvfh.auth.ap-south-1.amazoncognito.com/oauth2/authorize"
+        assert safe["token_url"] == "https://ap-south-1nvlpymvfh.auth.ap-south-1.amazoncognito.com/oauth2/token"
+
+    def test_cognito_domain_prefix_construction(self):
+        cfg = CognitoConfig(
+            COGNITO_DOMAIN="ap-south-1nvlpymvfh",
+            COGNITO_REGION="ap-south-1",
+        )
+        assert cfg.domain_url == "https://ap-south-1nvlpymvfh.auth.ap-south-1.amazoncognito.com"
+        assert cfg.authorize_url == "https://ap-south-1nvlpymvfh.auth.ap-south-1.amazoncognito.com/oauth2/authorize"
+        assert cfg.token_url == "https://ap-south-1nvlpymvfh.auth.ap-south-1.amazoncognito.com/oauth2/token"
+
+    def test_cognito_domain_trailing_slash_normalization(self):
+        cfg = CognitoConfig(
+            COGNITO_DOMAIN="https://ap-south-1nvlpymvfh.auth.ap-south-1.amazoncognito.com///",
+            COGNITO_REGION="ap-south-1",
+        )
+        assert cfg.domain_url == "https://ap-south-1nvlpymvfh.auth.ap-south-1.amazoncognito.com"
+        assert cfg.authorize_url == "https://ap-south-1nvlpymvfh.auth.ap-south-1.amazoncognito.com/oauth2/authorize"
+        assert cfg.token_url == "https://ap-south-1nvlpymvfh.auth.ap-south-1.amazoncognito.com/oauth2/token"
+
+    def test_missing_domain_handling(self):
+        cfg = CognitoConfig(COGNITO_DOMAIN="")
+        with pytest.raises(ValueError, match="COGNITO_DOMAIN is not configured"):
+            _ = cfg.domain_url
+        with pytest.raises(ValueError, match="COGNITO_DOMAIN is not configured"):
+            _ = cfg.authorize_url
+        with pytest.raises(ValueError, match="COGNITO_DOMAIN is not configured"):
+            _ = cfg.token_url
+        safe = cfg.get_safe_dict()
+        assert safe["domain"] is None
+        assert safe["domain_url"] is None
+        assert safe["authorize_url"] is None
+        assert safe["token_url"] is None
+
 
 # ─── 2. JWT Verification Tests ───────────────────────────────────────────────
 
@@ -532,6 +578,30 @@ class TestCognitoEndpoints:
         assert data["redirect_uri"] == "http://localhost:3000/api/auth/cognito/callback"
         assert "client_secret" not in data
         assert "has_client_secret" in data
+        assert "domain" in data
+        assert "domain_url" in data
+        assert "authorize_url" in data
+        assert "token_url" in data
+
+    def test_cognito_status_endpoint_returns_domain_info(self, client):
+        from app.cognito_config import get_cognito_config
+
+        test_cfg = CognitoConfig(
+            COGNITO_DOMAIN="https://ap-south-1nvlpymvfh.auth.ap-south-1.amazoncognito.com",
+            COGNITO_AUTH_ENABLED=False,
+        )
+        app.dependency_overrides[get_cognito_config] = lambda: test_cfg
+        try:
+            resp = client.get("/api/v1/auth/cognito/status")
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["domain"] == "https://ap-south-1nvlpymvfh.auth.ap-south-1.amazoncognito.com"
+            assert data["domain_url"] == "https://ap-south-1nvlpymvfh.auth.ap-south-1.amazoncognito.com"
+            assert data["authorize_url"] == "https://ap-south-1nvlpymvfh.auth.ap-south-1.amazoncognito.com/oauth2/authorize"
+            assert data["token_url"] == "https://ap-south-1nvlpymvfh.auth.ap-south-1.amazoncognito.com/oauth2/token"
+            assert data["enabled"] is False
+        finally:
+            app.dependency_overrides.clear()
 
     def test_cognito_me_endpoint_fails_501_when_feature_flag_is_disabled(self, client):
         resp = client.get("/api/v1/auth/cognito/me")

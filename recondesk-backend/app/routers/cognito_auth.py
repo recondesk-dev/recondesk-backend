@@ -76,6 +76,10 @@ class CognitoStatusResponse(BaseModel):
     logout_uri: str
     issuer: str
     has_client_secret: bool
+    domain: Optional[str] = None
+    domain_url: Optional[str] = None
+    authorize_url: Optional[str] = None
+    token_url: Optional[str] = None
 
 
 class AccountLinkingRequest(BaseModel):
@@ -116,6 +120,10 @@ async def cognito_status(
         logout_uri=safe["logout_uri"],
         issuer=safe["issuer"],
         has_client_secret=safe["has_client_secret"],
+        domain=safe.get("domain"),
+        domain_url=safe.get("domain_url"),
+        authorize_url=safe.get("authorize_url"),
+        token_url=safe.get("token_url"),
     )
 
 

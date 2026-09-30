@@ -1,5 +1,3 @@
-import { generateCodeVerifier, generateCodeChallenge, generateOAuthState, generateOAuthNonce } from "./pkce";
-
 export interface CognitoOAuthConfig {
   region: string;
   userPoolId: string;
@@ -38,16 +36,46 @@ export function getCognitoOAuthConfig(): CognitoOAuthConfig {
   };
 }
 
+/**
+ * Returns the fully-qualified Cognito hosted domain URL without trailing slashes.
+ * Throws an Error if COGNITO_DOMAIN is missing or unconfigured.
+ */
 export function getCognitoBaseUrl(config?: CognitoOAuthConfig): string {
   const cfg = config || getCognitoOAuthConfig();
-  if (cfg.domain.startsWith("https://") || cfg.domain.startsWith("http://")) {
-    return cfg.domain.replace(/\/+$/, "");
+  const rawDomain = (cfg.domain || "").trim();
+
+  if (!rawDomain) {
+    throw new Error(
+      "Cognito domain is not configured. Set the COGNITO_DOMAIN environment variable."
+    );
   }
-  if (cfg.domain) {
-    return `https://${cfg.domain}.auth.${cfg.region}.amazoncognito.com`;
+
+  if (rawDomain.startsWith("https://") || rawDomain.startsWith("http://")) {
+    return rawDomain.replace(/\/+$/, "");
   }
-  // Default to regional hosted UI format
-  return `https://cognito-idp.${cfg.region}.amazonaws.com/${cfg.userPoolId}`;
+
+  if (rawDomain.includes(".")) {
+    return `https://${rawDomain.replace(/\/+$/, "")}`;
+  }
+
+  // Domain prefix format (e.g. 'ap-south-1nvlpymvfh')
+  return `https://${rawDomain}.auth.${cfg.region}.amazoncognito.com`;
+}
+
+/**
+ * Returns the OAuth 2.0 authorization endpoint URL on the configured Cognito domain.
+ */
+export function getCognitoAuthorizeUrl(config?: CognitoOAuthConfig): string {
+  const baseUrl = getCognitoBaseUrl(config);
+  return `${baseUrl}/oauth2/authorize`;
+}
+
+/**
+ * Returns the OAuth 2.0 token endpoint URL on the configured Cognito domain.
+ */
+export function getCognitoTokenUrl(config?: CognitoOAuthConfig): string {
+  const baseUrl = getCognitoBaseUrl(config);
+  return `${baseUrl}/oauth2/token`;
 }
 
 export function buildCognitoAuthorizeUrl(params: {
@@ -58,10 +86,10 @@ export function buildCognitoAuthorizeUrl(params: {
   config?: CognitoOAuthConfig;
 }): string {
   const cfg = params.config || getCognitoOAuthConfig();
-  const baseUrl = getCognitoBaseUrl(cfg);
+  const authorizeEndpoint = getCognitoAuthorizeUrl(cfg);
   const redirect = params.redirectUri || cfg.redirectUri;
 
-  const url = new URL(`${baseUrl}/oauth2/authorize`);
+  const url = new URL(authorizeEndpoint);
   url.searchParams.set("response_type", "code");
   url.searchParams.set("client_id", cfg.clientId);
   url.searchParams.set("redirect_uri", redirect);
@@ -89,9 +117,8 @@ export async function exchangeCodeForTokens(params: {
   config?: CognitoOAuthConfig;
 }): Promise<CognitoTokenResponse> {
   const cfg = params.config || getCognitoOAuthConfig();
-  const baseUrl = getCognitoBaseUrl(cfg);
+  const tokenUrl = getCognitoTokenUrl(cfg);
   const redirect = params.redirectUri || cfg.redirectUri;
-  const tokenUrl = `${baseUrl}/oauth2/token`;
 
   const headers = new Headers({
     "Content-Type": "application/x-www-form-urlencoded",

@@ -39,12 +39,21 @@ export async function GET(request: NextRequest) {
   const sanitizedNext = sanitizeRedirectPath(rawNext, "/dashboard");
   const statePayload = `${state}:${encodeURIComponent(sanitizedNext)}`;
 
-  const authorizeUrl = buildCognitoAuthorizeUrl({
-    state: statePayload,
-    nonce,
-    codeChallenge,
-    config,
-  });
+  let authorizeUrl: string;
+  try {
+    authorizeUrl = buildCognitoAuthorizeUrl({
+      state: statePayload,
+      nonce,
+      codeChallenge,
+      config,
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Cognito configuration error.";
+    return NextResponse.json(
+      { error: "configuration_error", message },
+      { status: 500 }
+    );
+  }
 
   const response = NextResponse.redirect(authorizeUrl);
   const secure = isSecureCookie(request.nextUrl.protocol);

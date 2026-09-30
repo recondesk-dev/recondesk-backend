@@ -63,7 +63,8 @@ class CognitoConfig(BaseSettings):
     )
     COGNITO_DOMAIN: str = Field(
         default="",
-        description="Cognito domain prefix or custom domain (e.g. recondesk-dev).",
+        validation_alias=AliasChoices("COGNITO_DOMAIN", "COGNITO_HOSTED_DOMAIN"),
+        description="Cognito domain or custom domain (e.g. https://ap-south-1nvlpymvfh.auth.ap-south-1.amazoncognito.com).",
     )
 
     # Development-only Feature Flag
@@ -84,6 +85,31 @@ class CognitoConfig(BaseSettings):
     )
 
     @property
+    def domain_url(self) -> str:
+        """Fully-qualified Cognito domain URL without trailing slashes.
+
+        Raises ValueError if COGNITO_DOMAIN is not configured.
+        """
+        domain = (self.COGNITO_DOMAIN or "").strip()
+        if not domain:
+            raise ValueError("COGNITO_DOMAIN is not configured.")
+        if domain.startswith("https://") or domain.startswith("http://"):
+            return domain.rstrip("/")
+        if "." in domain:
+            return f"https://{domain.rstrip('/')}"
+        return f"https://{domain}.auth.{self.COGNITO_REGION}.amazoncognito.com"
+
+    @property
+    def authorize_url(self) -> str:
+        """The OAuth2 authorize endpoint URL."""
+        return f"{self.domain_url}/oauth2/authorize"
+
+    @property
+    def token_url(self) -> str:
+        """The OAuth2 token endpoint URL."""
+        return f"{self.domain_url}/oauth2/token"
+
+    @property
     def issuer(self) -> str:
         """The standard issuer URL for this Cognito User Pool."""
         return f"https://cognito-idp.{self.COGNITO_REGION}.amazonaws.com/{self.COGNITO_USER_POOL_ID}"
@@ -100,6 +126,17 @@ class CognitoConfig(BaseSettings):
 
     def get_safe_dict(self) -> dict[str, Any]:
         """Return a dictionary of configuration settings with secrets redacted."""
+        domain_url = None
+        authorize_url = None
+        token_url = None
+        if self.COGNITO_DOMAIN and self.COGNITO_DOMAIN.strip():
+            try:
+                domain_url = self.domain_url
+                authorize_url = self.authorize_url
+                token_url = self.token_url
+            except ValueError:
+                pass
+
         return {
             "region": self.COGNITO_REGION,
             "user_pool_id": self.COGNITO_USER_POOL_ID,
@@ -109,6 +146,9 @@ class CognitoConfig(BaseSettings):
             "logout_uri": self.COGNITO_LOGOUT_URI,
             "scopes": self.COGNITO_SCOPES,
             "domain": self.COGNITO_DOMAIN or None,
+            "domain_url": domain_url,
+            "authorize_url": authorize_url,
+            "token_url": token_url,
             "auth_enabled": self.COGNITO_AUTH_ENABLED,
             "issuer": self.issuer,
             "jwks_url": self.jwks_url,

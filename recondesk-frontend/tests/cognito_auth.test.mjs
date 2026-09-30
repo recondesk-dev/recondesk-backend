@@ -17,6 +17,13 @@ import {
   verifyCognitoAccessToken,
 } from "../lib/cognito/jwt.ts";
 
+import {
+  getCognitoBaseUrl,
+  getCognitoAuthorizeUrl,
+  getCognitoTokenUrl,
+  buildCognitoAuthorizeUrl,
+} from "../lib/cognito/oauth.ts";
+
 // Helper to generate RSA key pair and JWKS
 function generateTestJwks() {
   const { publicKey, privateKey } = crypto.generateKeyPairSync("rsa", {
@@ -382,5 +389,82 @@ describe("Cognito Access Token Verification", () => {
         message: /Client ID mismatch/,
       }
     );
+  });
+});
+
+describe("Cognito Domain & Endpoint Construction", () => {
+  const devDomain = "https://ap-south-1nvlpymvfh.auth.ap-south-1.amazoncognito.com";
+
+  test("constructs authorize and token endpoints from full HTTPS domain", () => {
+    const cfg = { ...mockConfig, domain: devDomain };
+    assert.equal(getCognitoBaseUrl(cfg), devDomain);
+    assert.equal(getCognitoAuthorizeUrl(cfg), `${devDomain}/oauth2/authorize`);
+    assert.equal(getCognitoTokenUrl(cfg), `${devDomain}/oauth2/token`);
+  });
+
+  test("normalizes domain with trailing slashes", () => {
+    const cfg = { ...mockConfig, domain: `${devDomain}///` };
+    assert.equal(getCognitoBaseUrl(cfg), devDomain);
+    assert.equal(getCognitoAuthorizeUrl(cfg), `${devDomain}/oauth2/authorize`);
+    assert.equal(getCognitoTokenUrl(cfg), `${devDomain}/oauth2/token`);
+  });
+
+  test("constructs domain from hostname with dots without protocol", () => {
+    const hostname = "ap-south-1nvlpymvfh.auth.ap-south-1.amazoncognito.com";
+    const cfg = { ...mockConfig, domain: hostname };
+    assert.equal(getCognitoBaseUrl(cfg), devDomain);
+    assert.equal(getCognitoAuthorizeUrl(cfg), `${devDomain}/oauth2/authorize`);
+    assert.equal(getCognitoTokenUrl(cfg), `${devDomain}/oauth2/token`);
+  });
+
+  test("constructs domain from prefix name", () => {
+    const prefix = "ap-south-1nvlpymvfh";
+    const cfg = { ...mockConfig, domain: prefix };
+    assert.equal(getCognitoBaseUrl(cfg), devDomain);
+    assert.equal(getCognitoAuthorizeUrl(cfg), `${devDomain}/oauth2/authorize`);
+    assert.equal(getCognitoTokenUrl(cfg), `${devDomain}/oauth2/token`);
+  });
+
+  test("throws descriptive error when domain is missing or empty", () => {
+    const emptyCfg = { ...mockConfig, domain: "" };
+    assert.throws(
+      () => getCognitoBaseUrl(emptyCfg),
+      /Cognito domain is not configured/
+    );
+    assert.throws(
+      () => getCognitoAuthorizeUrl(emptyCfg),
+      /Cognito domain is not configured/
+    );
+    assert.throws(
+      () => getCognitoTokenUrl(emptyCfg),
+      /Cognito domain is not configured/
+    );
+
+    const whitespaceCfg = { ...mockConfig, domain: "   " };
+    assert.throws(
+      () => getCognitoBaseUrl(whitespaceCfg),
+      /Cognito domain is not configured/
+    );
+  });
+
+  test("builds authorization URL with PKCE parameters and proper callback", () => {
+    const cfg = { ...mockConfig, domain: devDomain };
+    const authUrl = buildCognitoAuthorizeUrl({
+      state: "state-secret:dashboard",
+      nonce: "nonce-xyz",
+      codeChallenge: "code-challenge-sha256",
+      config: cfg,
+    });
+
+    const parsed = new URL(authUrl);
+    assert.equal(parsed.origin + parsed.pathname, `${devDomain}/oauth2/authorize`);
+    assert.equal(parsed.searchParams.get("response_type"), "code");
+    assert.equal(parsed.searchParams.get("client_id"), mockConfig.clientId);
+    assert.equal(parsed.searchParams.get("redirect_uri"), "http://localhost:3000/api/auth/cognito/callback");
+    assert.equal(parsed.searchParams.get("scope"), mockConfig.scopes);
+    assert.equal(parsed.searchParams.get("state"), "state-secret:dashboard");
+    assert.equal(parsed.searchParams.get("nonce"), "nonce-xyz");
+    assert.equal(parsed.searchParams.get("code_challenge"), "code-challenge-sha256");
+    assert.equal(parsed.searchParams.get("code_challenge_method"), "S256");
   });
 });
