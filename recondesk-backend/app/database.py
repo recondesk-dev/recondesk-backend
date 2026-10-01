@@ -207,6 +207,8 @@ def get_user_profile(user_id: str) -> Optional[dict]:
                 client.table("user_profiles").update({"role": resolved}).eq(
                     "id", user_id
                 ).execute()
+                from app.services.tenancy_sync import mirror_user_profile_update_to_aurora
+                mirror_user_profile_update_to_aurora(user_id, {"role": resolved})
             except Exception:
                 pass
         # Optional column (alembic 20260714). Fail soft if migration not applied yet.
@@ -264,6 +266,11 @@ def ensure_user_profile(
 
     profile = get_user_profile(uid)
     if profile is not None:
+        try:
+            from app.services.tenancy_sync import mirror_user_profile_upsert_to_aurora
+            mirror_user_profile_upsert_to_aurora(profile, uid)
+        except Exception:
+            pass
         return profile
 
     sb = client or get_supabase()
@@ -286,8 +293,17 @@ def ensure_user_profile(
 
     try:
         res = sb.table("user_profiles").insert(insert_payload).execute()
+        from app.services.tenancy_sync import mirror_user_profile_upsert_to_aurora
+        created = res.data[0] if (res.data and len(res.data) > 0) else insert_payload
+        mirror_user_profile_upsert_to_aurora(created, uid)
         if res.data and len(res.data) > 0:
             return res.data[0]
         return get_user_profile(uid) or insert_payload
     except Exception:
-        return get_user_profile(uid) or insert_payload
+        fallback = get_user_profile(uid) or insert_payload
+        try:
+            from app.services.tenancy_sync import mirror_user_profile_upsert_to_aurora
+            mirror_user_profile_upsert_to_aurora(fallback, uid)
+        except Exception:
+            pass
+        return fallback

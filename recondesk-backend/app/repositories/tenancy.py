@@ -15,6 +15,8 @@ Security Invariants:
 from __future__ import annotations
 
 import logging
+import uuid
+from datetime import datetime
 from typing import Any, Optional, Set
 from uuid import UUID
 
@@ -24,6 +26,19 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.models.tenancy import ClientGSTIN, TeamMember, UserProfile
 
 _log = logging.getLogger("recondesk.aurora.tenancy")
+
+
+def _parse_datetime(val: Any) -> Optional[datetime]:
+    if val is None or isinstance(val, datetime):
+        return val
+    if isinstance(val, str):
+        s = val.strip()
+        if not s:
+            return None
+        if s.endswith("Z"):
+            s = s[:-1] + "+00:00"
+        return datetime.fromisoformat(s)
+    return None
 
 
 class AuroraTenancyRepository:
@@ -91,6 +106,91 @@ class AuroraTenancyRepository:
             if res is None:
                 return None
             return str(res[0] or "admin").strip().lower()
+
+    def _ensure_user_profile_exists(
+        self,
+        session: Session,
+        user_id: str,
+        *,
+        role: str = "admin",
+        email: Optional[str] = None,
+    ) -> None:
+        """Auto-seed a minimal placeholder UserProfile to satisfy foreign key constraints."""
+        uid = str(user_id or "").strip()
+        if not uid:
+            return
+        stmt = select(UserProfile.id).where(UserProfile.id == uid).limit(1)
+        if session.execute(stmt).first() is None:
+            prof = UserProfile(
+                id=uid,
+                email=email or f"{uid}@local.placeholder",
+                role=role,
+                is_active=True,
+            )
+            session.add(prof)
+            session.flush()
+
+    def upsert_user_profile(self, data: dict[str, Any]) -> dict[str, Any]:
+        """Upsert canonical user profile in Aurora."""
+        uid = str(data.get("id") or "").strip()
+        if not uid:
+            raise ValueError("UserProfile id cannot be empty")
+
+        valid_cols = {c.name for c in UserProfile.__table__.columns}
+        with self._get_session() as session:
+            prof = session.scalar(select(UserProfile).where(UserProfile.id == uid))
+            if prof is not None:
+                for k, v in data.items():
+                    if k in valid_cols and k != "id":
+                        if k in ("created_at", "subscription_ends_at"):
+                            setattr(prof, k, _parse_datetime(v))
+                        else:
+                            setattr(prof, k, v)
+                session.commit()
+                return prof.to_dict()
+            else:
+                attrs: dict[str, Any] = {}
+                for k, v in data.items():
+                    if k in valid_cols:
+                        if k in ("created_at", "subscription_ends_at"):
+                            attrs[k] = _parse_datetime(v)
+                        else:
+                            attrs[k] = v
+                if "id" not in attrs or not attrs["id"]:
+                    attrs["id"] = uid
+                if "role" not in attrs:
+                    attrs["role"] = "admin"
+                if "is_active" not in attrs:
+                    attrs["is_active"] = True
+                prof = UserProfile(**attrs)
+                session.add(prof)
+                session.commit()
+                return prof.to_dict()
+
+    def update_user_profile(
+        self, user_id: str, fields: dict[str, Any]
+    ) -> Optional[dict[str, Any]]:
+        """Update specific columns of user profile in Aurora."""
+        uid = str(user_id or "").strip()
+        if not uid:
+            return None
+
+        valid_cols = {c.name for c in UserProfile.__table__.columns}
+        with self._get_session() as session:
+            prof = session.scalar(select(UserProfile).where(UserProfile.id == uid))
+            if prof is None:
+                self._ensure_user_profile_exists(session, uid)
+                prof = session.scalar(select(UserProfile).where(UserProfile.id == uid))
+                if prof is None:
+                    return None
+            for k, v in fields.items():
+                if k in valid_cols and k != "id":
+                    if k in ("created_at", "subscription_ends_at"):
+                        setattr(prof, k, _parse_datetime(v))
+                    else:
+                        setattr(prof, k, v)
+            session.commit()
+            return prof.to_dict()
 
     # ── Firm Membership Operations ────────────────────────────────────────────
 
@@ -171,6 +271,112 @@ class AuroraTenancyRepository:
                 return None
             return tm.to_dict()
 
+    def create_or_update_team_member(self, data: dict[str, Any]) -> dict[str, Any]:
+        """Create or update team member/invitation in Aurora.
+
+        FK Safe: Automatically ensures parent UserProfile rows exist for
+        firm_owner_id and member_user_id to avoid ForeignKeyViolation errors.
+        """
+        mid = str(data.get("id") or "").strip()
+        foid = str(data.get("firm_owner_id") or "").strip()
+        member_uid = str(data.get("member_user_id") or "").strip() or None
+        invited_email = str(data.get("invited_email") or "").strip().lower() or None
+
+        valid_cols = {c.name for c in TeamMember.__table__.columns}
+        with self._get_session() as session:
+            if foid:
+                self._ensure_user_profile_exists(session, foid, role="admin")
+            if member_uid:
+                self._ensure_user_profile_exists(
+                    session, member_uid, role=str(data.get("role") or "staff")
+                )
+
+            member = None
+            if mid:
+                member = session.scalar(select(TeamMember).where(TeamMember.id == mid))
+            if member is None and foid and member_uid:
+                member = session.scalar(
+                    select(TeamMember).where(
+                        TeamMember.firm_owner_id == foid,
+                        TeamMember.member_user_id == member_uid,
+                    )
+                )
+            if member is None and foid and invited_email:
+                member = session.scalar(
+                    select(TeamMember).where(
+                        TeamMember.firm_owner_id == foid,
+                        TeamMember.invited_email == invited_email,
+                    )
+                )
+
+            if member is not None:
+                for k, v in data.items():
+                    if k in valid_cols and k != "id":
+                        if k in ("invited_at", "accepted_at", "invite_expires_at"):
+                            setattr(member, k, _parse_datetime(v))
+                        else:
+                            setattr(member, k, v)
+                session.commit()
+                return member.to_dict()
+            else:
+                attrs: dict[str, Any] = {}
+                for k, v in data.items():
+                    if k in valid_cols:
+                        if k in ("invited_at", "accepted_at", "invite_expires_at"):
+                            attrs[k] = _parse_datetime(v)
+                        else:
+                            attrs[k] = v
+                if "id" not in attrs or not attrs["id"]:
+                    attrs["id"] = mid or str(uuid.uuid4())
+                member = TeamMember(**attrs)
+                session.add(member)
+                session.commit()
+                return member.to_dict()
+
+    def update_team_member(
+        self, member_id: str, fields: dict[str, Any]
+    ) -> Optional[dict[str, Any]]:
+        """Update specific columns of team member record in Aurora."""
+        mid = str(member_id or "").strip()
+        if not mid:
+            return None
+
+        valid_cols = {c.name for c in TeamMember.__table__.columns}
+        with self._get_session() as session:
+            member = session.scalar(select(TeamMember).where(TeamMember.id == mid))
+            if member is None:
+                return None
+            member_uid = fields.get("member_user_id")
+            if member_uid:
+                self._ensure_user_profile_exists(
+                    session,
+                    str(member_uid).strip(),
+                    role=str(fields.get("role") or member.role or "staff"),
+                )
+            for k, v in fields.items():
+                if k in valid_cols and k != "id":
+                    if k in ("invited_at", "accepted_at", "invite_expires_at"):
+                        setattr(member, k, _parse_datetime(v))
+                    else:
+                        setattr(member, k, v)
+            session.commit()
+            return member.to_dict()
+
+    def deactivate_team_member(self, member_id: str) -> bool:
+        """Deactivate team member in Aurora."""
+        mid = str(member_id or "").strip()
+        if not mid:
+            return False
+
+        with self._get_session() as session:
+            member = session.scalar(select(TeamMember).where(TeamMember.id == mid))
+            if member is None:
+                return False
+            member.is_active = False
+            member.member_user_id = None
+            session.commit()
+            return True
+
     # ── Client GSTIN Operations ───────────────────────────────────────────────
 
     def list_accessible_client_gstin_ids(
@@ -189,6 +395,20 @@ class AuroraTenancyRepository:
         uid = str(user_id or "").strip()
         if not uid:
             return None
+
+        # Check if this user has a pending tenancy synchronization failure
+        try:
+            from app.services.tenancy_sync import (
+                is_tenancy_sync_pending,
+                reconcile_user_tenancy_from_supabase,
+            )
+            if is_tenancy_sync_pending(uid):
+                reconciled = reconcile_user_tenancy_from_supabase(uid)
+                if not reconciled:
+                    # Reconciliation failed (Aurora down or error): permit Supabase fallback
+                    return None
+        except Exception as sync_exc:
+            _log.warning("Tenancy sync check failed for %s: %s", uid, sync_exc)
 
         with self._get_session() as session:
             # 1. Check user existence in Aurora user_profiles
@@ -238,6 +458,20 @@ class AuroraTenancyRepository:
         uid = str(user_id or "").strip()
         if not uid:
             return None
+
+        # Check if this user has a pending tenancy synchronization failure
+        try:
+            from app.services.tenancy_sync import (
+                is_tenancy_sync_pending,
+                reconcile_user_tenancy_from_supabase,
+            )
+            if is_tenancy_sync_pending(uid):
+                reconciled = reconcile_user_tenancy_from_supabase(uid)
+                if not reconciled:
+                    # Reconciliation failed (Aurora down or error): permit Supabase fallback
+                    return None
+        except Exception as sync_exc:
+            _log.warning("Tenancy sync check failed for %s: %s", uid, sync_exc)
 
         # Bounded limit: minimum 1, maximum 500
         safe_limit = min(max(1, int(limit if limit is not None else 500)), 500)
@@ -302,6 +536,105 @@ class AuroraTenancyRepository:
         with self._get_session() as session:
             stmt = select(ClientGSTIN.id).where(ClientGSTIN.id == cid).limit(1)
             return session.execute(stmt).first() is not None
+
+    def create_client(self, data: dict[str, Any]) -> dict[str, Any]:
+        """Create or restore client GSTIN record in Aurora.
+
+        FK Safe: Automatically ensures parent UserProfile rows exist for
+        firm_owner_id and assigned_to to avoid ForeignKeyViolation errors.
+        """
+        cid = str(data.get("id") or "").strip()
+        foid = str(data.get("firm_owner_id") or "").strip()
+        gstin = str(data.get("gstin") or "").strip().upper()
+        assigned_to = str(data.get("assigned_to") or "").strip() or None
+
+        valid_cols = {c.name for c in ClientGSTIN.__table__.columns}
+        with self._get_session() as session:
+            if foid:
+                self._ensure_user_profile_exists(session, foid, role="admin")
+            if assigned_to:
+                self._ensure_user_profile_exists(session, assigned_to, role="staff")
+
+            # Check if client already exists by ID or (firm_owner_id, gstin)
+            client = None
+            if cid:
+                client = session.scalar(select(ClientGSTIN).where(ClientGSTIN.id == cid))
+            if client is None and foid and gstin:
+                client = session.scalar(
+                    select(ClientGSTIN).where(
+                        ClientGSTIN.firm_owner_id == foid,
+                        ClientGSTIN.gstin == gstin,
+                    )
+                )
+
+            if client is not None:
+                for k, v in data.items():
+                    if k in valid_cols and k != "id":
+                        if k in ("added_at", "gstn_token_expiry"):
+                            setattr(client, k, _parse_datetime(v))
+                        else:
+                            setattr(client, k, v)
+                if "is_active" not in data:
+                    client.is_active = True
+                session.commit()
+                return client.to_dict()
+            else:
+                attrs: dict[str, Any] = {}
+                for k, v in data.items():
+                    if k in valid_cols:
+                        if k in ("added_at", "gstn_token_expiry"):
+                            attrs[k] = _parse_datetime(v)
+                        else:
+                            attrs[k] = v
+                if "id" not in attrs or not attrs["id"]:
+                    attrs["id"] = cid or str(uuid.uuid4())
+                if "is_active" not in attrs:
+                    attrs["is_active"] = True
+                client = ClientGSTIN(**attrs)
+                session.add(client)
+                session.commit()
+                return client.to_dict()
+
+    def update_client(
+        self, client_id: str, fields: dict[str, Any]
+    ) -> Optional[dict[str, Any]]:
+        """Update fields for a client GSTIN in Aurora."""
+        cid = str(client_id or "").strip()
+        if not cid:
+            return None
+
+        valid_cols = {c.name for c in ClientGSTIN.__table__.columns}
+        with self._get_session() as session:
+            client = session.scalar(select(ClientGSTIN).where(ClientGSTIN.id == cid))
+            if client is None:
+                return None
+            assigned_to = fields.get("assigned_to")
+            if assigned_to:
+                self._ensure_user_profile_exists(
+                    session, str(assigned_to).strip(), role="staff"
+                )
+            for k, v in fields.items():
+                if k in valid_cols and k != "id":
+                    if k in ("added_at", "gstn_token_expiry"):
+                        setattr(client, k, _parse_datetime(v))
+                    else:
+                        setattr(client, k, v)
+            session.commit()
+            return client.to_dict()
+
+    def soft_delete_client(self, client_id: str) -> bool:
+        """Soft-delete client in Aurora by setting is_active = False."""
+        cid = str(client_id or "").strip()
+        if not cid:
+            return False
+
+        with self._get_session() as session:
+            client = session.scalar(select(ClientGSTIN).where(ClientGSTIN.id == cid))
+            if client is None:
+                return False
+            client.is_active = False
+            session.commit()
+            return True
 
     def verify_firm_ownership(
         self, client_gstin_id: str, firm_owner_id: str

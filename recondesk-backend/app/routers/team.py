@@ -15,6 +15,12 @@ from app.auth import get_current_active_user, require_admin
 from app.database import get_supabase, get_user_profile
 from app.routers.clients import _resolve_firm_owner
 from app.routers.reconciliation_api import _parse_uuid
+from app.services.tenancy_sync import (
+    mirror_team_member_create_to_aurora,
+    mirror_team_member_remove_to_aurora,
+    mirror_team_member_update_to_aurora,
+    mirror_user_profile_update_to_aurora,
+)
 from app.utils.audit import log_action
 from app.utils.email import send_team_invite_email
 
@@ -40,6 +46,7 @@ def _apply_invited_staff_role(sb, profile_user_id: str) -> None:
         sb.table("user_profiles").update({"role": "staff"}).eq(
             "id", profile_user_id
         ).execute()
+        mirror_user_profile_update_to_aurora(profile_user_id, {"role": "staff"})
     except Exception:
         _log.exception(
             "failed to set staff role for invited user id=%s", profile_user_id
@@ -346,6 +353,7 @@ async def invite_team_member(
 
     try:
         sb.table("team_members").insert(insert_payload).execute()
+        mirror_team_member_create_to_aurora(insert_payload, admin_id)
     except Exception as exc:
         if not _pg_unique_violation(exc):
             raise
@@ -372,6 +380,7 @@ async def invite_team_member(
         if not refreshed.data:
             raise
         logged_member_id = str(refreshed.data[0]["id"])
+        mirror_team_member_create_to_aurora(refreshed.data[0], admin_id)
 
     firm_name = str(admin_prof.get("firm_name") or "").strip()
     background_tasks.add_task(
@@ -463,6 +472,9 @@ async def accept_team_invite(token: str):
         sb.table("team_members").update(
             {"is_active": False, "accepted_at": now_iso}
         ).eq("id", str(row_uuid)).execute()
+        mirror_team_member_update_to_aurora(
+            str(row_uuid), {"is_active": False, "accepted_at": now_iso}, firm_owner_id
+        )
         _apply_invited_staff_role(sb, profile_user_id)
         return {"status": "accepted", "redirect": "/dashboard"}
 
@@ -475,11 +487,15 @@ async def accept_team_invite(token: str):
         sb.table("team_members").update(update_payload).eq(
             "id", str(row_uuid)
         ).execute()
+        mirror_team_member_update_to_aurora(str(row_uuid), update_payload, firm_owner_id)
     except Exception as exc:
         if _pg_unique_violation(exc):
             sb.table("team_members").update(
                 {"is_active": False, "accepted_at": now_iso}
             ).eq("id", str(row_uuid)).execute()
+            mirror_team_member_update_to_aurora(
+                str(row_uuid), {"is_active": False, "accepted_at": now_iso}, firm_owner_id
+            )
             _apply_invited_staff_role(sb, profile_user_id)
             return {"status": "accepted", "redirect": "/dashboard"}
         raise HTTPException(
@@ -516,6 +532,7 @@ async def remove_team_member(
     sb.table("team_members").update(
         {"is_active": False, "member_user_id": None}
     ).eq("id", mid).eq("firm_owner_id", admin_id).execute()
+    mirror_team_member_remove_to_aurora(mid, admin_id)
 
     await log_action(
         admin_id,

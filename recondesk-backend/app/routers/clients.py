@@ -19,6 +19,11 @@ from app.services.billing_gate import assert_gstin_capacity
 from app.services.firm_access import list_accessible_client_gstin_ids
 from app.services.carry_forward import get_chronic_risks
 from app.services.gstin_verification import verify_gstin as _verify_gstin
+from app.services.tenancy_sync import (
+    mirror_client_create_to_aurora,
+    mirror_client_delete_to_aurora,
+    mirror_client_update_to_aurora,
+)
 from app.utils.audit import log_audit
 from app.utils.redis_cache import invalidate_user_dashboard
 
@@ -326,6 +331,8 @@ async def create_client(
             or str(body.legal_name or "").strip()
             or g
         )
+        restored_data = dict(out.data or {})
+        mirror_client_create_to_aurora(restored_data, owner, current_user_id=uid)
         await log_audit(
             sb,
             current_user,
@@ -339,7 +346,7 @@ async def create_client(
         invalidate_user_dashboard(owner)
         return JSONResponse(
             status_code=status.HTTP_200_OK,
-            content=dict(out.data or {}),
+            content=restored_data,
         )
 
     try:
@@ -387,6 +394,7 @@ async def create_client(
                 .execute()
             )
             if raced.data:
+                mirror_client_create_to_aurora(raced.data[0], owner, current_user_id=uid)
                 return JSONResponse(
                     status_code=status.HTTP_200_OK,
                     content=raced.data[0],
@@ -399,6 +407,8 @@ async def create_client(
         .single()
         .execute()
     )
+    created_data = dict(out.data or ins)
+    mirror_client_create_to_aurora(created_data, owner, current_user_id=uid)
     client_label = (
         str(body.trade_name or "").strip()
         or str(body.legal_name or "").strip()
@@ -618,6 +628,7 @@ async def update_client(
             updates["assigned_to"] = None
     if updates:
         sb.table("client_gstins").update(updates).eq("id", cid).execute()
+        mirror_client_update_to_aurora(cid, updates, fo, current_user_id=uid)
     out = (
         sb.table("client_gstins")
         .select("*")
@@ -684,6 +695,7 @@ async def assign_client(
             )
 
     sb.table("client_gstins").update({"assigned_to": assignee_id}).eq("id", cid).execute()
+    mirror_client_update_to_aurora(cid, {"assigned_to": assignee_id}, fo, current_user_id=admin_id)
     out = (
         sb.table("client_gstins")
         .select("*")
@@ -721,6 +733,7 @@ async def delete_client(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied",
         )
+    mirror_client_delete_to_aurora(cid, uid, current_user_id=uid)
     row = ex.data[0]
     client_label = (
         str(row.get("trade_name") or "").strip()

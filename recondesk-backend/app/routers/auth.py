@@ -182,6 +182,8 @@ async def signup(
         db.table("user_profiles").update(
             {"role": "admin", "full_name": full_name or None}
         ).eq("id", user_id).execute()
+        from app.services.tenancy_sync import mirror_user_profile_upsert_to_aurora
+        mirror_user_profile_upsert_to_aurora(profile, user_id)
     except Exception as exc:  # noqa: BLE001
         _log.error("Profile insert failed: %s", type(exc).__name__)
         raise HTTPException(
@@ -212,6 +214,8 @@ async def onboarding_complete(
     get_supabase().table("user_profiles").update({"onboarding_completed": True}).eq(
         "id", uid
     ).execute()
+    from app.services.tenancy_sync import mirror_user_profile_update_to_aurora
+    mirror_user_profile_update_to_aurora(uid, {"onboarding_completed": True})
     return {"success": True}
 
 
@@ -267,6 +271,9 @@ async def webhook_signup(
             entity_id=user_id,
         )
         return {"received": True}
+
+    from app.services.tenancy_sync import mirror_user_profile_upsert_to_aurora
+    mirror_user_profile_upsert_to_aurora(profile, user_id)
 
     email = str(profile.get("email") or "").strip()
     if not email:
