@@ -37,20 +37,26 @@ def get_ownership_verifier() -> Callable[[str, str, dict[str, Any]], bool]:
 
 
 def _lookup_profile_by_id(user_id: str) -> Optional[dict[str, Any]]:
-    store = get_identity_store()
-    if hasattr(store, "get_user_profile_by_id"):
-        profile = store.get_user_profile_by_id(user_id)
-        if profile is not None:
-            return profile
+    try:
+        store = get_identity_store()
+        if hasattr(store, "get_user_profile_by_id"):
+            profile = store.get_user_profile_by_id(user_id)
+            if profile is not None:
+                return profile
+    except Exception:
+        pass
     return get_user_profile(user_id)
 
 
 def _lookup_profile_by_email(email: str) -> Optional[dict[str, Any]]:
-    store = get_identity_store()
-    if hasattr(store, "get_user_profile_by_email"):
-        profile = store.get_user_profile_by_email(email)
-        if profile is not None:
-            return profile
+    try:
+        store = get_identity_store()
+        if hasattr(store, "get_user_profile_by_email"):
+            profile = store.get_user_profile_by_email(email)
+            if profile is not None:
+                return profile
+    except Exception:
+        pass
     try:
         from app.database import get_supabase
         sb = get_supabase()
@@ -360,10 +366,20 @@ async def cognito_lookup_mapping(
     # Query Aurora trusted store with verified sub and configured pool
     mapping_result = None
     if hasattr(store, "lookup_trusted_mapping"):
+        def _resolve_profile(uid: str) -> Optional[dict[str, Any]]:
+            if hasattr(store, "get_user_profile_by_id"):
+                try:
+                    prof = store.get_user_profile_by_id(uid)
+                    if prof is not None:
+                        return prof
+                except Exception:
+                    pass
+            return _lookup_profile_by_id(uid)
+
         mapping_result = store.lookup_trusted_mapping(
             sub,
             pool_id=configured_pool,
-            profile_lookup_fn=_lookup_profile_by_id,
+            profile_lookup_fn=_resolve_profile,
         )
     else:
         mapping = store.get_mapping_by_sub(sub, pool_id=configured_pool)

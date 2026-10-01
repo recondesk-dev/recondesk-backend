@@ -242,20 +242,24 @@ class SQLAlchemyCognitoIdentityStore(CognitoIdentityStore):
         uid = str(user_id or "").strip()
         if not uid:
             return None
-        with self._get_session() as session:
-            profile = session.scalar(
-                select(UserProfileModel).where(UserProfileModel.id == uid)
-            )
-            if profile is None:
-                return None
-            return {
-                "id": str(profile.id),
-                "email": profile.email,
-                "role": profile.role,
-                "is_active": bool(profile.is_active),
-                "full_name": profile.full_name,
-                "firm_name": profile.firm_name,
-            }
+        try:
+            with self._get_session() as session:
+                profile = session.scalar(
+                    select(UserProfileModel).where(UserProfileModel.id == uid)
+                )
+                if profile is None:
+                    return None
+                return {
+                    "id": str(profile.id),
+                    "email": profile.email,
+                    "role": profile.role,
+                    "is_active": bool(profile.is_active),
+                    "full_name": profile.full_name,
+                    "firm_name": profile.firm_name,
+                }
+        except Exception as exc:
+            _log.warning("Aurora user profile lookup failed: %s", type(exc).__name__)
+            return None
 
     def get_user_profile_by_email(
         self, email: str
@@ -264,20 +268,24 @@ class SQLAlchemyCognitoIdentityStore(CognitoIdentityStore):
         clean_email = str(email or "").strip().lower()
         if not clean_email:
             return None
-        with self._get_session() as session:
-            profile = session.scalar(
-                select(UserProfileModel).where(UserProfileModel.email.ilike(clean_email))
-            )
-            if profile is None:
-                return None
-            return {
-                "id": str(profile.id),
-                "email": profile.email,
-                "role": profile.role,
-                "is_active": bool(profile.is_active),
-                "full_name": profile.full_name,
-                "firm_name": profile.firm_name,
-            }
+        try:
+            with self._get_session() as session:
+                profile = session.scalar(
+                    select(UserProfileModel).where(UserProfileModel.email.ilike(clean_email))
+                )
+                if profile is None:
+                    return None
+                return {
+                    "id": str(profile.id),
+                    "email": profile.email,
+                    "role": profile.role,
+                    "is_active": bool(profile.is_active),
+                    "full_name": profile.full_name,
+                    "firm_name": profile.firm_name,
+                }
+        except Exception as exc:
+            _log.warning("Aurora user profile email lookup failed: %s", type(exc).__name__)
+            return None
 
     def save_mapping(self, mapping: CognitoIdentityMapping) -> None:
         """Persist or update an unverified identity mapping.

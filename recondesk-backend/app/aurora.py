@@ -454,3 +454,124 @@ def check_aurora_health(
             "latency_ms": elapsed_ms,
             "database": "aurora_postgresql",
         }
+
+
+def set_aurora_session_context(
+    session: Session,
+    *,
+    user_id: Optional[Any] = None,
+    firm_owner_id: Optional[Any] = None,
+    role: Optional[str] = None,
+) -> None:
+    """Set transaction-local authorization context for an Aurora PostgreSQL session.
+
+    Uses PostgreSQL transaction-local semantics (SET LOCAL / set_config(..., is_local=true)):
+      - app.current_user_id: canonical ReconDesk user_profiles.id
+      - app.current_firm_owner_id: canonical ReconDesk firm_owner_id
+      - app.current_user_role: canonical user role (e.g. 'admin', 'staff')
+
+    Guarantees:
+      - Bound to the current transaction. When transaction commits or rolls back,
+        PostgreSQL automatically discards the setting (no pool leakage).
+      - Thread-safe and session-isolated.
+      - Safely handles UUID values and strings.
+      - Graceful handling for non-PostgreSQL dialects (e.g. SQLite test fixtures).
+    """
+    bind = session.get_bind()
+    dialect_name = bind.dialect.name if bind is not None else ""
+
+    str_uid = str(user_id).strip() if user_id is not None else None
+    str_foid = str(firm_owner_id).strip() if firm_owner_id is not None else None
+    str_role = str(role).strip().lower() if role is not None else None
+
+    if dialect_name == "postgresql":
+        if str_uid is not None:
+            session.execute(
+                sa.text("SELECT set_config('app.current_user_id', :val, true)"),
+                {"val": str_uid},
+            )
+        if str_foid is not None:
+            session.execute(
+                sa.text("SELECT set_config('app.current_firm_owner_id', :val, true)"),
+                {"val": str_foid},
+            )
+        if str_role is not None:
+            session.execute(
+                sa.text("SELECT set_config('app.current_user_role', :val, true)"),
+                {"val": str_role},
+            )
+    else:
+        # Test-only fallback for SQLite / non-PostgreSQL dialects
+        ctx_map: dict[str, Optional[str]] = session.info.setdefault("aurora_context", {})
+        if str_uid is not None:
+            ctx_map["user_id"] = str_uid
+        if str_foid is not None:
+            ctx_map["firm_owner_id"] = str_foid
+        if str_role is not None:
+            ctx_map["role"] = str_role
+
+
+def get_aurora_session_context(session: Session) -> dict[str, Optional[str]]:
+    """Retrieve the current transaction authorization context from the Aurora session."""
+    bind = session.get_bind()
+    dialect_name = bind.dialect.name if bind is not None else ""
+
+    if dialect_name == "postgresql":
+        try:
+            row = session.execute(
+                sa.text("""
+                    SELECT
+                        current_setting('app.current_user_id', true) AS user_id,
+                        current_setting('app.current_firm_owner_id', true) AS firm_owner_id,
+                        current_setting('app.current_user_role', true) AS role
+                """)
+            ).mappings().first()
+            if row:
+                return {
+                    "user_id": row.get("user_id") or None,
+                    "firm_owner_id": row.get("firm_owner_id") or None,
+                    "role": row.get("role") or None,
+                }
+        except Exception as exc:
+            _log.warning("Failed to query PostgreSQL session context: %s", type(exc).__name__)
+        return {
+            "user_id": None,
+            "firm_owner_id": None,
+            "role": None,
+        }
+
+    # Test-only fallback for SQLite / non-PostgreSQL dialects
+    ctx_map = session.info.get("aurora_context", {})
+    return {
+        "user_id": ctx_map.get("user_id"),
+        "firm_owner_id": ctx_map.get("firm_owner_id"),
+        "role": ctx_map.get("role"),
+    }
+
+
+def clear_aurora_session_context(session: Session) -> None:
+    """Clear transaction-local authorization context from the Aurora session."""
+    bind = session.get_bind()
+    dialect_name = bind.dialect.name if bind is not None else ""
+
+    session.info.pop("aurora_context", None)
+
+    if dialect_name == "postgresql":
+        try:
+            session.execute(
+                sa.text("""
+                    SELECT
+                        set_config('app.current_user_id', '', true),
+                        set_config('app.current_firm_owner_id', '', true),
+                        set_config('app.current_user_role', '', true)
+                """)
+            )
+        except Exception:
+            pass
+
+
+@sa.event.listens_for(Session, "after_transaction_end")
+def _clear_session_info_aurora_context(session: Session, transaction: Any) -> None:
+    """Ensure test-only session.info context does not leak across transactions."""
+    if getattr(transaction, "parent", None) is None:
+        session.info.pop("aurora_context", None)

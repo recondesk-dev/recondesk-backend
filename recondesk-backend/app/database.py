@@ -120,15 +120,34 @@ def resolve_user_role(
 def get_user_profile(user_id: str) -> Optional[dict]:
     """Fetch a single row from *user_profiles* by primary key.
 
-    Returns the row dict, or None if not found / on error.
-    Missing or invalid *role* values are resolved and persisted when possible.
+    Phase 3B Dual-Read:
+    1. If Aurora tenancy repository is configured and returns a profile, return it.
+    2. If Aurora is disabled, unavailable, or the profile is missing in Aurora,
+       safely fall back to the established Supabase implementation.
     """
+    uid = str(user_id or "").strip()
+    if not uid:
+        return None
+
+    # 1. Attempt Aurora tenancy read
+    try:
+        from app.repositories.tenancy import get_tenancy_repository
+        repo = get_tenancy_repository()
+        if repo is not None:
+            aurora_prof = repo.get_user_profile(uid)
+            if aurora_prof is not None:
+                return aurora_prof
+    except Exception:
+        # Aurora infrastructure failure: fall through to established Supabase path
+        pass
+
+    # 2. Established Supabase query
     try:
         client = get_supabase()
         result = (
             client.table("user_profiles")
             .select(_USER_PROFILE_SELECT)
-            .eq("id", user_id)
+            .eq("id", uid)
             .single()
             .execute()
         )

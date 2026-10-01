@@ -1145,9 +1145,12 @@ class TestIdentityStoreResolutionAndHardening:
         session_factory = sessionmaker(bind=sqlite_engine, autoflush=False, expire_on_commit=False)
         real_store = SQLAlchemyCognitoIdentityStore(session_factory=session_factory)
 
-        with patch("app.aurora.is_aurora_enabled", return_value=True), \
-             patch("app.aurora.get_aurora_database_url", return_value="postgresql+psycopg2://localhost:5432/test"), \
-             patch("app.cognito_aurora_store.SQLAlchemyCognitoIdentityStore", return_value=real_store):
-            store = get_identity_store()
-            assert isinstance(store, SQLAlchemyCognitoIdentityStore)
-            assert store is real_store
+        try:
+            with patch("app.aurora.is_aurora_enabled", return_value=True), \
+                 patch("app.aurora.get_aurora_database_url", return_value="postgresql+psycopg2://localhost:5432/test"), \
+                 patch("app.cognito_aurora_store.SQLAlchemyCognitoIdentityStore", return_value=real_store):
+                store = get_identity_store()
+                assert isinstance(store, SQLAlchemyCognitoIdentityStore)
+                assert store is real_store
+        finally:
+            set_identity_store(None)

@@ -26,52 +26,11 @@ from sqlalchemy.orm import declarative_base
 from sqlalchemy.types import JSON, TypeDecorator, CHAR
 
 from app.cognito_identity import CognitoIdentityMapping
+from app.models.schema_base import Base, GUID  # noqa: F401
+from app.models.tenancy import UserProfile
 
-Base = declarative_base()
-
-
-class GUID(TypeDecorator):
-    """Platform-independent GUID type.
-
-    Uses PostgreSQL's UUID type when available, otherwise falls back to CHAR(36).
-    """
-
-    impl = CHAR
-    cache_ok = True
-
-    def load_dialect_impl(self, dialect):
-        if dialect.name == "postgresql":
-            return dialect.type_descriptor(PG_UUID(as_uuid=True))
-        return dialect.type_descriptor(CHAR(36))
-
-    def process_bind_param(self, value, dialect):
-        if value is None:
-            return value
-        if dialect.name == "postgresql":
-            return str(value)
-        if isinstance(value, uuid.UUID):
-            return str(value)
-        return str(value)
-
-    def process_result_value(self, value, dialect):
-        if value is None:
-            return value
-        return str(value)
-
-
-class UserProfileModel(Base):
-    """Minimal SQLAlchemy model for public.user_profiles to support foreign key
-    constraints and transactional integrity checks across Aurora and test fixtures.
-    """
-
-    __tablename__ = "user_profiles"
-
-    id = Column(GUID(), primary_key=True)
-    email = Column(String(255), nullable=False)
-    role = Column(String(50), default="admin", nullable=False)
-    is_active = Column(Boolean, default=True, nullable=False)
-    full_name = Column(String(255), nullable=True)
-    firm_name = Column(String(255), nullable=True)
+# Maintain backwards compatibility with existing codebase and tests
+UserProfileModel = UserProfile
 
 
 class CognitoUserMappingModel(Base):
