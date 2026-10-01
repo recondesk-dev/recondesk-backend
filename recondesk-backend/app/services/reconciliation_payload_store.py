@@ -258,7 +258,7 @@ def build_run_summary_metrics(
         "clean_matched_count": matched_count,
         "review_required_count": review_required_count,
         "total_linked_count": matched_count + review_required_count,
-        "unmatched_count": missed_itc_count + wrongful_count,
+        "unmatched_count": missed_itc_count + wrongful_count + unmatched_notes_count,
         "itc_at_risk": itc_at_risk_total,
         "missed_itc_paise": itc_missed,
         "matched_itc_paise": int(matched_itc_paise or 0),

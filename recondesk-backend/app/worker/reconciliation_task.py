@@ -297,6 +297,12 @@ def _write_pr_match_status_chunk(
     matched: list[dict[str, Any]],
     skipped_pr_ids: set[str] | None = None,
     chunk_idx: int | None = None,
+    duplicate_pr_ids: set[str] | None = None,
+    review_pr_ids: set[str] | None = None,
+    unmatched_note_pr_ids: set[str] | None = None,
+    duplicate_entries: list[dict[str, Any]] | None = None,
+    review_required: list[dict[str, Any]] | None = None,
+    unmatched_notes: list[dict[str, Any]] | None = None,
 ) -> tuple[list[dict[str, Any]], int, int]:
     """Build and upsert match fields for one PR chunk; returns tracking rows + counts."""
     skipped_pr_ids = skipped_pr_ids or set()
@@ -304,6 +310,9 @@ def _write_pr_match_status_chunk(
         matched,
         gstr_by_id,
         {str(p["id"]): p for p in pr_chunk},
+        duplicate_entries=duplicate_entries,
+        review_required=review_required,
+        unmatched_notes=unmatched_notes,
     )
     pr_match_status_rows: list[dict[str, Any]] = []
     pr_rows_for_tracking: list[dict[str, Any]] = []
@@ -312,7 +321,12 @@ def _write_pr_match_status_chunk(
         pid = str(pr_rec["id"])
         base_rd = pr_raw_by_id.get(pid)
         match_st = _pr_match_status_for_record(
-            pr_rec, matched_pr_ids, gstr_by_gstin
+            pr_rec,
+            matched_pr_ids,
+            gstr_by_gstin,
+            duplicate_pr_ids=duplicate_pr_ids,
+            review_pr_ids=review_pr_ids,
+            unmatched_note_pr_ids=unmatched_note_pr_ids,
         )
         if match_st == "matched":
             chunk_matched += 1
@@ -387,23 +401,32 @@ def _pr_match_status_for_record(
     pr_rec: dict[str, Any],
     matched_pr_ids: set[str],
     gstr_by_gstin: dict[str, list[dict[str, Any]]],
+    *,
+    duplicate_pr_ids: set[str] | None = None,
+    review_pr_ids: set[str] | None = None,
+    unmatched_note_pr_ids: set[str] | None = None,
 ) -> str:
     """Classify PR row for ``record_data.match_status`` (does not alter pairing).
 
-    Three distinct outcomes, each backed only by data we actually have:
-      * ``matched``       — this PR row was paired with a GSTR-2B record.
+    Outcomes:
+      * ``matched``       — this PR row was paired with a GSTR-2B record (primary or multiline component).
+      * ``duplicate``     — duplicate booking in PR books.
+      * ``review_required`` — ambiguous match or discrepancy requiring human review.
+      * ``unmatched_note`` — quarantined credit or debit note unconsumed in GSTR-2B.
       * ``missing_in_2b``  — the supplier GSTIN DOES appear elsewhere in this
         run's GSTR-2B data, but this specific invoice was not found there.
-        This is the only case where "this invoice is absent from 2B" is a
-        data-backed statement (Bug 3: never conflate "not in PR's matched set"
-        with a claim about the supplier's actual GSTR-1 filing status).
       * ``unmatched``      — the supplier GSTIN does not appear in GSTR-2B at
-        all for this run, so we cannot even confirm the supplier filed
-        anything; a weaker, more honest classification than ``missing_in_2b``.
+        all for this run.
     """
     pr_id = str(pr_rec["id"])
     if pr_id in matched_pr_ids:
         return "matched"
+    if duplicate_pr_ids and pr_id in duplicate_pr_ids:
+        return "duplicate"
+    if review_pr_ids and pr_id in review_pr_ids:
+        return "review_required"
+    if unmatched_note_pr_ids and pr_id in unmatched_note_pr_ids:
+        return "unmatched_note"
     gstin = str(pr_rec.get("supplier_gstin") or "").strip()
     if gstin and gstr_by_gstin.get(gstin):
         return "missing_in_2b"
@@ -414,26 +437,108 @@ def _matched_engine_meta_by_pr_id(
     matched: list[dict[str, Any]],
     gstr_by_id: dict[str, dict[str, Any]],
     pr_by_id: dict[str, dict[str, Any]],
+    *,
+    duplicate_entries: list[dict[str, Any]] | None = None,
+    review_required: list[dict[str, Any]] | None = None,
+    unmatched_notes: list[dict[str, Any]] | None = None,
 ) -> dict[str, dict[str, Any]]:
-    """Map PR id → engine metadata (match_level, vendor_similarity_score) for persistence."""
+    """Map PR id → engine metadata (match_level, vendor_similarity_score, etc.) for persistence."""
     out: dict[str, dict[str, Any]] = {}
     for m in matched:
         pid = str(m.get("pr_id") or "")
-        if not pid:
-            continue
         gid = str(m.get("gstr_id") or "")
-        ggr = gstr_by_id.get(gid, {})
-        pr = pr_by_id.get(pid, {})
-        meta: dict[str, Any] = {}
-        if ggr and pr:
-            mr = match_gstr_to_pr(ggr, [pr])
-            if mr is not None:
-                meta["match_level"] = mr.level
+        level = m.get("match_level")
+        if level in (0, None):
+            ggr = gstr_by_id.get(gid, {})
+            pr = pr_by_id.get(pid, {})
+            if ggr and pr:
+                mr = match_gstr_to_pr(ggr, [pr])
+                if mr is not None:
+                    level = mr.level
+            if level in (0, None):
+                conf = m.get("confidence_score")
+                level = 1 if conf == 100 else (2 if conf else 1)
+
+        meta: dict[str, Any] = {
+            "match_level": level,
+            "match_status": "matched",
+        }
         vss = m.get("vendor_similarity_score")
         if vss is not None:
             meta["vendor_similarity_score"] = vss
-        if meta:
+        conf = m.get("confidence_score") or m.get("match_confidence")
+        if conf is not None:
+            meta["match_confidence"] = conf
+        for k in ("decision_what", "decision_why", "decision_next", "match_reason"):
+            if m.get(k):
+                meta[k] = m[k]
+
+        if pid:
             out[pid] = meta
+
+        if m.get("multiline_pr_split") and m.get("pr_ids"):
+            for comp_id in m["pr_ids"]:
+                cpid = str(comp_id)
+                if cpid != pid:
+                    out[cpid] = {
+                        "match_level": level,
+                        "match_status": "matched",
+                        "multiline_component": True,
+                        "primary_pr_id": pid,
+                        "matched_pr_record_id": pid,
+                        "gstr_id": gid,
+                        "decision_what": "Multi-line Match Component",
+                        "decision_why": "Part of multi-line purchase register booking summing to GSTR-2B invoice",
+                        "decision_next": "",
+                    }
+
+    if duplicate_entries:
+        for d in duplicate_entries:
+            side = str(d.get("side") or "").upper()
+            if side in ("PR", ""):
+                eid = str(d.get("id") or "")
+                cid = str(d.get("matched_pr_id") or "")
+                if eid:
+                    out[eid] = {
+                        "is_duplicate": True,
+                        "match_status": "duplicate",
+                        "canonical_pr_id": cid,
+                        "matched_pr_record_id": cid,
+                        "sanity_duplicate_flag": True,
+                        "decision_what": "Duplicate Entry in Books",
+                        "decision_why": "Purchase Register contains an extra booking of this invoice.",
+                        "decision_next": (
+                            "Remove or mark the extra purchase-register row. Do not "
+                            "treat this as missing from GSTR-2B or reverse ITC for it."
+                        ),
+                    }
+
+    if review_required:
+        for r in review_required:
+            rid = str(r.get("pr_id") or (r.get("id") if str(r.get("side") or "").upper() == "PR" else "") or "")
+            if rid:
+                reason = r.get("review_reason") or r.get("reason") or "Requires Review"
+                out[rid] = {
+                    "is_review_required": True,
+                    "match_status": "review_required",
+                    "review_reason": reason,
+                    "decision_what": r.get("decision_what") or "Requires Review",
+                    "decision_why": r.get("decision_why") or reason,
+                    "decision_next": r.get("decision_next") or "Verify invoice details with vendor.",
+                }
+
+    if unmatched_notes:
+        for n in unmatched_notes:
+            side = str(n.get("side") or "PR").upper()
+            if side == "PR":
+                nid = str(n.get("id") or "")
+                if nid:
+                    out[nid] = {
+                        "is_unmatched_note": True,
+                        "match_status": "unmatched_note",
+                        "doc_type": n.get("doc_type") or "DEBIT_NOTE",
+                    }
+
     return out
 
 
@@ -448,10 +553,43 @@ def _build_pr_post_match_upsert_row(
     merged_rd = dict(base_record_data) if isinstance(base_record_data, dict) else {}
     merged_rd["match_status"] = match_status
     meta = engine_meta or {}
-    if "match_level" in meta:
-        merged_rd["match_level"] = meta["match_level"]
+    if match_status == "matched":
+        level = meta.get("match_level")
+        if level in (0, None):
+            level = 1
+        merged_rd["match_level"] = int(level)
+    else:
+        merged_rd.pop("match_level", None)
+
     if meta.get("vendor_similarity_score") is not None:
         merged_rd["vendor_similarity_score"] = meta["vendor_similarity_score"]
+    if meta.get("match_confidence") is not None:
+        merged_rd["match_confidence"] = meta["match_confidence"]
+    if meta.get("multiline_component"):
+        merged_rd["multiline_component"] = True
+        if meta.get("primary_pr_id"):
+            merged_rd["primary_pr_id"] = meta["primary_pr_id"]
+        if meta.get("gstr_id"):
+            merged_rd["gstr_id"] = meta["gstr_id"]
+    if meta.get("is_duplicate"):
+        merged_rd["is_duplicate"] = True
+        if meta.get("canonical_pr_id"):
+            merged_rd["canonical_pr_id"] = meta["canonical_pr_id"]
+    if meta.get("is_review_required"):
+        merged_rd["is_review_required"] = True
+        if meta.get("review_reason"):
+            merged_rd["review_reason"] = meta["review_reason"]
+    if meta.get("is_unmatched_note"):
+        merged_rd["is_unmatched_note"] = True
+        if meta.get("doc_type"):
+            merged_rd["doc_type"] = meta["doc_type"]
+
+    for k in ("decision_what", "decision_why", "decision_next", "match_reason"):
+        if meta.get(k):
+            val = meta[k]
+            if isinstance(val, (list, tuple)):
+                val = "; ".join(str(x) for x in val if x)
+            merged_rd[k] = val
 
     row: dict[str, Any] = {
         # pr_id is a UUID string — do NOT cast to int
@@ -460,8 +598,30 @@ def _build_pr_post_match_upsert_row(
         "record_data": _json_safe(merged_rd),
         "match_status": match_status,
     }
-    if "match_level" in meta:
-        row["match_level"] = meta["match_level"]
+    if match_status == "matched":
+        level = meta.get("match_level")
+        if level in (0, None):
+            level = 1
+        row["match_level"] = int(level)
+    if "match_confidence" in meta and meta["match_confidence"] is not None:
+        try:
+            row["match_confidence"] = int(meta["match_confidence"])
+        except (ValueError, TypeError):
+            pass
+    if meta.get("matched_pr_record_id"):
+        mpid = str(meta["matched_pr_record_id"]).strip()
+        try:
+            row["matched_pr_record_id"] = str(UUID(mpid))
+        except (ValueError, TypeError):
+            pass
+    if meta.get("sanity_duplicate_flag"):
+        row["sanity_duplicate_flag"] = True
+    for k in ("decision_what", "decision_why", "decision_next", "match_reason"):
+        if meta.get(k):
+            val = meta[k]
+            if isinstance(val, (list, tuple)):
+                val = "; ".join(str(x) for x in val if x)
+            row[k] = str(val)
     return row
 
 
@@ -960,100 +1120,16 @@ def execute_reconciliation(run_id: str) -> None:
                 },
             )
 
-        pr_rows_for_tracking: list[dict[str, Any]] = []
-        pr_write_offset = 0
-        chunk_idx = 0
-        chunk_skipped_missing_inv = 0
+        _phase("matching")
         _update_run(
             client,
             run_id,
             {
                 "progress_percent": 50,
-                "status_message": f"Writing PR match status (0/{pr_total_chunks} chunks)…",
+                "status_message": "Matching batches complete; running credit notes and compliance checks…",
                 "updated_at": _now_iso(),
             },
         )
-        while True:
-            chunk_started = time.perf_counter()
-            # Heartbeat before DB work so the UI does not sit silently at 50%
-            # while the first (often largest) upsert is in flight.
-            _update_run(
-                client,
-                run_id,
-                {
-                    "progress_percent": min(
-                        69, 50 + int(20 * chunk_idx / pr_total_chunks)
-                    ),
-                    "status_message": (
-                        f"Writing PR match status "
-                        f"({chunk_idx + 1}/{pr_total_chunks})…"
-                    ),
-                    "updated_at": _now_iso(),
-                },
-            )
-            pr_chunk, pr_raw_chunk, skipped, fetched = _load_pr_matcher_and_raw_page(
-                client, run_id, pr_write_offset, CHUNK_SIZE
-            )
-            if fetched == 0:
-                break
-
-            chunk_skipped_missing_inv += len(skipped)
-            _log.info(
-                "processing chunk %d offset=%d pr_chunk_size=%d fetched=%d skipped_missing_inv=%d",
-                chunk_idx,
-                pr_write_offset,
-                len(pr_chunk),
-                fetched,
-                len(skipped),
-            )
-
-            tracking_rows, chunk_matched, chunk_written = _write_pr_match_status_chunk(
-                client,
-                run_id=run_id,
-                pr_chunk=pr_chunk,
-                pr_raw_by_id=pr_raw_chunk,
-                matched_pr_ids=state.consumed_pr_ids,
-                gstr_by_gstin=gstr_by_gstin,
-                gstr_by_id=gstr_by_id,
-                matched=state.clean_matched,
-                skipped_pr_ids=skipped,
-                chunk_idx=chunk_idx,
-            )
-            pr_rows_for_tracking.extend(tracking_rows)
-
-            chunk_num = chunk_idx + 1
-            pct = int(100 * chunk_num / pr_total_chunks)
-            elapsed = time.perf_counter() - chunk_started
-            _log.info(
-                "chunk %d/%d completed in %.2fs matched=%d written=%d",
-                chunk_num,
-                pr_total_chunks,
-                elapsed,
-                chunk_matched,
-                chunk_written,
-            )
-            _update_run(
-                client,
-                run_id,
-                {
-                    "progress_percent": min(70, 50 + int(20 * chunk_num / pr_total_chunks)),
-                    "status_message": f"PR chunk {chunk_num}/{pr_total_chunks} complete ({pct}%)",
-                    "updated_at": _now_iso(),
-                },
-            )
-            pr_write_offset += fetched
-            chunk_idx += 1
-            if fetched < CHUNK_SIZE:
-                break
-
-        if chunk_skipped_missing_inv:
-            _log.warning(
-                "PR matching skipped %d row(s) missing invoice_number (run_id=%s)",
-                chunk_skipped_missing_inv,
-                run_id,
-            )
-
-        _phase("matching")
         pr_current, pr_raw_by_id = _load_pr_matcher_and_raw(client, run_id)
         late_itc = sum(
             1
@@ -1363,19 +1439,6 @@ def execute_reconciliation(run_id: str) -> None:
                         len(_chunk),
                     )
 
-        _phase("carry-forward")
-        try:
-            carry_forward_summary = asyncio.run(
-                update_invoice_tracking(
-                    client_gstin_id=UUID(client_gstin_id),
-                    run_id=UUID(run_id),
-                    pr_records=pr_rows_for_tracking,
-                )
-            )
-            _log.info("Carry-forward summary: %s", carry_forward_summary)
-        except Exception:
-            _log.exception("carry_forward failed run_id=%s", run_id)
-
         _phase("credit-notes")
         credit_rows = [
             {**p, "doc_kind": classify_document(p)}
@@ -1497,6 +1560,130 @@ def execute_reconciliation(run_id: str) -> None:
             },
         )
 
+        # Build precise mutually exclusive sets for PR classification
+        clean_matched_pr_ids: set[str] = set()
+        for m in state.clean_matched:
+            if m.get("pr_id"):
+                clean_matched_pr_ids.add(str(m["pr_id"]))
+            if m.get("pr_ids"):
+                for cpid in m["pr_ids"]:
+                    clean_matched_pr_ids.add(str(cpid))
+
+        duplicate_pr_ids: set[str] = ({
+            str(d["id"]) for d in state.duplicate_entries if str(d.get("side") or "").upper() in ("PR", "")
+        } | set(state.duplicate_pr_ids)) - clean_matched_pr_ids
+
+        review_pr_ids: set[str] = ({
+            str(r.get("pr_id") or r.get("id"))
+            for r in state.review_required
+            if (r.get("pr_id") or (r.get("id") and str(r.get("side") or "").upper() == "PR"))
+        }) - clean_matched_pr_ids - duplicate_pr_ids
+
+        unmatched_note_pr_ids: set[str] = ({
+            str(n.get("id")) for n in state.unmatched_notes if str(n.get("side") or "").upper() == "PR" or not n.get("side")
+        }) - clean_matched_pr_ids - duplicate_pr_ids - review_pr_ids
+
+        pr_rows_for_tracking: list[dict[str, Any]] = []
+        pr_write_offset = 0
+        chunk_idx = 0
+        chunk_skipped_missing_inv = 0
+        _update_run(
+            client,
+            run_id,
+            {
+                "progress_percent": 86,
+                "status_message": f"Writing PR match status (0/{pr_total_chunks} chunks)…",
+                "updated_at": _now_iso(),
+            },
+        )
+        while True:
+            chunk_started = time.perf_counter()
+            _update_run(
+                client,
+                run_id,
+                {
+                    "progress_percent": min(
+                        94, 86 + int(8 * chunk_idx / pr_total_chunks)
+                    ),
+                    "status_message": (
+                        f"Writing PR match status "
+                        f"({chunk_idx + 1}/{pr_total_chunks})…"
+                    ),
+                    "updated_at": _now_iso(),
+                },
+            )
+            pr_chunk, pr_raw_chunk, skipped, fetched = _load_pr_matcher_and_raw_page(
+                client, run_id, pr_write_offset, CHUNK_SIZE
+            )
+            if fetched == 0:
+                break
+
+            chunk_skipped_missing_inv += len(skipped)
+            _log.info(
+                "processing chunk %d offset=%d pr_chunk_size=%d fetched=%d skipped_missing_inv=%d",
+                chunk_idx,
+                pr_write_offset,
+                len(pr_chunk),
+                fetched,
+                len(skipped),
+            )
+
+            tracking_rows, chunk_matched, chunk_written = _write_pr_match_status_chunk(
+                client,
+                run_id=run_id,
+                pr_chunk=pr_chunk,
+                pr_raw_by_id=pr_raw_chunk,
+                matched_pr_ids=clean_matched_pr_ids,
+                gstr_by_gstin=gstr_by_gstin,
+                gstr_by_id=gstr_by_id,
+                matched=state.clean_matched,
+                skipped_pr_ids=skipped,
+                chunk_idx=chunk_idx,
+                duplicate_pr_ids=duplicate_pr_ids,
+                review_pr_ids=review_pr_ids,
+                unmatched_note_pr_ids=unmatched_note_pr_ids,
+                duplicate_entries=state.duplicate_entries,
+                review_required=state.review_required,
+                unmatched_notes=state.unmatched_notes,
+            )
+            pr_rows_for_tracking.extend(tracking_rows)
+
+            chunk_num = chunk_idx + 1
+            pct = int(100 * chunk_num / pr_total_chunks)
+            elapsed = time.perf_counter() - chunk_started
+            _log.info(
+                "chunk %d/%d completed in %.2fs matched=%d written=%d",
+                chunk_num,
+                pr_total_chunks,
+                elapsed,
+                chunk_matched,
+                chunk_written,
+            )
+            pr_write_offset += fetched
+            chunk_idx += 1
+            if fetched < CHUNK_SIZE:
+                break
+
+        if chunk_skipped_missing_inv:
+            _log.warning(
+                "PR matching skipped %d row(s) missing invoice_number (run_id=%s)",
+                chunk_skipped_missing_inv,
+                run_id,
+            )
+
+        _phase("carry-forward")
+        try:
+            carry_forward_summary = asyncio.run(
+                update_invoice_tracking(
+                    client_gstin_id=UUID(client_gstin_id),
+                    run_id=UUID(run_id),
+                    pr_records=pr_rows_for_tracking,
+                )
+            )
+            _log.info("Carry-forward summary: %s", carry_forward_summary)
+        except Exception:
+            _log.exception("carry_forward failed run_id=%s", run_id)
+
         total_invoices = n_gstr + n_pr
         late_itc_paise = sum(int(r.get("amount_paise") or 0) for r in late_filing)
         late_itc = len(late_filing)
@@ -1506,7 +1693,7 @@ def execute_reconciliation(run_id: str) -> None:
         gstr_duplicate_count = sum(1 for d in state.duplicate_entries if d.get("side") == "GSTR2B")
         review_gstr_count = sum(1 for r in state.review_required if r.get("gstr_id"))
         review_pr_count = len(state.consumed_pr_ids) - matched_count
-        skipped_count = sum(1 for r in pr_current if r.get("match_status") == "skipped")
+        skipped_count = chunk_skipped_missing_inv if chunk_skipped_missing_inv > 0 else sum(1 for r in pr_current if r.get("match_status") == "skipped")
         unmatched_notes_count = len(state.unmatched_notes)
         gstr_note_count = sum(
             1 for n in state.unmatched_notes if n.get("side") == "GSTR" or n.get("gstr_id")
@@ -1694,7 +1881,7 @@ def execute_reconciliation(run_id: str) -> None:
                 "status_message": completion_msg,
                 "run_summary": run_summary,
                 "matched_count": matched_count + review_gstr_count,
-                "unmatched_count": missed_itc_count + wrongful_count,
+                "unmatched_count": missed_itc_count + wrongful_count + unmatched_notes_count,
                 "itc_at_risk": itc_at_risk_total,
                 "wrongful_itc": wrongful_paise,
                 "late_itc": late_itc_paise,
