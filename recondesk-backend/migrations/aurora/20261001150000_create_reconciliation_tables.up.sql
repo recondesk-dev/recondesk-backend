@@ -259,11 +259,20 @@ BEGIN
   -- 7. Parent reconciliation run (remaining children cascade via ON DELETE CASCADE)
   DELETE FROM public.reconciliation_run WHERE id = p_run_id;
   IF NOT FOUND THEN
-    RAISE EXCEPTION 'run not found: %', p_run_id
+    RAISE EXCEPTION 'run not found: %%', p_run_id
       USING ERRCODE = 'P0002';
   END IF;
 END;
 $$;
 
-GRANT EXECUTE ON FUNCTION public.delete_reconciliation_run_cascade(uuid) TO service_role;
-GRANT EXECUTE ON FUNCTION public.delete_reconciliation_run_cascade(uuid) TO authenticated;
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN
+        GRANT EXECUTE ON FUNCTION public.delete_reconciliation_run_cascade(uuid) TO service_role;
+    END IF;
+
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
+        GRANT EXECUTE ON FUNCTION public.delete_reconciliation_run_cascade(uuid) TO authenticated;
+    END IF;
+END;
+$$;
