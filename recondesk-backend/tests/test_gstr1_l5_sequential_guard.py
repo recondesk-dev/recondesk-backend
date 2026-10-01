@@ -276,11 +276,8 @@ async def test_fuzz_2000_regression_full_pipeline():
         assert inv_no in matched_sr_raws, f"Format variant {inv_no} failed to match!"
 
 
-def test_sequential_series_mismatch_single_char_trailing_diff():
+def test_sequential_invoices_not_duplicate_pr_clones():
     """AB/26-27/0441 vs AB/26-27/0445 represent distinct commercial sequential invoices, not duplicates."""
-    assert is_sequential_series_mismatch(
-        "AB/26-27/0441",
-        "AB/26-27/0445",
-        "AB/26-27/0441",
-        "AB/26-27/0445",
-    ) is True
+    from app.services.reconciliation import _peer_pr_invoice_clone_ok
+    ok, _ = _peer_pr_invoice_clone_ok("AB26270441", "AB26270445", "AB/26-27/0441", "AB/26-27/0445")
+    assert not ok

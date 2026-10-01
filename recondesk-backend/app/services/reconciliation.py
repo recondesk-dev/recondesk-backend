@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
-from collections import defaultdict
+from collections import Counter, defaultdict
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from datetime import date
@@ -1188,6 +1188,60 @@ def _invoice_digit_core(s: str | None) -> str:
     return re.sub(r"[^0-9]", "", str(s or ""))
 
 
+def _is_distinct_sequential_invoices(
+    inv1: str,
+    inv2: str,
+    raw1: str | None = None,
+    raw2: str | None = None,
+) -> bool:
+    """True when two invoice numbers belong to the same sequential series
+    but have distinct sequence numbers (e.g. AB/26-27/0441 vs AB/26-27/0445,
+    or 00242 vs 00272).
+    """
+    if inv1 == inv2:
+        return False
+    if is_invoice_format_variant(inv1, inv2, raw1, raw2):
+        return False
+    try:
+        o1 = ocr_canonical_invoice(inv1)
+        o2 = ocr_canonical_invoice(inv2)
+        if o1 and o2 and o1 == o2:
+            return False
+    except Exception:
+        pass
+
+    # Check digit transposition (e.g. SL192825 vs SL912825)
+    d1 = "".join(re.findall(r"\d", inv1)).lstrip("0")
+    d2 = "".join(re.findall(r"\d", inv2)).lstrip("0")
+    if len(d1) >= 3 and len(d2) >= 3 and Counter(d1) == Counter(d2):
+        return False
+
+    def _extract_nums(s: str) -> list[int]:
+        return [int(m) for m in re.findall(r"\d+", s)]
+
+    r1 = raw1 or inv1
+    r2 = raw2 or inv2
+    nums1 = _extract_nums(r1)
+    nums2 = _extract_nums(r2)
+    if nums1 and nums2:
+        last1 = nums1[-1]
+        last2 = nums2[-1]
+        if last1 != last2:
+            # If the difference between trailing numbers is > 1 (e.g. 0441 vs 0445, diff = 4),
+            # and they share series prefix, they are distinct sequential invoices.
+            if abs(last1 - last2) > 1:
+                m1 = re.search(r"\d+$", inv1)
+                m2 = re.search(r"\d+$", inv2)
+                if m1 and m2:
+                    pref1 = inv1[: m1.start()]
+                    pref2 = inv2[: m2.start()]
+                    if pref1 and pref1 == pref2:
+                        return True
+                if len(nums1) > 1 and len(nums2) > 1 and nums1[:-1] == nums2[:-1]:
+                    return True
+    return False
+
+
 def flag_fuzzy_duplicates_of_linked_prs(
     state: ReconState,
     pr_records: list[dict],
@@ -1293,15 +1347,13 @@ def flag_fuzzy_duplicates_of_linked_prs(
             c_date = _parse_invoice_date(cp)
             exact_inv = c_inv == inv
             if not exact_inv:
-                if p_date and c_date and p_date != c_date:
-                    if is_sequential_series_mismatch(
-                        inv,
-                        c_inv,
-                        str(p.get("invoice_number") or ""),
-                        str(cp.get("invoice_number") or ""),
-                        is_note=_is_note_document(p) or _is_note_document(cp),
-                    ):
-                        continue
+                if _is_distinct_sequential_invoices(
+                    inv,
+                    c_inv,
+                    str(p.get("invoice_number") or ""),
+                    str(cp.get("invoice_number") or ""),
+                ):
+                    continue
             sim = 1.0 if exact_inv else invoice_similarity(inv, c_inv)
             if not exact_inv and sim < invoice_sim_min:
                 ok_digit, _ = _invoice_twin_similarity_ok(
@@ -2348,21 +2400,33 @@ def _invoice_twin_similarity_ok(
     return False, sim
 
 
-def _peer_pr_invoice_clone_ok(a_inv: str, b_inv: str) -> tuple[bool, float]:
-    """Stricter identity for unlinked PR↔PR clones.
+def _peer_pr_invoice_clone_ok(
+    a_inv: str,
+    b_inv: str,
+    a_raw: str | None = None,
+    b_raw: str | None = None,
+) -> tuple[bool, float]:
+    """Stricter identity for PR↔PR duplicates.
 
-    Unlinked rows have no GSTR anchor to corroborate identity. To prevent
-    sequential invoices in the same series (e.g. '00242' vs '00272') from
-    collapsing into Duplicate Entry, unlinked peer clones require:
+    To prevent sequential invoices in the same series (e.g. '0441' vs '0445',
+    '00242' vs '00272') from collapsing into Duplicate Entry, PR clones require:
     1. Exact normalized equality (a_inv == b_inv), OR
     2. True invoice format variant (is_invoice_format_variant), OR
-    3. Mangled prefix typo with identical numeric core (ga == gb, len >= 4).
+    3. Identical OCR canonical transliteration, OR
+    4. Mangled prefix typo with identical numeric core (ga == gb, len >= 4).
     """
     if a_inv == b_inv:
         return True, 1.0
-    from app.services.matcher import is_invoice_format_variant
-    if is_invoice_format_variant(a_inv, b_inv):
+    from app.services.matcher import is_invoice_format_variant, ocr_canonical_invoice
+    if is_invoice_format_variant(a_inv, b_inv, a_raw, b_raw):
         return True, 1.0
+    try:
+        o1 = ocr_canonical_invoice(a_inv)
+        o2 = ocr_canonical_invoice(b_inv)
+        if o1 and o2 and o1 == o2:
+            return True, 1.0
+    except Exception:
+        pass
     sim = invoice_similarity(a_inv, b_inv)
     if sim >= 0.75:
         ga, gb = _invoice_digit_core(a_inv), _invoice_digit_core(b_inv)

@@ -143,11 +143,6 @@ def _period_mmm_yyyy(period: str) -> str:
 
 
 def _format_period_range(period_raw: str, all_dates: list[str] | None = None) -> str:
-    """Format period label; prefers the declared reconciliation period."""
-    if period_raw and str(period_raw).strip() not in ("", "—", "-"):
-        p_str = _period_mmm_yyyy(str(period_raw).strip())
-        if p_str and p_str != "—":
-            return p_str
     if all_dates:
         valid_dates = []
         for d in all_dates:

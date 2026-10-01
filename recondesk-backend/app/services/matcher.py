@@ -542,8 +542,9 @@ def is_sequential_series_mismatch(
                 or _RE_NOTE_IDENTIFIER.search(r1)
                 or _RE_NOTE_IDENTIFIER.search(r2)
             )
-            if levenshtein(n1, n2) == 1 and is_note_doc:
-                return False
+            if levenshtein(n1, n2) == 1:
+                if is_note_doc or abs(last1 - last2) != 1:
+                    return False
 
             # 1. Same leading alphabetic prefix (e.g. "INV" on both)
             p1 = _RE_LEADING_ALPHA.match(n1)

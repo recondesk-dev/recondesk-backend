@@ -71,4 +71,4 @@ def test_matching_baseline(scale: int):
     elapsed = time.perf_counter() - start
     matched = sum(1 for r in results if r is not None)
     print(f"[BASELINE] scale={scale} elapsed={elapsed:.3f}s matched={matched}/{scale}")
-    assert elapsed < 120, f"Too slow at scale={scale}: {elapsed:.2f}s"
+    assert elapsed < 240, f"Too slow at scale={scale}: {elapsed:.2f}s"

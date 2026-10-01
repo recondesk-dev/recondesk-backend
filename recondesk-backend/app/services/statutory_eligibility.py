@@ -460,7 +460,7 @@ def evaluate_section_16_4(
                             pass
 
     if not eval_ref:
-        eval_ref = date.today()
+        return Section16_4Status.OPEN, cutoff_date, fy_label
 
     if eval_ref > cutoff_date:
         return Section16_4Status.TIME_BARRED, cutoff_date, fy_label
