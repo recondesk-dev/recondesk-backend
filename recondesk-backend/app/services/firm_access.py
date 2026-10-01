@@ -226,6 +226,27 @@ def assert_firm_read_notes(
 
 def assert_run_accessible(sb: Client, run_id: str, current_user: dict) -> dict:
     """Load reconciliation_run; 403 if missing or not in accessible client scope."""
+    # 1. Dual-read: check Aurora reconciliation repository first
+    try:
+        from app.repositories.reconciliation import get_reconciliation_repository
+        repo = get_reconciliation_repository()
+        if repo is not None:
+            aurora_run = repo.get_run(run_id)
+            if aurora_run is not None:
+                cg = str(aurora_run.get("client_gstin_id", "")).strip()
+                allowed = list_accessible_client_gstin_ids(sb, current_user)
+                if cg not in allowed:
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail="Access denied",
+                    )
+                return aurora_run
+    except HTTPException:
+        raise
+    except Exception as exc:
+        _log.warning("Aurora assert_run_accessible failed: %s", type(exc).__name__)
+
+    # 2. Supabase fallback
     res = (
         sb.table("reconciliation_run")
         .select(

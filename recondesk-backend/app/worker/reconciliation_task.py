@@ -469,6 +469,26 @@ def _load_gstr_matcher_and_raw(
     client: Client, run_id: str
 ) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]]]:
     """Batched read of GSTR lines; returns matcher rows + *id* → *record_data* for compliance."""
+    # 1. Dual-read: check Aurora reconciliation repository first
+    try:
+        from app.repositories.reconciliation import get_reconciliation_repository
+        repo = get_reconciliation_repository()
+        if repo is not None:
+            aurora_gstr = repo.get_gstr_records(run_id)
+            if aurora_gstr is not None:
+                out = []
+                raw_by_id = {}
+                for row in aurora_gstr:
+                    rid = str(row.get("id", ""))
+                    rd = row.get("record_data")
+                    if isinstance(rd, dict):
+                        raw_by_id[rid] = rd
+                    out.append(rec_adapt.gstr_db_row_to_matcher_row(row))
+                return (out, raw_by_id)
+    except Exception as exc:
+        _log.warning("Aurora _load_gstr_matcher_and_raw failed: %s", type(exc).__name__)
+
+    # 2. Supabase fallback
     out: list[dict[str, Any]] = []
     raw_by_id: dict[str, dict[str, Any]] = {}
     offset = 0

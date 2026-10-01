@@ -182,6 +182,26 @@ def _load_gstr_map(sb: Client, run_id: str) -> dict[str, dict[str, Any]]:
             cache[ck] = proc_hit
             return proc_hit
 
+        # 1. Dual-read: check Aurora reconciliation repository first
+        try:
+            from app.repositories.reconciliation import get_reconciliation_repository
+            repo = get_reconciliation_repository()
+            if repo is not None:
+                aurora_gstr = repo.get_gstr_records(run_id)
+                if aurora_gstr is not None:
+                    out = {}
+                    for row in aurora_gstr:
+                        out[str(row["id"])] = {
+                            "matcher": rec_adapt.gstr_db_row_to_matcher_row(row),
+                            "record_data": row.get("record_data") or {},
+                        }
+                    _process_map_set(ck, out)
+                    cache[ck] = out
+                    return out
+        except Exception as exc:
+            _log.warning("Aurora _load_gstr_map failed: %s", type(exc).__name__)
+
+        # 2. Supabase fallback
         out: dict[str, dict[str, Any]] = {}
         count_res = (
             sb.table("gstr_records")
@@ -232,6 +252,26 @@ def _load_pr_map(sb: Client, run_id: str) -> dict[str, dict[str, Any]]:
             cache[ck] = proc_hit
             return proc_hit
 
+        # 1. Dual-read: check Aurora reconciliation repository first
+        try:
+            from app.repositories.reconciliation import get_reconciliation_repository
+            repo = get_reconciliation_repository()
+            if repo is not None:
+                aurora_pr = repo.get_pr_records(run_id)
+                if aurora_pr is not None:
+                    out = {}
+                    for row in aurora_pr:
+                        out[str(row["id"])] = {
+                            "matcher": rec_adapt.pr_db_row_to_matcher_row(row),
+                            "record_data": row.get("record_data") or {},
+                        }
+                    _process_map_set(ck, out)
+                    cache[ck] = out
+                    return out
+        except Exception as exc:
+            _log.warning("Aurora _load_pr_map failed: %s", type(exc).__name__)
+
+        # 2. Supabase fallback
         out: dict[str, dict[str, Any]] = {}
         count_res = (
             sb.table("pr_records")
@@ -1567,6 +1607,21 @@ def load_payload(sb: Client, run_id: str) -> dict[str, Any]:
     hit = cache.get(ck)
     if hit is not None:
         return hit
+
+    # 1. Dual-read: check Aurora reconciliation repository first
+    try:
+        from app.repositories.reconciliation import get_reconciliation_repository
+        repo = get_reconciliation_repository()
+        if repo is not None:
+            aurora_res = repo.get_reconciliation_results(run_id)
+            if aurora_res is not None:
+                out = _merge_payload_blobs(aurora_res.get("record_data"), aurora_res.get("payload"))
+                cache[ck] = out
+                return out
+    except Exception as exc:
+        _log.warning("Aurora load_payload failed: %s", type(exc).__name__)
+
+    # 2. Supabase fallback
     r = (
         sb.table("reconciliation_results")
         .select("record_data, payload")

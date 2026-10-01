@@ -358,7 +358,8 @@ def save_reconciliation_results(
     
     payload_str = json.dumps(payload)
     compressed_payload = base64.b64encode(gzip.compress(payload_str.encode("utf-8"))).decode("utf-8")
-    
+
+    # 1. Authoritative primary datastore: Supabase
     client.table("reconciliation_results").delete().eq("run_id", run_id).execute()
     res_ins = (
         client.table("reconciliation_results")
@@ -373,3 +374,16 @@ def save_reconciliation_results(
     )
     if res_ins.data is None and getattr(res_ins, "error", None):
         raise RuntimeError(f"reconciliation_results insert failed: {res_ins.error}")
+
+    # 2. Secondary datastore: Aurora replica (non-fatal if Aurora unconfigured/fails)
+    try:
+        from app.repositories.reconciliation import get_reconciliation_repository
+        repo = get_reconciliation_repository()
+        if repo is not None:
+            repo.save_reconciliation_results(
+                run_id=run_id,
+                payload=compressed_payload,
+                created_at=created_at,
+            )
+    except Exception as exc:
+        _log.warning("Aurora save_reconciliation_results failed: %s", type(exc).__name__)
