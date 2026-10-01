@@ -78,6 +78,8 @@ def apply_confidence_auto_approve(
                 approved["auto_approve_from_review_reason"] = (
                     approved.get("review_reason") or approved.get("reason")
                 )
+            if approved.get("match_level") in (0, None):
+                approved["match_level"] = 1 if _row_confidence_score(row) == 100 else 2
             promoted.append(approved)
         else:
             kept.append(row)
