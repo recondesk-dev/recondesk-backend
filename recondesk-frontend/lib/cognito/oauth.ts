@@ -153,3 +153,55 @@ export async function exchangeCodeForTokens(params: {
 
   return (await response.json()) as CognitoTokenResponse;
 }
+
+export interface CognitoRefreshResponse {
+  access_token: string;
+  id_token?: string;
+  refresh_token?: string;
+  token_type: string;
+  expires_in: number;
+}
+
+/**
+ * Exchanges a Cognito refresh token for fresh tokens using OAuth 2.0 grant_type=refresh_token.
+ * Does not expose credentials to client code.
+ */
+export async function refreshCognitoTokens(params: {
+  refreshToken: string;
+  config?: CognitoOAuthConfig;
+  fetchFn?: typeof fetch;
+}): Promise<CognitoRefreshResponse> {
+  const cfg = params.config || getCognitoOAuthConfig();
+  const tokenUrl = getCognitoTokenUrl(cfg);
+  const fetchImpl = params.fetchFn || fetch;
+
+  const headers = new Headers({
+    "Content-Type": "application/x-www-form-urlencoded",
+  });
+
+  if (cfg.clientSecret) {
+    const basicAuth = Buffer.from(`${cfg.clientId}:${cfg.clientSecret}`).toString("base64");
+    headers.set("Authorization", `Basic ${basicAuth}`);
+  }
+
+  const body = new URLSearchParams({
+    grant_type: "refresh_token",
+    client_id: cfg.clientId,
+    refresh_token: params.refreshToken,
+  });
+
+  const response = await fetchImpl(tokenUrl, {
+    method: "POST",
+    headers,
+    body: body.toString(),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => "");
+    throw new Error(
+      `Cognito token refresh failed (${response.status}): ${errorText || response.statusText}`
+    );
+  }
+
+  return (await response.json()) as CognitoRefreshResponse;
+}
