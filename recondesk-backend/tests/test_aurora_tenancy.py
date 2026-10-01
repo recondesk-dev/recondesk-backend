@@ -183,10 +183,10 @@ class TestTenancySchemaAndModels:
         """Verify the Aurora migration files exist and contain valid PostgreSQL DDL statements."""
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         up_path = os.path.join(
-            base_dir, "migrations", "aurora", "20261001120000_create_tenancy_tables.up.sql"
+            base_dir, "migrations", "aurora", "20260930183000_create_tenancy_tables.up.sql"
         )
         down_path = os.path.join(
-            base_dir, "migrations", "aurora", "20261001120000_create_tenancy_tables.down.sql"
+            base_dir, "migrations", "aurora", "20260930183000_create_tenancy_tables.down.sql"
         )
         assert os.path.exists(up_path), f"Missing up migration: {up_path}"
         assert os.path.exists(down_path), f"Missing down migration: {down_path}"

@@ -721,7 +721,7 @@ class TestSafeRollbackSQL:
         """Item 6: Verify transaction wrapping, absence of CASCADE, and rejection on ANY records."""
         down_sql_path = os.path.join(
             os.path.dirname(__file__),
-            "../migrations/aurora/20260930183000_create_cognito_user_mappings.down.sql",
+            "../migrations/aurora/20261001120000_create_cognito_user_mappings.down.sql",
         )
         with open(down_sql_path, "r", encoding="utf-8") as f:
             content = f.read()
@@ -979,7 +979,7 @@ class TestCognitoUserMappingMetadataColumnSchema:
 
     def test_orm_queries_table_with_actual_aurora_column_metadata(self, sqlite_engine):
         """Prove that the ORM seamlessly queries a table created with the column 'metadata'
-        (as created by migration 20260930183000_create_cognito_user_mappings.up.sql)
+        (as created by migration 20261001120000_create_cognito_user_mappings.up.sql)
         and reads/writes metadata_json without schema mismatch errors.
         """
         user_id = str(uuid.uuid4())

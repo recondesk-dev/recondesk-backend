@@ -94,10 +94,16 @@ class TestRealMigrationsDiscovery:
             assert len(v) == 14
             assert v.isdigit()
 
-        # Check known migrations are present
-        assert "20260930183000" in versions
-        assert "20261001120000" in versions
-        assert "20261001150000" in versions
+        # Check known migrations are present and in exact dependency order:
+        # 1. create_tenancy_tables (creates user_profiles, team_members, client_gstins)
+        # 2. create_cognito_user_mappings (references user_profiles)
+        # 3. create_reconciliation_tables (references client_gstins, user_profiles)
+        assert discovered[0].version == "20260930183000"
+        assert discovered[0].name == "create_tenancy_tables"
+        assert discovered[1].version == "20261001120000"
+        assert discovered[1].name == "create_cognito_user_mappings"
+        assert discovered[2].version == "20261001150000"
+        assert discovered[2].name == "create_reconciliation_tables"
 
         # Check that SHA-256 checksums are calculated
         for m in discovered:
