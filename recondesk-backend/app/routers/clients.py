@@ -203,10 +203,26 @@ def _resolve_firm_owner(sb, uid: str, role: str | None = None) -> str:
 
 @router.get("")
 async def list_clients(current_user: dict = Depends(get_current_active_user)):
-    sb = get_supabase()
-    uid = str(current_user.get("id", ""))
+    uid = str(current_user.get("id", "")).strip()
     prof = get_user_profile(uid) or {}
     role = (current_user.get("role") or prof.get("role") or "").strip().lower()
+
+    # 1. Dual-Read: Check Aurora tenancy repository first
+    aurora_clients = None
+    try:
+        from app.repositories.tenancy import get_tenancy_repository
+        repo = get_tenancy_repository()
+        if repo is not None:
+            aurora_clients = repo.list_accessible_clients(uid, role=role, limit=500)
+    except Exception as exc:
+        _log.warning("Aurora bulk client read failed: %s", type(exc).__name__)
+        aurora_clients = None
+
+    if aurora_clients is not None:
+        return aurora_clients
+
+    # 2. Aurora miss: Supabase fallback
+    sb = get_supabase()
     if role in ("admin", "owner") or not role:
         res = (
             sb.table("client_gstins")

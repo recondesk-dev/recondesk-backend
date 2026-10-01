@@ -218,6 +218,68 @@ class AuroraTenancyRepository:
             rows = session.execute(stmt).fetchall()
             return {str(r[0]) for r in rows if r[0]}
 
+    def list_accessible_clients(
+        self,
+        user_id: str,
+        role: Optional[str] = None,
+        limit: int = 500,
+    ) -> Optional[list[dict[str, Any]]]:
+        """Retrieve full active client records accessible to user_id in Aurora.
+
+        Returns:
+            None: user/tenancy identity is NOT present in Aurora (permits Supabase fallback).
+            []: user exists in Aurora but has zero accessible active clients (DO NOT fall back).
+            [dict, ...]: user exists in Aurora and has accessible active clients (DO NOT fall back).
+
+        - Admin/Owner: All active clients where firm_owner_id == user_id, ordered by added_at DESC.
+        - Staff: Only active clients where assigned_to == user_id, ordered by added_at DESC.
+        Enforces a bounded limit of maximum 500 records.
+        """
+        uid = str(user_id or "").strip()
+        if not uid:
+            return None
+
+        # Bounded limit: minimum 1, maximum 500
+        safe_limit = min(max(1, int(limit if limit is not None else 500)), 500)
+
+        with self._get_session() as session:
+            # 1. Check user existence in Aurora user_profiles
+            user_stmt = (
+                select(UserProfile.id, UserProfile.role)
+                .where(UserProfile.id == uid)
+                .limit(1)
+            )
+            user_row = session.execute(user_stmt).first()
+            if user_row is None:
+                return None  # User absent from Aurora: permit Supabase fallback
+
+            resolved_role = (role or user_row[1] or "admin").strip().lower()
+
+            # 2. Query accessible clients in Aurora
+            if resolved_role in ("admin", "owner") or not resolved_role:
+                stmt = (
+                    select(ClientGSTIN)
+                    .where(
+                        ClientGSTIN.firm_owner_id == uid,
+                        ClientGSTIN.is_active.is_(True),
+                    )
+                    .order_by(ClientGSTIN.added_at.desc())
+                    .limit(safe_limit)
+                )
+            else:
+                stmt = (
+                    select(ClientGSTIN)
+                    .where(
+                        ClientGSTIN.assigned_to == uid,
+                        ClientGSTIN.is_active.is_(True),
+                    )
+                    .order_by(ClientGSTIN.added_at.desc())
+                    .limit(safe_limit)
+                )
+
+            clients = session.scalars(stmt).all()
+            return [client.to_dict() for client in clients]
+
     def get_client_gstin(self, client_gstin_id: str) -> Optional[dict[str, Any]]:
         """Fetch client GSTIN record by primary key."""
         cid = str(client_gstin_id or "").strip()
