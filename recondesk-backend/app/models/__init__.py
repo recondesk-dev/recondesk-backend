@@ -21,6 +21,13 @@ from app.models.compliance import (
     Rule37AlertDedup,
     Rule37Resolution,
 )
+from app.models.gstr3b import (
+    Gstr3bReclaimEvent,
+    Gstr3bReconciliation,
+    Gstr3bReversalLedger,
+    Gstr3bTable4Adjustment,
+    Gstr3bTable4Summary,
+)
 
 __all__ = [
     "Base",
@@ -41,4 +48,9 @@ __all__ = [
     "Rule37Action",
     "Rule37Resolution",
     "Rule37AlertDedup",
+    "Gstr3bReversalLedger",
+    "Gstr3bTable4Summary",
+    "Gstr3bReclaimEvent",
+    "Gstr3bTable4Adjustment",
+    "Gstr3bReconciliation",
 ]
