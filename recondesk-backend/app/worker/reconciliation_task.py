@@ -706,10 +706,23 @@ def run_wizard_job(run_id: str) -> None:
     # ── progress helper ───────────────────────────────────────────────────────
     def _set_wizard_pct(pct: int, msg: str, final_status: str = None) -> None:
         now = _now_iso()
+        wiz_update = {"progress_pct": int(pct), "status_message": msg, "updated_at": now}
+        if final_status:
+            wiz_update["status"] = final_status
+
+        from app.repositories.wizard import get_wizard_repository
+        repo = get_wizard_repository()
+        if repo is not None:
+            try:
+                repo.update_run(run_id, wiz_update)
+            except Exception as exc:
+                _log.warning(
+                    "run_wizard_job: failed to update Aurora wizard progress for run_id=%s: %s",
+                    run_id,
+                    exc,
+                )
+
         try:
-            wiz_update = {"progress_pct": int(pct), "status_message": msg, "updated_at": now}
-            if final_status:
-                wiz_update["status"] = final_status
             sb.table("reconciliation_import_runs").update(wiz_update).eq("id", run_id).execute()
         except Exception as exc:
             _log.warning(
@@ -738,15 +751,26 @@ def run_wizard_job(run_id: str) -> None:
         msg = (detail or "Processing failed")[:2000]
         # reconciliation_import_runs has error_detail; reconciliation_run does not — write
         # the real exception into status_message (same as execute_reconciliation).
+        fail_update = {
+            "status": "error",
+            "error_detail": msg,
+            "status_message": "Processing failed",
+            "updated_at": now,
+        }
+        from app.repositories.wizard import get_wizard_repository
+        repo = get_wizard_repository()
+        if repo is not None:
+            try:
+                repo.update_run(run_id, fail_update)
+            except Exception as exc:
+                _log.warning(
+                    "run_wizard_job: failed to mark Aurora wizard run error run_id=%s: %s",
+                    run_id,
+                    exc,
+                )
+
         try:
-            sb.table("reconciliation_import_runs").update(
-                {
-                    "status": "error",
-                    "error_detail": msg,
-                    "status_message": "Processing failed",
-                    "updated_at": now,
-                }
-            ).eq("id", run_id).execute()
+            sb.table("reconciliation_import_runs").update(fail_update).eq("id", run_id).execute()
         except Exception as exc:
             _log.warning(
                 "run_wizard_job: failed to mark reconciliation_import_runs error run_id=%s: %s",
@@ -770,11 +794,17 @@ def run_wizard_job(run_id: str) -> None:
 
     # ── fetch wizard run ──────────────────────────────────────────────────────
     try:
-        row_res = sb.table("reconciliation_import_runs").select("*").eq("id", run_id).limit(1).execute()
-        if not row_res.data:
-            _log.error("run_wizard_job: wizard run %s not found", run_id)
-            return
-        row = row_res.data[0]
+        from app.repositories.wizard import get_wizard_repository
+        repo = get_wizard_repository()
+        row = None
+        if repo is not None:
+            row = repo.get_run(run_id)
+        if not row:
+            row_res = sb.table("reconciliation_import_runs").select("*").eq("id", run_id).limit(1).execute()
+            if not row_res.data:
+                _log.error("run_wizard_job: wizard run %s not found", run_id)
+                return
+            row = row_res.data[0]
     except Exception as exc:
         _log.exception("run_wizard_job: failed to fetch wizard run %s", run_id)
         _fail(str(exc))
@@ -1259,17 +1289,25 @@ def execute_reconciliation(run_id: str) -> None:
         # Batch-level ITC claim period from the import wizard (optional).
         itc_claimed_period: str | None = None
         try:
-            ir_res = (
-                client.table("reconciliation_import_runs")
-                .select("itc_claimed_period")
-                .eq("id", run_id)
-                .limit(1)
-                .execute()
-            )
-            if ir_res.data:
-                raw_icp = ir_res.data[0].get("itc_claimed_period")
-                if raw_icp:
-                    itc_claimed_period = str(raw_icp).strip()[:7] or None
+            from app.repositories.wizard import get_wizard_repository
+            w_repo = get_wizard_repository()
+            raw_icp = None
+            if w_repo is not None:
+                r_wiz = w_repo.get_run(run_id)
+                if r_wiz:
+                    raw_icp = r_wiz.get("itc_claimed_period")
+            if not raw_icp:
+                ir_res = (
+                    client.table("reconciliation_import_runs")
+                    .select("itc_claimed_period")
+                    .eq("id", run_id)
+                    .limit(1)
+                    .execute()
+                )
+                if ir_res.data:
+                    raw_icp = ir_res.data[0].get("itc_claimed_period")
+            if raw_icp:
+                itc_claimed_period = str(raw_icp).strip()[:7] or None
         except Exception:
             _log.exception(
                 "execute_reconciliation: could not load itc_claimed_period for %s",

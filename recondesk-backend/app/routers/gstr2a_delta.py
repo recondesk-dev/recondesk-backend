@@ -109,17 +109,27 @@ def _resolve_latest_2b_run(
 
         # 2. Check reconciliation_import_runs for soft-delete or richer file metadata
         import_map: dict[str, dict[str, Any]] = {}
-        try:
-            imp_res = (
-                sb.table("reconciliation_import_runs")
-                .select("id, gstr2b_file_name, gstr2b_file_size, gstr2b_uploaded_at, gstr2b_deleted_at, gstr2b_record_count")
-                .in_("id", candidate_ids)
-                .execute()
-            )
-            for row in (imp_res.data or []):
-                import_map[str(row["id"])] = row
-        except Exception as exc:
-            logger.debug("reconciliation_import_runs lookup failed: %s", exc)
+        from app.repositories.wizard import get_wizard_repository
+        w_repo = get_wizard_repository()
+        if w_repo is not None:
+            try:
+                for row in w_repo.get_runs_by_ids(candidate_ids):
+                    import_map[str(row["id"])] = row
+            except Exception as exc:
+                logger.debug("Aurora candidate runs lookup failed: %s", exc)
+
+        if not import_map:
+            try:
+                imp_res = (
+                    sb.table("reconciliation_import_runs")
+                    .select("id, gstr2b_file_name, gstr2b_file_size, gstr2b_uploaded_at, gstr2b_deleted_at, gstr2b_record_count")
+                    .in_("id", candidate_ids)
+                    .execute()
+                )
+                for row in (imp_res.data or []):
+                    import_map[str(row["id"])] = row
+            except Exception as exc:
+                logger.debug("reconciliation_import_runs lookup failed: %s", exc)
 
         # 3. Pick latest run that was not soft-deleted
         for run in candidates:

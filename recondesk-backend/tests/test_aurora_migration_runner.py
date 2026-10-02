@@ -104,6 +104,9 @@ class TestRealMigrationsDiscovery:
         assert discovered[1].name == "create_cognito_user_mappings"
         assert discovered[2].version == "20261001150000"
         assert discovered[2].name == "create_reconciliation_tables"
+        if len(discovered) >= 4:
+            assert discovered[3].version == "20261003100000"
+            assert discovered[3].name == "create_wizard_ingestion_tables"
 
         # Check that SHA-256 checksums are calculated
         for m in discovered:

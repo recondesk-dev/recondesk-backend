@@ -143,42 +143,83 @@ def validate_mapping_items(items: list[MappingItem]) -> None:
         )
 
 
-def get_mappings(sb: Client, client_gstin_id: str) -> list[dict[str, Any]]:
-    res = (
-        sb.table(T_MAPPINGS)
-        .select("id, client_gstin_id, source_column_name, target_field, created_at, updated_at")
-        .eq("client_gstin_id", client_gstin_id)
-        .order("target_field")
-        .execute()
-    )
-    return list(res.data or [])
+def get_mappings(sb: Optional[Client], client_gstin_id: str) -> list[dict[str, Any]]:
+    from app.repositories.wizard import get_wizard_repository
+    repo = get_wizard_repository()
+    if repo is not None:
+        try:
+            return repo.get_client_mappings(client_gstin_id)
+        except Exception as exc:
+            _log.warning("Aurora get_client_mappings failed for %s: %s", client_gstin_id, exc)
+
+    if sb is not None:
+        try:
+            res = (
+                sb.table(T_MAPPINGS)
+                .select("id, client_gstin_id, source_column_name, target_field, created_at, updated_at")
+                .eq("client_gstin_id", client_gstin_id)
+                .order("target_field")
+                .execute()
+            )
+            return list(res.data or [])
+        except Exception:
+            pass
+    return []
 
 
-def get_mappings_or_none(sb: Client, client_gstin_id: str) -> Optional[list[dict[str, Any]]]:
+def get_mappings_or_none(sb: Optional[Client], client_gstin_id: str) -> Optional[list[dict[str, Any]]]:
     rows = get_mappings(sb, client_gstin_id)
     return rows if rows else None
 
 
 def save_mappings(
-    sb: Client, client_gstin_id: str, items: list[MappingItem]
+    sb: Optional[Client], client_gstin_id: str, items: list[MappingItem]
 ) -> list[dict[str, Any]]:
     validate_mapping_items(items)
-    sb.table(T_MAPPINGS).delete().eq("client_gstin_id", client_gstin_id).execute()
-    rows = [
-        {
-            "client_gstin_id": client_gstin_id,
-            "source_column_name": item.source_column_name.strip(),
-            "target_field": item.target_field.value,
-        }
-        for item in items
-    ]
-    if rows:
-        sb.table(T_MAPPINGS).insert(rows).execute()
-    return get_mappings(sb, client_gstin_id)
+    from app.repositories.wizard import get_wizard_repository
+    repo = get_wizard_repository()
+    result = None
+    if repo is not None:
+        try:
+            result = repo.save_client_mappings(client_gstin_id, items)
+        except Exception as exc:
+            _log.warning("Aurora save_client_mappings failed for %s: %s", client_gstin_id, exc)
+
+    if sb is not None:
+        try:
+            sb.table(T_MAPPINGS).delete().eq("client_gstin_id", client_gstin_id).execute()
+            rows = [
+                {
+                    "client_gstin_id": client_gstin_id,
+                    "source_column_name": item.source_column_name.strip(),
+                    "target_field": item.target_field.value,
+                }
+                for item in items
+            ]
+            if rows:
+                sb.table(T_MAPPINGS).insert(rows).execute()
+            if result is None:
+                result = get_mappings(sb, client_gstin_id)
+        except Exception as exc:
+            _log.warning("Supabase save_mappings failed for %s: %s", client_gstin_id, exc)
+
+    return result if result is not None else get_mappings(sb, client_gstin_id)
 
 
-def delete_mappings(sb: Client, client_gstin_id: str) -> None:
-    sb.table(T_MAPPINGS).delete().eq("client_gstin_id", client_gstin_id).execute()
+def delete_mappings(sb: Optional[Client], client_gstin_id: str) -> None:
+    from app.repositories.wizard import get_wizard_repository
+    repo = get_wizard_repository()
+    if repo is not None:
+        try:
+            repo.delete_client_mappings(client_gstin_id)
+        except Exception as exc:
+            _log.warning("Aurora delete_client_mappings failed for %s: %s", client_gstin_id, exc)
+
+    if sb is not None:
+        try:
+            sb.table(T_MAPPINGS).delete().eq("client_gstin_id", client_gstin_id).execute()
+        except Exception:
+            pass
 
 
 def mapping_covers_headers(

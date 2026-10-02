@@ -5581,27 +5581,38 @@ async def delete_reconcile_run(
                 )
 
         # Import-wizard uploads share the same run UUID but live in a separate table.
+        import_row = None
         try:
-            import_res = (
-                sb.table("reconciliation_import_runs")
-                .select("id, gstr2b_r2_key, pr_r2_key")
-                .eq("id", rid)
-                .limit(1)
-                .execute()
-            )
-            import_row = (import_res.data or [None])[0]
-            if import_row:
-                for key_name in ("gstr2b_r2_key", "pr_r2_key"):
-                    key_val = import_row.get(key_name)
-                    if key_val:
-                        r2_keys.append(str(key_val))
+            from app.repositories.wizard import get_wizard_repository
+            w_repo = get_wizard_repository()
+            if w_repo is not None:
+                import_row = w_repo.get_run(rid)
         except Exception as exc:
-            _log.warning(
-                "could not load reconciliation_import_runs for run %s: %s",
-                rid,
-                exc,
-            )
-            import_row = None
+            _log.warning("could not load Aurora reconciliation_import_runs for run %s: %s", rid, exc)
+
+        if not import_row:
+            try:
+                import_res = (
+                    sb.table("reconciliation_import_runs")
+                    .select("id, gstr2b_r2_key, pr_r2_key")
+                    .eq("id", rid)
+                    .limit(1)
+                    .execute()
+                )
+                import_row = (import_res.data or [None])[0]
+            except Exception as exc:
+                _log.warning(
+                    "could not load reconciliation_import_runs for run %s: %s",
+                    rid,
+                    exc,
+                )
+                import_row = None
+
+        if import_row:
+            for key_name in ("gstr2b_r2_key", "pr_r2_key"):
+                key_val = import_row.get(key_name)
+                if key_val:
+                    r2_keys.append(str(key_val))
 
         # 1. Authoritative primary deletion: Supabase
         if full and full.data:

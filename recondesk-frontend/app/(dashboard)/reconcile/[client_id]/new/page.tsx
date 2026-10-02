@@ -24,7 +24,7 @@ import {
   RegisterTypeDetectionBanner,
 } from "@/components/reconcile/TallyRegisterImportHints";
 import { FileDropzone } from "@/components/ui/FileDropzone";
-import { createClient, subscribeAccessToken } from "@/lib/supabase/client";
+import { subscribeAccessToken } from "@/lib/supabase/client";
 
 const MAX_UPLOAD = 20 * 1024 * 1024;
 const ACTIVE_STATUSES = ["draft", "gstr_uploaded", "pr_uploaded", "pending", "processing"] as const;
@@ -379,7 +379,6 @@ export default function NewReconcileWizardPage() {
     if (typeof token !== "string" || !clientId) return;
     let cancelled = false;
     (async () => {
-      const supabase = createClient();
       const qRunId = searchParams.get("run_id");
       if (qRunId) {
         try {
@@ -413,20 +412,14 @@ export default function NewReconcileWizardPage() {
         return;
       }
 
-      const { data: active } = await (
-        supabase as unknown as {
-          from: (table: string) => ReturnType<typeof supabase.from>;
+      try {
+        const { run: active } = await importWizardApi.checkActiveRun(token, clientId);
+        if (cancelled) return;
+        if (active?.id) {
+          setIncompleteNotice(active as ImportWizardRun);
         }
-      )
-        .from("reconciliation_import_runs")
-        .select("*")
-        .eq("client_id", clientId)
-        .in("status", [...ACTIVE_STATUSES])
-        .maybeSingle();
-
-      if (cancelled) return;
-      if (active?.id) {
-        setIncompleteNotice(active as ImportWizardRun);
+      } catch {
+        // Non-blocking check
       }
     })();
     return () => {
@@ -451,19 +444,12 @@ export default function NewReconcileWizardPage() {
     if (typeof token !== "string" || !clientId || !period) return;
     let cancelled = false;
     (async () => {
-      const supabase = createClient();
-      const { data } = await (
-        supabase as unknown as {
-          from: (table: string) => ReturnType<typeof supabase.from>;
-        }
-      )
-        .from("reconciliation_import_runs")
-        .select("id")
-        .eq("client_id", clientId)
-        .eq("period", period)
-        .eq("status", "complete")
-        .maybeSingle();
-      if (!cancelled) setCompletedForPeriod(!!data?.id);
+      try {
+        const { completed } = await importWizardApi.checkCompletedForPeriod(token, clientId, period);
+        if (!cancelled) setCompletedForPeriod(completed);
+      } catch {
+        // Non-blocking check
+      }
     })();
     return () => {
       cancelled = true;

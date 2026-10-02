@@ -119,6 +119,29 @@ def _pg_unique_violation(exc: BaseException) -> bool:
     )
 
 
+def _update_run_record(
+    sb: Optional[Client], run_id: str | uuid.UUID, patch: dict[str, Any]
+) -> Optional[dict[str, Any]]:
+    rid = str(run_id)
+    from app.repositories.wizard import get_wizard_repository
+    repo = get_wizard_repository()
+    updated = None
+    if repo is not None:
+        try:
+            updated = repo.update_run(rid, patch)
+        except Exception as exc:
+            _log.warning("Aurora update_run failed for %s: %s", rid, exc)
+
+    if sb is not None:
+        try:
+            res = sb.table(ws.T_RUNS).update(patch).eq("id", rid).execute()
+            if not updated and res.data:
+                updated = res.data[0]
+        except Exception as exc:
+            _log.warning("Supabase update_run failed for %s: %s", rid, exc)
+    return updated
+
+
 @router.post("/runs")
 async def create_run(
     body: CreateRunBody,
@@ -136,44 +159,145 @@ async def create_run(
         "current_step": 1,
         "created_by": user_id,
     }
-    try:
-        res = sb.table(ws.T_RUNS).insert(row).execute()
-    except Exception as exc:  # noqa: BLE001
-        if _pg_unique_violation(exc):
-            # Partial unique index only covers active statuses. Never return a
-            # cancelled/complete/error row here — that trapped the wizard on a
-            # dead run_id and made GSTR-2B signed-url return 409.
-            existing_q = (
-                sb.table(ws.T_RUNS)
-                .select("*")
-                .eq("client_id", str(body.client_id))
-                .eq("period", period_iso)
-                .in_(
-                    "status",
-                    [
-                        "draft",
-                        "gstr_uploaded",
-                        "pr_uploaded",
-                        "pending",
-                        "processing",
-                    ],
-                )
-                .order("updated_at", desc=True)
-                .limit(1)
-                .execute()
+
+    from app.repositories.wizard import get_wizard_repository
+    repo = get_wizard_repository()
+    data = None
+    if repo is not None:
+        try:
+            existing_active = repo.find_active_run_for_client_and_period(
+                str(body.client_id), period_iso
             )
-            if existing_q.data:
-                ex = existing_q.data[0]
-                ws.assert_client_access(sb, ex["client_id"], user_id)
-                return ex
-            # Active row raced to terminal — retry once so a fresh draft is created.
+            if existing_active:
+                ws.assert_client_access(sb, existing_active["client_id"], user_id)
+                return existing_active
+            data = repo.create_run(row)
+        except Exception as exc:
+            if _pg_unique_violation(exc):
+                existing_active = repo.find_active_run_for_client_and_period(
+                    str(body.client_id), period_iso
+                )
+                if existing_active:
+                    ws.assert_client_access(sb, existing_active["client_id"], user_id)
+                    return existing_active
+            _log.warning("Aurora create_run failed, attempting Supabase: %s", exc)
+
+    if sb is not None:
+        try:
+            if data and data.get("id"):
+                row["id"] = data["id"]
             res = sb.table(ws.T_RUNS).insert(row).execute()
-        else:
-            raise
-    data = res.data[0]
+            if not data and res.data:
+                data = res.data[0]
+        except Exception as exc:  # noqa: BLE001
+            if _pg_unique_violation(exc):
+                # Partial unique index only covers active statuses. Never return a
+                # cancelled/complete/error row here — that trapped the wizard on a
+                # dead run_id and made GSTR-2B signed-url return 409.
+                existing_q = (
+                    sb.table(ws.T_RUNS)
+                    .select("*")
+                    .eq("client_id", str(body.client_id))
+                    .eq("period", period_iso)
+                    .in_(
+                        "status",
+                        [
+                            "draft",
+                            "gstr_uploaded",
+                            "pr_uploaded",
+                            "pending",
+                            "processing",
+                        ],
+                    )
+                    .order("updated_at", desc=True)
+                    .limit(1)
+                    .execute()
+                )
+                if existing_q.data:
+                    ex = existing_q.data[0]
+                    ws.assert_client_access(sb, ex["client_id"], user_id)
+                    return ex
+                # Active row raced to terminal — retry once so a fresh draft is created.
+                res = sb.table(ws.T_RUNS).insert(row).execute()
+                if not data and res.data:
+                    data = res.data[0]
+            elif not data:
+                raise
+
+    if not data:
+        raise HTTPException(
+            status.HTTP_500_INTERNAL_SERVER_ERROR, "Failed to create run"
+        )
+
     ws.audit(sb, data["id"], user_id, "run_created", {"period": period_iso})
     invalidate_user_dashboard(user_id)
     return JSONResponse(status_code=status.HTTP_201_CREATED, content=data)
+
+
+@router.get("/runs/active")
+async def get_active_run_for_client(
+    client_id: uuid.UUID = Query(...),
+    user_id: str = Depends(get_current_user_id),
+):
+    """Return the most recently updated active wizard run for a client, if any."""
+    sb = get_supabase()
+    cid = str(client_id)
+    ws.assert_client_access(sb, cid, user_id)
+
+    from app.repositories.wizard import get_wizard_repository
+    repo = get_wizard_repository()
+    if repo is not None:
+        try:
+            active = repo.find_active_run_for_client(cid)
+            return {"run": active}
+        except Exception as exc:
+            _log.warning("Aurora find_active_run_for_client failed: %s", exc)
+
+    res = (
+        sb.table(ws.T_RUNS)
+        .select("*")
+        .eq("client_id", cid)
+        .in_("status", ["draft", "gstr_uploaded", "pr_uploaded", "pending", "processing"])
+        .order("updated_at", desc=True)
+        .limit(1)
+        .execute()
+    )
+    active = res.data[0] if res.data else None
+    return {"run": active}
+
+
+@router.get("/runs/completed")
+async def check_completed_for_period(
+    client_id: uuid.UUID = Query(...),
+    period: str = Query(...),
+    user_id: str = Depends(get_current_user_id),
+):
+    """Check if a completed reconciliation run exists for a client and period."""
+    sb = get_supabase()
+    cid = str(client_id)
+    period_iso = _period_date_iso(period)
+    ws.assert_client_access(sb, cid, user_id)
+
+    from app.repositories.wizard import get_wizard_repository
+    repo = get_wizard_repository()
+    if repo is not None:
+        try:
+            row = repo.find_completed_run_for_period(cid, period_iso)
+            return {"completed": bool(row), "id": row["id"] if row else None}
+        except Exception as exc:
+            _log.warning("Aurora find_completed_run_for_period failed: %s", exc)
+
+    res = (
+        sb.table(ws.T_RUNS)
+        .select("id")
+        .eq("client_id", cid)
+        .eq("period", period_iso)
+        .eq("status", "complete")
+        .limit(1)
+        .execute()
+    )
+    row = res.data[0] if res.data else None
+    return {"completed": bool(row), "id": row["id"] if row else None}
 
 
 @router.get("/runs/{run_id}")
@@ -210,7 +334,7 @@ async def patch_run(
             patch["itc_claimed_period"] = _optional_period_or_clear(
                 body.itc_claimed_period
             )
-    sb.table(ws.T_RUNS).update(patch).eq("id", str(run_id)).execute()
+    _update_run_record(sb, str(run_id), patch)
     ws.audit(sb, str(run_id), user_id, "run_updated", patch)
     return ws.fetch_run(sb, str(run_id))
 
@@ -337,9 +461,11 @@ async def gstr2b_upload_complete(
         )
     else:
         # Already on GSTR-2B step — replace file in place (no status transition).
-        sb.table(ws.T_RUNS).update(
-            {**file_patch, "updated_at": datetime.now(timezone.utc).isoformat()}
-        ).eq("id", str(run_id)).execute()
+        _update_run_record(
+            sb,
+            str(run_id),
+            {**file_patch, "updated_at": datetime.now(timezone.utc).isoformat()},
+        )
         ws.audit(
             sb,
             str(run_id),
@@ -452,15 +578,17 @@ async def sanity_check_gstr2b(
         warning=isd_impg.get("isd_impg_warning"),
     )
 
-    sb.table(ws.T_RUNS).update(
+    _update_run_record(
+        sb,
+        str(run_id),
         {
             "sanity_check_results": checks,
             "gstr2b_record_count": record_count,
             "run_summary": run_summary,
             "current_step": 2,
             "updated_at": datetime.now(timezone.utc).isoformat(),
-        }
-    ).eq("id", str(run_id)).execute()
+        },
+    )
     ws.audit(sb, str(run_id), user_id, "sanity_check_gstr2b", {"checks": checks})
     return {"checks": checks}
 
@@ -479,12 +607,14 @@ async def acknowledge_warning(
         if isinstance(item, dict) and str(item.get("id")) == str(body.check_id):
             item["acknowledged"] = True
             break
-    sb.table(ws.T_RUNS).update(
+    _update_run_record(
+        sb,
+        str(run_id),
         {
             "sanity_check_results": results,
             "updated_at": datetime.now(timezone.utc).isoformat(),
-        }
-    ).eq("id", str(run_id)).execute()
+        },
+    )
     ws.audit(
         sb,
         str(run_id),
@@ -584,7 +714,9 @@ async def detect_columns(
         check_id=ws.MISSING_INVOICE_CHECK_ID,
     )
 
-    sb.table(ws.T_RUNS).update(
+    _update_run_record(
+        sb,
+        str(run_id),
         {
             "column_mapping": columns,
             "pr_column_headers": all_headers,
@@ -592,8 +724,8 @@ async def detect_columns(
             "sanity_check_results": sanity_results,
             "current_step": 3,
             "updated_at": datetime.now(timezone.utc).isoformat(),
-        }
-    ).eq("id", str(run_id)).execute()
+        },
+    )
     ws.audit(
         sb,
         str(run_id),

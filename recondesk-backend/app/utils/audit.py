@@ -226,16 +226,24 @@ def client_display_label(db: Client, client_gstin_id: str) -> str:
 def actor_user_for_run(db: Client, run_id: str) -> Optional[dict[str, Any]]:
     """Best-effort actor profile for background jobs (import wizard created_by)."""
     try:
-        imp = (
-            db.table("reconciliation_import_runs")
-            .select("created_by")
-            .eq("id", run_id)
-            .limit(1)
-            .execute()
-        )
+        from app.repositories.wizard import get_wizard_repository
+        w_repo = get_wizard_repository()
         uid = ""
-        if imp.data:
-            uid = str(imp.data[0].get("created_by") or "").strip()
+        if w_repo is not None:
+            r = w_repo.get_run(run_id)
+            if r and r.get("created_by"):
+                uid = str(r["created_by"]).strip()
+
+        if not uid:
+            imp = (
+                db.table("reconciliation_import_runs")
+                .select("created_by")
+                .eq("id", run_id)
+                .limit(1)
+                .execute()
+            )
+            if imp.data:
+                uid = str(imp.data[0].get("created_by") or "").strip()
         if not uid:
             run = (
                 db.table("reconciliation_run")

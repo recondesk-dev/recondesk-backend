@@ -2166,6 +2166,17 @@ export const importWizardApi = {
   getRun: (token: string, runId: string) =>
     apiFetch<ImportWizardRun>(`/api/runs/${runId}`, { token }),
 
+  checkActiveRun: (token: string, clientId: string) =>
+    apiFetch<{ run: ImportWizardRun | null }>(`/api/runs/active?client_id=${encodeURIComponent(clientId)}`, {
+      token,
+    }),
+
+  checkCompletedForPeriod: (token: string, clientId: string, period: string) =>
+    apiFetch<{ completed: boolean; id?: string | null }>(
+      `/api/runs/completed?client_id=${encodeURIComponent(clientId)}&period=${encodeURIComponent(period)}`,
+      { token }
+    ),
+
   patchRun: (
     token: string,
     runId: string,

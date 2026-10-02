@@ -145,18 +145,28 @@ def _assert_run_owned_by_admin(sb, run_id: str, admin_id: str) -> tuple[dict, di
             detail="not allowed for this client",
         )
 
-    import_res = (
-        sb.table("reconciliation_import_runs")
-        .select(
-            "id, gstr2b_r2_key, gstr2b_file_name, gstr2b_file_size, gstr2b_uploaded_at, "
-            "gstr2b_deleted_at, pr_r2_key, pr_file_name, pr_file_size, pr_uploaded_at, "
-            "pr_deleted_at"
+    import_row = None
+    from app.repositories.wizard import get_wizard_repository
+    w_repo = get_wizard_repository()
+    if w_repo is not None:
+        try:
+            import_row = w_repo.get_run(run_id)
+        except Exception as exc:
+            _log.warning("Aurora get_run failed in manage_data: %s", exc)
+
+    if import_row is None:
+        import_res = (
+            sb.table("reconciliation_import_runs")
+            .select(
+                "id, gstr2b_r2_key, gstr2b_file_name, gstr2b_file_size, gstr2b_uploaded_at, "
+                "gstr2b_deleted_at, pr_r2_key, pr_file_name, pr_file_size, pr_uploaded_at, "
+                "pr_deleted_at"
+            )
+            .eq("id", run_id)
+            .limit(1)
+            .execute()
         )
-        .eq("id", run_id)
-        .limit(1)
-        .execute()
-    )
-    import_row = import_res.data[0] if import_res.data else None
+        import_row = import_res.data[0] if import_res.data else None
     return run_row, import_row
 
 
@@ -195,17 +205,28 @@ async def list_manage_data(
         return []
 
     run_ids = [str(r["id"]) for r in runs]
-    import_res = (
-        sb.table("reconciliation_import_runs")
-        .select(
-            "id, gstr2b_r2_key, gstr2b_file_name, gstr2b_file_size, gstr2b_uploaded_at, "
-            "gstr2b_deleted_at, pr_r2_key, pr_file_name, pr_file_size, pr_uploaded_at, "
-            "pr_deleted_at"
+    import_by_id: dict[str, dict[str, Any]] = {}
+    from app.repositories.wizard import get_wizard_repository
+    w_repo = get_wizard_repository()
+    if w_repo is not None:
+        try:
+            aurora_runs = w_repo.get_runs_by_ids(run_ids)
+            import_by_id = {str(row["id"]): row for row in aurora_runs}
+        except Exception as exc:
+            _log.warning("Aurora get_runs_by_ids failed in manage_data: %s", exc)
+
+    if not import_by_id:
+        import_res = (
+            sb.table("reconciliation_import_runs")
+            .select(
+                "id, gstr2b_r2_key, gstr2b_file_name, gstr2b_file_size, gstr2b_uploaded_at, "
+                "gstr2b_deleted_at, pr_r2_key, pr_file_name, pr_file_size, pr_uploaded_at, "
+                "pr_deleted_at"
+            )
+            .in_("id", run_ids)
+            .execute()
         )
-        .in_("id", run_ids)
-        .execute()
-    )
-    import_by_id = {str(row["id"]): row for row in (import_res.data or [])}
+        import_by_id = {str(row["id"]): row for row in (import_res.data or [])}
 
     out: list[ManageDataRow] = []
     for run in runs:
@@ -265,7 +286,18 @@ async def delete_manage_data_file(
 
     ws.delete_r2_keys([r2_key])
     now = datetime.now(timezone.utc).isoformat()
-    sb.table("reconciliation_import_runs").update({deleted_col: now}).eq("id", rid).execute()
+    from app.repositories.wizard import get_wizard_repository
+    w_repo = get_wizard_repository()
+    if w_repo is not None:
+        try:
+            w_repo.update_run(rid, {deleted_col: now})
+        except Exception as exc:
+            _log.warning("Aurora soft delete file failed in manage_data: %s", exc)
+
+    try:
+        sb.table("reconciliation_import_runs").update({deleted_col: now}).eq("id", rid).execute()
+    except Exception as exc:
+        _log.warning("Supabase soft delete file failed in manage_data: %s", exc)
 
     _log.info(
         "manage_data: deleted %s file for run %s (admin=%s)",

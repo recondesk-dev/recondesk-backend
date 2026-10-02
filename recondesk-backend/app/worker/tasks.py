@@ -209,13 +209,23 @@ def _update_run(
             if "updated_at" in fields:
                 wiz["updated_at"] = fields["updated_at"]
             if wiz:
-                client.table("reconciliation_import_runs").update(wiz).eq("id", run_id).execute()
-        except Exception as exc:
-            _log.warning(
-                "Failed to mirror progress to reconciliation_import_runs for run_id=%s: %s",
-                run_id,
-                exc,
-            )
+                from app.repositories.wizard import get_wizard_repository
+                w_repo = get_wizard_repository()
+                if w_repo is not None:
+                    try:
+                        w_repo.update_run(run_id, wiz)
+                    except Exception as exc:
+                        _log.warning("Failed to mirror progress to Aurora reconciliation_import_runs for run_id=%s: %s", run_id, exc)
+                try:
+                    client.table("reconciliation_import_runs").update(wiz).eq("id", run_id).execute()
+                except Exception as exc:
+                    _log.warning(
+                        "Failed to mirror progress to reconciliation_import_runs for run_id=%s: %s",
+                        run_id,
+                        exc,
+                    )
+        except Exception:
+            pass
 
 
 class ImportCancelledException(Exception):
@@ -411,6 +421,13 @@ def run_import_job(run_id: str, file_type: str, r2_key: str) -> None:
                     period = new_period
                     _update_run(client, run_id, {"period": period})
                     try:
+                        from app.repositories.wizard import get_wizard_repository
+                        w_repo = get_wizard_repository()
+                        if w_repo is not None:
+                            w_repo.update_run(run_id, {"period": f"{period}-01"})
+                    except Exception:
+                        pass
+                    try:
                         client.table("reconciliation_import_runs").update({"period": f"{period}-01"}).eq("id", run_id).execute()
                     except Exception:
                         pass
@@ -418,6 +435,13 @@ def run_import_job(run_id: str, file_type: str, r2_key: str) -> None:
                     _log.info("Updating run %s period from %s to %s based on official portal GSTR-2B", run_id, period, new_period)
                     period = new_period
                     _update_run(client, run_id, {"period": period})
+                    try:
+                        from app.repositories.wizard import get_wizard_repository
+                        w_repo = get_wizard_repository()
+                        if w_repo is not None:
+                            w_repo.update_run(run_id, {"period": f"{period}-01"})
+                    except Exception:
+                        pass
                     try:
                         client.table("reconciliation_import_runs").update({"period": f"{period}-01"}).eq("id", run_id).execute()
                     except Exception:
@@ -695,17 +719,27 @@ def run_import_job(run_id: str, file_type: str, r2_key: str) -> None:
 
         def _check_cancelled() -> bool:
             try:
-                wiz_res = (
-                    client.table("reconciliation_import_runs")
-                    .select("status")
-                    .eq("id", run_id)
-                    .limit(1)
-                    .execute()
-                )
+                from app.repositories.wizard import get_wizard_repository
+                w_repo = get_wizard_repository()
+                wiz_status = None
+                if w_repo is not None:
+                    w = w_repo.get_run(run_id)
+                    if w:
+                        wiz_status = w.get("status")
+                if not wiz_status:
+                    wiz_res = (
+                        client.table("reconciliation_import_runs")
+                        .select("status")
+                        .eq("id", run_id)
+                        .limit(1)
+                        .execute()
+                    )
+                    if wiz_res.data:
+                        wiz_status = wiz_res.data[0].get("status")
+
                 if (
-                    wiz_res.data
-                    and str(wiz_res.data[0].get("status") or "").strip().lower()
-                    == "cancelled"
+                    wiz_status
+                    and str(wiz_status).strip().lower() == "cancelled"
                 ):
                     return True
 

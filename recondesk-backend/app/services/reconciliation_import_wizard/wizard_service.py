@@ -96,19 +96,31 @@ def _r2():
     return get_storage_service().get_s3_client()
 
 
-def audit(sb: Client, run_id: str, user_id: str, event: str, detail: Optional[dict] = None) -> None:
-    sb.table(T_AUDIT).insert(
-        {
-            "run_id": run_id,
-            "user_id": user_id,
-            "event": event,
-            "detail": detail or {},
-        }
-    ).execute()
+def audit(sb: Optional[Client], run_id: str, user_id: str, event: str, detail: Optional[dict] = None) -> None:
+    from app.repositories.wizard import get_wizard_repository
+    repo = get_wizard_repository()
+    if repo is not None:
+        try:
+            repo.create_audit_log(run_id, user_id, event, detail)
+        except Exception as exc:
+            _log.warning("Aurora audit log insert failed for %s: %s", run_id, exc)
+
+    if sb is not None:
+        try:
+            sb.table(T_AUDIT).insert(
+                {
+                    "run_id": run_id,
+                    "user_id": user_id,
+                    "event": event,
+                    "detail": detail or {},
+                }
+            ).execute()
+        except Exception as exc:
+            _log.warning("Supabase audit log insert failed for %s: %s", run_id, exc)
 
 
 def transition_run(
-    sb: Client,
+    sb: Optional[Client],
     run_id: str,
     user_id: str,
     new_status: str,
@@ -117,25 +129,34 @@ def transition_run(
     audit_event: Optional[str] = None,
     audit_detail: Optional[dict] = None,
 ) -> dict:
-    row = (
-        sb.table(T_RUNS)
-        .select("*")
-        .eq("id", run_id)
-        .single()
-        .execute()
-    ).data
-    if not row:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Run not found")
+    row = fetch_run(sb, run_id)
     old = row["status"]
     try:
         state_machine.assert_transition_allowed(old, new_status)
     except ValueError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
-    patch = {"status": new_status, "updated_at": datetime.now(timezone.utc).isoformat()}
+    patch: dict[str, Any] = {"status": new_status, "updated_at": datetime.now(timezone.utc).isoformat()}
     if extra_patch:
         patch.update(extra_patch)
-    res = sb.table(T_RUNS).update(patch).eq("id", run_id).execute()
-    data = (res.data or [row])[0]
+
+    updated_data = None
+    from app.repositories.wizard import get_wizard_repository
+    repo = get_wizard_repository()
+    if repo is not None:
+        try:
+            updated_data = repo.update_run(run_id, patch)
+        except Exception as exc:
+            _log.warning("Aurora transition_run update failed for %s: %s", run_id, exc)
+
+    if sb is not None:
+        try:
+            res = sb.table(T_RUNS).update(patch).eq("id", run_id).execute()
+            if not updated_data and res.data:
+                updated_data = res.data[0]
+        except Exception as exc:
+            _log.warning("Supabase transition_run update failed for %s: %s", run_id, exc)
+
+    data = updated_data or {**row, **patch}
     audit(
         sb,
         run_id,
@@ -165,11 +186,26 @@ def presign_put(key: str, content_type: str, expires: int = 3600) -> str:
     )
 
 
-def fetch_run(sb: Client, run_id: str) -> dict:
-    r = sb.table(T_RUNS).select("*").eq("id", run_id).single().execute()
-    if not r.data:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Run not found")
-    return r.data
+def fetch_run(sb: Optional[Client], run_id: str) -> dict:
+    from app.repositories.wizard import get_wizard_repository
+    repo = get_wizard_repository()
+    if repo is not None:
+        try:
+            row = repo.get_run(run_id)
+            if row:
+                return row
+        except Exception as exc:
+            _log.warning("Aurora fetch_run failed for %s: %s", run_id, exc)
+
+    if sb is not None:
+        try:
+            r = sb.table(T_RUNS).select("*").eq("id", run_id).single().execute()
+            if r.data:
+                return r.data
+        except Exception:
+            pass
+
+    raise HTTPException(status.HTTP_404_NOT_FOUND, "Run not found")
 
 
 def assert_client_access(sb: Client, client_id: str, user_id: str) -> dict:
@@ -193,18 +229,31 @@ def assert_client_access(sb: Client, client_id: str, user_id: str) -> dict:
     raise HTTPException(status.HTTP_403_FORBIDDEN, "Access denied")
 
 
-def another_processing_run(sb: Client, client_id: str, period_iso: str, exclude_run_id: str) -> bool:
-    q = (
-        sb.table(T_RUNS)
-        .select("id")
-        .eq("client_id", client_id)
-        .eq("period", period_iso)
-        .eq("status", "processing")
-        .neq("id", exclude_run_id)
-        .limit(1)
-        .execute()
-    )
-    return bool(q.data)
+def another_processing_run(sb: Optional[Client], client_id: str, period_iso: str, exclude_run_id: str) -> bool:
+    from app.repositories.wizard import get_wizard_repository
+    repo = get_wizard_repository()
+    if repo is not None:
+        try:
+            return repo.another_processing_run(client_id, period_iso, exclude_run_id)
+        except Exception as exc:
+            _log.warning("Aurora another_processing_run failed: %s", exc)
+
+    if sb is not None:
+        try:
+            q = (
+                sb.table(T_RUNS)
+                .select("id")
+                .eq("client_id", client_id)
+                .eq("period", period_iso)
+                .eq("status", "processing")
+                .neq("id", exclude_run_id)
+                .limit(1)
+                .execute()
+            )
+            return bool(q.data)
+        except Exception:
+            pass
+    return False
 
 
 def run_sanity_gstr2b_json(
@@ -793,14 +842,25 @@ def detect_pr_columns_from_r2(
     )
 
 
-def _set_wizard_progress(sb: Client, run_id: str, pct: int, msg: str) -> None:
-    sb.table(T_RUNS).update(
-        {
-            "progress_pct": pct,
-            "status_message": msg,
-            "updated_at": datetime.now(timezone.utc).isoformat(),
-        }
-    ).eq("id", run_id).execute()
+def _set_wizard_progress(sb: Optional[Client], run_id: str, pct: int, msg: str) -> None:
+    patch = {
+        "progress_pct": pct,
+        "status_message": msg,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    from app.repositories.wizard import get_wizard_repository
+    repo = get_wizard_repository()
+    if repo is not None:
+        try:
+            repo.update_run(run_id, patch)
+        except Exception as exc:
+            _log.warning("Aurora _set_wizard_progress failed for %s: %s", run_id, exc)
+
+    if sb is not None:
+        try:
+            sb.table(T_RUNS).update(patch).eq("id", run_id).execute()
+        except Exception:
+            pass
 
 
 def run_processing_job_sync(run_id: str) -> None:
@@ -902,15 +962,21 @@ def run_processing_job_sync(run_id: str) -> None:
                 audit_detail={"error": str(e)},
             )
         except Exception:  # noqa: BLE001
+            err_patch = {
+                "status": "error",
+                "error_detail": str(e),
+                "status_message": "Processing failed",
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
+            from app.repositories.wizard import get_wizard_repository
+            repo = get_wizard_repository()
+            if repo is not None:
+                try:
+                    repo.update_run(run_id, err_patch)
+                except Exception:
+                    pass
             try:
-                sb.table(T_RUNS).update(
-                    {
-                        "status": "error",
-                        "error_detail": str(e),
-                        "status_message": "Processing failed",
-                        "updated_at": datetime.now(timezone.utc).isoformat(),
-                    }
-                ).eq("id", run_id).execute()
+                sb.table(T_RUNS).update(err_patch).eq("id", run_id).execute()
             except Exception:  # noqa: BLE001
                 pass
         raise
