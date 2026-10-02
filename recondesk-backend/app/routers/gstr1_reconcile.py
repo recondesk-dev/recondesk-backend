@@ -154,20 +154,31 @@ def _mismatch_result_to_dict(mr: MismatchResult) -> dict[str, Any]:
     return d
 
 
+DEFAULT_MAX_BUYER_GSTIN_LIVE_LOOKUPS = 20
+DEFAULT_BUYER_GSTIN_TOTAL_TIMEOUT_SECONDS = 12.0
+DEFAULT_BUYER_GSTIN_PER_CALL_TIMEOUT_SECONDS = 3.0
+
+
 async def _verify_buyer_gstins_for_g1m7(
     sr_records: list[dict[str, Any]],
     gstr1_records: list[dict[str, Any]],
     *,
     rate_limit_seconds: float = 0.15,
+    max_live_lookups: int = DEFAULT_MAX_BUYER_GSTIN_LIVE_LOOKUPS,
+    total_timeout_seconds: float = DEFAULT_BUYER_GSTIN_TOTAL_TIMEOUT_SECONDS,
+    per_call_timeout_seconds: float = DEFAULT_BUYER_GSTIN_PER_CALL_TIMEOUT_SECONDS,
 ) -> list[MismatchResult]:
     """Verify unique buyer GSTINs once per run and build G1M7 mismatches.
 
     Reuses ``app.services.gstin_verification.verify_gstin`` (Sandbox.co.in).
-    Format-invalid GSTINs are flagged without an API call. Infrastructure
-    failures are non-blocking — format flags still apply; API checks are
-    skipped for remaining GSTINs.
+    Format-invalid GSTINs are flagged locally without an API call.
+    Live external Sandbox API lookups are capped at ``max_live_lookups`` and
+    guarded by a strict time budget (``total_timeout_seconds``) to prevent
+    synchronous HTTP reconciliation timeouts on large files (e.g. 3,000+ invoices).
+    Infrastructure failures or timeouts are non-blocking.
     """
     import asyncio
+    import time
 
     from app.rules.gstr1_mismatch_rules import (
         build_g1m7_mismatches,
@@ -186,7 +197,9 @@ async def _verify_buyer_gstins_for_g1m7(
     verification_cache: dict[str, dict[str, Any]] = {}
     api_enabled = True
 
-    for gstin in sorted(gstin_refs.keys()):
+    # 1. Local format check on ALL unique buyer GSTINs (< 1ms, 0 network calls)
+    format_valid_gstins: list[str] = []
+    for gstin, refs in gstin_refs.items():
         if not gstin_format_ok(gstin):
             verification_cache[gstin] = {
                 "valid": False,
@@ -198,13 +211,62 @@ async def _verify_buyer_gstins_for_g1m7(
                 "registration_date": None,
                 "raw_response": {},
             }
-            continue
+        else:
+            format_valid_gstins.append(gstin)
 
+    # 2. Prioritize format-valid GSTINs by invoice frequency (highest impact first)
+    format_valid_gstins.sort(key=lambda g: (-len(gstin_refs.get(g, [])), g))
+
+    # Cap live lookups to prevent unbounded external HTTP requests
+    live_targets = format_valid_gstins[:max_live_lookups] if max_live_lookups > 0 else format_valid_gstins
+    if len(format_valid_gstins) > len(live_targets):
+        _log.info(
+            "gstr1_reconcile: %d format-valid buyer GSTINs detected; capping live "
+            "Sandbox verification to top %d by invoice volume to prevent HTTP timeout.",
+            len(format_valid_gstins),
+            len(live_targets),
+        )
+
+    # 3. Perform live Sandbox lookups bounded by total time budget
+    start_time = time.monotonic()
+    live_verified_count = 0
+
+    for gstin in live_targets:
         if not api_enabled:
-            continue
+            break
+
+        # Check total time budget
+        elapsed = time.monotonic() - start_time
+        if total_timeout_seconds > 0 and elapsed >= total_timeout_seconds:
+            _log.warning(
+                "gstr1_reconcile: GSTIN verification reached %.1fs time budget "
+                "(%d/%d verified). Proceeding with reconciliation.",
+                total_timeout_seconds,
+                live_verified_count,
+                len(live_targets),
+            )
+            break
 
         try:
-            verification_cache[gstin] = await verify_gstin(gstin)
+            # Enforce individual per-call timeout
+            if per_call_timeout_seconds > 0:
+                res = await asyncio.wait_for(
+                    verify_gstin(gstin),
+                    timeout=per_call_timeout_seconds,
+                )
+            else:
+                res = await verify_gstin(gstin)
+            verification_cache[gstin] = res
+            live_verified_count += 1
+        except asyncio.TimeoutError:
+            _log.warning(
+                "gstr1_reconcile: GSTIN lookup timed out for %s (%.1fs). "
+                "Skipping remaining live lookups for this run.",
+                gstin[:5] + "...",
+                per_call_timeout_seconds,
+            )
+            api_enabled = False
+            break
         except Exception as exc:  # noqa: BLE001 — never fail the recon run
             _log.error(
                 "gstr1_reconcile: GSTIN verification unavailable – %s. "
@@ -212,7 +274,7 @@ async def _verify_buyer_gstins_for_g1m7(
                 exc,
             )
             api_enabled = False
-            continue
+            break
 
         if rate_limit_seconds > 0:
             await asyncio.sleep(rate_limit_seconds)
@@ -222,11 +284,13 @@ async def _verify_buyer_gstins_for_g1m7(
         verification_by_gstin=verification_cache,
     )
     _log.info(
-        "gstr1_reconcile: G1M7 GSTIN verification — unique=%d flagged=%d "
-        "api_enabled=%s",
+        "gstr1_reconcile: G1M7 GSTIN verification — unique=%d live_verified=%d "
+        "flagged=%d api_enabled=%s elapsed=%.2fs",
         len(gstin_refs),
+        live_verified_count,
         len(g1m7),
         api_enabled,
+        time.monotonic() - start_time,
     )
     return g1m7
 

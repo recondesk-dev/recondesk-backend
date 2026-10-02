@@ -259,3 +259,48 @@ async def test_sample_sr_with_injected_invalid_gstin_flags_g1m7():
         for m in g1m7
     )
     assert out["summary"]["mismatch_count"] >= len(g1m7)
+
+
+@pytest.mark.asyncio
+async def test_verify_caps_live_lookups():
+    """When more unique GSTINs exist than max_live_lookups, only the cap is queried."""
+    # 35 unique valid GSTINs
+    sr = [
+        {"invoice_number": f"INV-{i}", "gstin": f"27AAPFU{i:04d}F1ZV"}
+        for i in range(35)
+    ]
+    mock_verify = AsyncMock(
+        return_value={
+            "valid": True,
+            "status": "Active",
+            "legal_name": "Test Company",
+            "raw_response": {},
+        }
+    )
+    with patch("app.services.gstin_verification.verify_gstin", mock_verify):
+        results = await _verify_buyer_gstins_for_g1m7(
+            sr, [], rate_limit_seconds=0, max_live_lookups=10,
+        )
+    # verify_gstin called exactly 10 times, not 35
+    assert mock_verify.call_count == 10
+    # No mismatches because all verified were Active
+    assert results == []
+
+
+@pytest.mark.asyncio
+async def test_verify_all_format_invalid_flagged_without_api_calls():
+    """All format-invalid GSTINs must be flagged regardless of live lookup limits."""
+    # 50 malformed GSTINs
+    sr = [
+        {"invoice_number": f"INV-{i}", "gstin": f"MALFORMED_{i}"}
+        for i in range(50)
+    ]
+    mock_verify = AsyncMock()
+    with patch("app.services.gstin_verification.verify_gstin", mock_verify):
+        results = await _verify_buyer_gstins_for_g1m7(
+            sr, [], rate_limit_seconds=0, max_live_lookups=5,
+        )
+    mock_verify.assert_not_called()
+    assert len(results) == 50
+    assert all(r.details["reason"] == "invalid_format" for r in results)
+
