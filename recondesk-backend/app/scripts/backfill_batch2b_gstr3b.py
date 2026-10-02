@@ -775,6 +775,36 @@ class Batch2BGstr3bBackfillOrchestrator:
 
             if commit:
                 assert total_fresh == 10, f"Expected 10 committed rows, got {total_fresh}"
+                # Assert per-table counts on fresh connection
+                for tbl, expected_cnt in self.EXPECTED_COUNTS.items():
+                    actual_cnt = fresh_session.query(model_map[tbl]).count()
+                    assert actual_cnt == expected_cnt, f"{tbl}: expected {expected_cnt}, got {actual_cnt}"
+
+                # Re-verify primary keys and foreign keys on fresh connection
+                for r in source_data["gstr3b_reversal_ledger"]:
+                    obj = fresh_session.get(Gstr3bReversalLedger, UUID(str(r["id"])))
+                    assert obj is not None, f"Reversal ledger {r['id']} missing on fresh connection"
+                    assert str(obj.client_gstin_id) == str(r["client_gstin_id"])
+
+                for r in source_data["gstr3b_table4_summaries"]:
+                    obj = fresh_session.get(Gstr3bTable4Summary, UUID(str(r["id"])))
+                    assert obj is not None, f"Table4 summary {r['id']} missing on fresh connection"
+                    assert str(obj.run_id) == str(r["run_id"])
+
+                for r in source_data["gstr3b_reconciliation"]:
+                    obj = fresh_session.get(Gstr3bReconciliation, UUID(str(r["id"])))
+                    assert obj is not None, f"Reconciliation {r['id']} missing on fresh connection"
+                    assert str(obj.run_id) == str(r["run_id"])
+
+                for r in source_data["gstr3b_reclaim_events"]:
+                    obj = fresh_session.get(Gstr3bReclaimEvent, UUID(str(r["id"])))
+                    assert obj is not None, f"Reclaim event {r['id']} missing on fresh connection"
+                    assert str(obj.ledger_id) == str(r["ledger_id"])
+                    # Check FK to ledger
+                    parent_ledger = fresh_session.get(Gstr3bReversalLedger, obj.ledger_id)
+                    assert parent_ledger is not None, f"Reclaim event parent ledger missing: {obj.ledger_id}"
+
+                _log.info("Fresh-connection verification: 10/10 rows and FK relationships verified.")
                 summary.post_commit_verification = "PASS"
             else:
                 assert total_fresh == summary.already_migrated_rows, (
@@ -790,17 +820,15 @@ class Batch2BGstr3bBackfillOrchestrator:
 
 def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="ReconDesk Batch 2B Backfill & Parity Verifier")
-    group = parser.add_mutually_exclusive_group()
-    group.add_argument(
-        "--dry-run",
-        action="store_true",
-        default=True,
-        help="Dry run mode: roll back all changes (default)",
-    )
-    group.add_argument(
+    parser.add_argument(
         "--commit",
         action="store_true",
         help="Real commit mode: commit changes upon 100% parity verification",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Dry run mode: roll back all changes (default)",
     )
     parser.add_argument(
         "--batch-size",
