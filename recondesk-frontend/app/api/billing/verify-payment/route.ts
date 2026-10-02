@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { getAuthenticatedCognitoUser } from "@/lib/cognito/serverAuth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import crypto from "crypto";
 
@@ -17,17 +17,8 @@ const DEFAULT_TIER_LIMITS: Record<string, number> = {
 
 export async function POST(request: Request) {
   try {
-    const supabase = createClient();
-    if (!supabase) {
-      return NextResponse.json({ error: "Supabase not configured" }, { status: 500 });
-    }
-
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
-
-    if (userError || !user) {
+    const user = await getAuthenticatedCognitoUser(request);
+    if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -167,10 +158,7 @@ export async function POST(request: Request) {
     );
 
     try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      const token = session?.access_token;
+      const token = user.token;
       if (token) {
         const backendUrl = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(
           /\/$/,
@@ -193,7 +181,7 @@ export async function POST(request: Request) {
         console.warn("[verify-payment] No active session token found; skipped triggering receipt email");
       }
     } catch (emailErr) {
-      console.error("[verify-payment] Failed to fetch session/trigger receipt email:", emailErr);
+      console.error("[verify-payment] Failed to trigger receipt email:", emailErr);
     }
 
     return NextResponse.json({

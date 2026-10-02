@@ -97,10 +97,7 @@ export function subscribeAccessToken(onToken: (accessToken: string | false) => v
     onToken(token);
   }
 
-  const supabase = createClient();
-
-  // Safety net: if the session resolution hangs (network error, Supabase
-  // unreachable, environment misconfiguration), unblock the UI after timeout.
+  // Safety net: if the session resolution hangs (network error, unreachable), unblock the UI after timeout.
   if (typeof window !== "undefined") {
     safetyTimer = window.setTimeout(() => {
       if (!initialResolved) {
@@ -113,20 +110,6 @@ export function subscribeAccessToken(onToken: (accessToken: string | false) => v
   async function resolveToken(): Promise<void> {
     if (cancelled) return;
     try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      if (cancelled) return;
-      const token = sessionData.session?.access_token;
-      if (token) {
-        emit(token);
-        return;
-      }
-    } catch (err) {
-      // Browser client threw (network error, bad config) — fall through to
-      // the server-side route which reads HttpOnly session cookies.
-      console.warn("[auth] getSession() failed, trying server route:", err);
-      if (cancelled) return;
-    }
-    try {
       const fromServer = await fetchAccessTokenFromServer();
       if (cancelled) return;
       emit(typeof fromServer === "string" && fromServer.length > 0 ? fromServer : false);
@@ -138,34 +121,8 @@ export function subscribeAccessToken(onToken: (accessToken: string | false) => v
 
   void resolveToken();
 
-  const {
-    data: { subscription },
-  } = supabase.auth.onAuthStateChange((event, session) => {
-    if (cancelled) return;
-    if (event === "SIGNED_OUT") {
-      clearCachedAuthRole();
-      void invalidateAuthProfileCache();
-      emit(false);
-      return;
-    }
-    if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED") {
-      clearCachedAuthRole();
-      void invalidateAuthProfileCache();
-    }
-    if (session?.access_token) {
-      emit(session.access_token);
-      return;
-    }
-    // INITIAL_SESSION or TOKEN_REFRESHED with no browser-visible session:
-    // session may be in HttpOnly cookies — ask the server route.
-    if (event === "INITIAL_SESSION" || event === "TOKEN_REFRESHED") {
-      void resolveToken();
-    }
-  });
-
   return () => {
     cancelled = true;
     if (safetyTimer !== null) window.clearTimeout(safetyTimer);
-    subscription.unsubscribe();
   };
 }

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, ConfigDict, ValidationError
@@ -13,7 +13,11 @@ from app.auth import (
     get_current_user_id,
     get_user_role,
 )
+from app.cognito_aurora_store import get_identity_store
+from app.cognito_config import CognitoConfig, get_cognito_config
+from app.cognito_identity import CognitoIdentityStore
 from app.database import get_db, get_supabase, get_user_profile
+from app.services.cognito_service import CognitoService, get_cognito_service
 from app.models.user import (
     LoginRequest,
     LoginResponse,
@@ -92,114 +96,40 @@ async def _signup_welcome_email_task(to: str, full_name: str) -> None:
         _log.exception("welcome email background task failed to=%s", to)
 
 
-# ── POST /auth/signup ─────────────────────────────────────────────────────────
+# ── POST /auth/signup (Deprecated: Forward to Cognito) ───────────────────────
 
-@router.post("/signup", response_model=SignupResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/signup", response_model=SignupResponse, status_code=status.HTTP_201_CREATED, deprecated=True)
 @limiter.limit("10/minute")
 async def signup(
     request: Request,
     payload: SignupRequest,
     background_tasks: BackgroundTasks,
+    config: CognitoConfig = Depends(get_cognito_config),
+    cognito_service: CognitoService = Depends(get_cognito_service),
+    store: Optional[CognitoIdentityStore] = Depends(get_identity_store),
 ):
-    """Register a new user and create their profile row."""
+    """Register a new user via Amazon Cognito (legacy endpoint compatibility)."""
     # Check domain MX records to reject invalid/nonexistent domains before creating account
     validate_email_mx(str(payload.email))
 
-    db = get_db()
-    ip = _client_ip(request)
-    full_name = str(payload.full_name or "").strip()
-    firm_name = str(payload.firm_name or "").strip()
-    phone = str(payload.phone or "").strip() if payload.phone else ""
-
-    try:
-        auth_response = db.auth.sign_up(
-            {
-                "email": payload.email,
-                "password": payload.password,
-                "options": {
-                    "data": {
-                        "full_name": full_name,
-                        "firm_name": firm_name,
-                        "phone": phone,
-                    }
-                },
-            }
-        )
-    except Exception as exc:  # noqa: BLE001
-        _log.debug("sign_up failed: %s", type(exc).__name__)
-        await log_action(
-            None,
-            "SIGNUP",
-            "user",
-            None,
-            {"result": "failed"},
-            ip_address=ip,
-        )
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Unable to complete sign up. Check your details and try again.",
-        ) from exc
-
-    if not auth_response.user:
-        await log_action(
-            None,
-            "SIGNUP",
-            "user",
-            None,
-            {"result": "no_user"},
-            ip_address=ip,
-        )
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Sign-up failed. The email may already be registered.",
-        )
-
-    user_id = str(auth_response.user.id)
-    await log_action(
-        user_id,
-        "SIGNUP",
-        "user",
-        user_id,
-        {},
-        ip_address=ip,
+    from app.routers.cognito_auth import cognito_signup, CognitoSignupRequest
+    cognito_payload = CognitoSignupRequest(
+        email=payload.email,
+        password=payload.password,
+        full_name=payload.full_name,
+        firm_name=payload.firm_name,
+        phone=payload.phone,
     )
-
-    profile = {
-        "id": user_id,
-        "email": payload.email,
-        "full_name": full_name or None,
-        "firm_name": firm_name or None,
-        "phone": phone or None,
-        "role": "admin",
-        "is_active": True,
-        # Free tier: match DB default free_runs_remaining (2) from billing migration.
-        "runs_limit": 2,
-    }
-
-    try:
-        db.table("user_profiles").upsert(profile, on_conflict="id").execute()
-        # Direct signup API always creates a workspace owner.
-        db.table("user_profiles").update(
-            {"role": "admin", "full_name": full_name or None}
-        ).eq("id", user_id).execute()
-        from app.services.tenancy_sync import mirror_user_profile_upsert_to_aurora
-        mirror_user_profile_upsert_to_aurora(profile, user_id)
-    except Exception as exc:  # noqa: BLE001
-        _log.error("Profile insert failed: %s", type(exc).__name__)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An unexpected error occurred. Please try again.",
-        ) from exc
-
-    background_tasks.add_task(
-        _signup_welcome_email_task,
-        str(payload.email).strip(),
-        str(payload.full_name or ""),
+    res = await cognito_signup(
+        request=request,
+        payload=cognito_payload,
+        config=config,
+        cognito_service=cognito_service,
+        store=store,
     )
-
     return SignupResponse(
-        user_id=user_id,
-        message="Account created successfully. Please check your email to confirm.",
+        user_id=res.user_id,
+        message=res.message,
     )
 
 
@@ -292,96 +222,60 @@ async def webhook_signup(
     return {"received": True}
 
 
-# ── POST /auth/login ─────────────────────────────────────────────────────────
+# ── POST /auth/login (Deprecated: Forward to Cognito) ────────────────────────
 
-@router.post("/login", response_model=LoginResponse)
+@router.post("/login", response_model=LoginResponse, deprecated=True)
 @limiter.limit("10/minute")
-async def login(request: Request, payload: LoginRequest):
-    """Authenticate with email/password and return a Supabase JWT with role."""
+async def login(
+    request: Request,
+    payload: LoginRequest,
+    config: CognitoConfig = Depends(get_cognito_config),
+    cognito_service: CognitoService = Depends(get_cognito_service),
+    store: Optional[CognitoIdentityStore] = Depends(get_identity_store),
+):
+    """Authenticate with email/password via Amazon Cognito (legacy endpoint compatibility)."""
     ip = _client_ip(request)
     if is_login_locked(ip):
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Too many requests. Please try again later.",
         )
-    db = get_db()
+    from app.routers.cognito_auth import cognito_login, CognitoLoginRequest
+    cognito_payload = CognitoLoginRequest(
+        email=payload.email,
+        password=payload.password,
+    )
     try:
-        auth_response = db.auth.sign_in_with_password(
-            {"email": payload.email, "password": payload.password}
+        auth_response = await cognito_login(
+            request=request,
+            payload=cognito_payload,
+            config=config,
+            cognito_service=cognito_service,
+            store=store,
         )
-    except Exception:  # noqa: BLE001
+    except HTTPException:
         record_login_failure(ip)
-        await log_action(
-            None,
-            "LOGIN",
-            "user",
-            None,
-            {"result": "failed"},
-            ip_address=ip,
-        )
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid email or password.",
-        ) from None
-
-    if not auth_response.user or not auth_response.session:
-        record_login_failure(ip)
-        await log_action(
-            None,
-            "LOGIN",
-            "user",
-            None,
-            {"result": "failed"},
-            ip_address=ip,
-        )
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid email or password.",
-        )
+        raise
 
     record_login_success(ip)
-    user_id = str(auth_response.user.id)
-    access_token = auth_response.session.access_token
-    role = await get_user_role(user_id)
-    await log_action(
-        user_id,
-        "LOGIN",
-        "user",
-        user_id,
-        {"result": "ok"},
-        ip_address=ip,
-    )
-    user_dict = {
-        "id": user_id,
-        "email": auth_response.user.email,
-    }
-    profile = get_user_profile(user_id)
-    if profile:
-        user_dict.update(
-            {
-                "full_name": profile.get("full_name"),
-                "firm_name": profile.get("firm_name"),
-                "phone": profile.get("phone"),
-                "is_active": profile.get("is_active", True),
-            }
-        )
+    user_id = auth_response.user.get("id") if isinstance(auth_response.user, dict) else str(auth_response.user)
+    role = await get_user_role(user_id) if user_id else "admin"
     return LoginResponse(
-        access_token=access_token,
-        user=user_dict,
+        access_token=auth_response.access_token,
+        user=auth_response.user if isinstance(auth_response.user, dict) else {"id": user_id},
         role=role,
     )
 
 
-# ── POST /auth/logout ───────────────────────────────────────────────────────
+# ── POST /auth/logout (Deprecated: Cognito-only) ─────────────────────────────
 
-@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT, deprecated=True)
 @limiter.limit("200/minute")
 async def logout(
     request: Request,
     user: AuthenticatedUser = Depends(get_current_user),
 ):
     """Sign out the currently authenticated user."""
-    db = get_db()
     ip = _client_ip(request)
     await log_action(
         str(user.id),
@@ -391,11 +285,6 @@ async def logout(
         {"auth_provider": user.auth_provider},
         ip_address=ip,
     )
-    if user.auth_provider == "supabase":
-        try:
-            db.auth.sign_out()
-        except Exception:
-            pass
 
 
 # ── GET /auth/me ─────────────────────────────────────────────────────────────

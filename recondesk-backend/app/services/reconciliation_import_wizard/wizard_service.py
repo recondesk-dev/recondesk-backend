@@ -11,10 +11,7 @@ import uuid
 from datetime import date, datetime, timezone
 from typing import Any, Optional
 
-import boto3
 import pandas as pd
-from botocore.config import Config
-from botocore.exceptions import ClientError
 from fastapi import HTTPException, status
 from supabase import Client
 
@@ -95,14 +92,8 @@ def _wizard_columns_from_dataframe(df: pd.DataFrame) -> list[dict[str, Any]]:
 
 
 def _r2():
-    return boto3.client(
-        "s3",
-        endpoint_url=f"https://{settings.R2_ACCOUNT_ID}.r2.cloudflarestorage.com",
-        aws_access_key_id=settings.R2_ACCESS_KEY_ID,
-        aws_secret_access_key=settings.R2_SECRET_ACCESS_KEY,
-        config=Config(signature_version="s3v4"),
-        region_name="auto",
-    )
+    from app.services.storage_service import get_storage_service
+    return get_storage_service().get_s3_client()
 
 
 def audit(sb: Client, run_id: str, user_id: str, event: str, detail: Optional[dict] = None) -> None:
@@ -158,41 +149,19 @@ def transition_run(
 def delete_r2_keys(keys: list[str]) -> None:
     if not keys:
         return
-    c = _r2()
-    for k in keys:
-        if not k:
-            continue
-        try:
-            c.delete_object(Bucket=settings.R2_BUCKET_NAME, Key=k)
-        except ClientError as e:
-            _log.warning("R2 delete failed %s: %s", k, e)
+    from app.services.storage_service import get_storage_service
+    get_storage_service().delete_objects(keys)
 
 
 def verify_r2_sha256(key: str, expected_hex: str, max_bytes: int = MAX_UPLOAD_BYTES) -> int:
-    c = _r2()
-    try:
-        o = c.get_object(Bucket=settings.R2_BUCKET_NAME, Key=key)
-    except ClientError as e:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Object not found in storage") from e
-    body = o["Body"].read()
-    if len(body) > max_bytes:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "File too large")
-    digest = hashlib.sha256(body).hexdigest()
-    if digest.lower() != (expected_hex or "").lower():
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "File hash mismatch")
-    return len(body)
+    from app.services.storage_service import get_storage_service
+    return get_storage_service().verify_sha256(key, expected_hex, max_bytes)
 
 
 def presign_put(key: str, content_type: str, expires: int = 3600) -> str:
-    c = _r2()
-    return c.generate_presigned_url(
-        "put_object",
-        Params={
-            "Bucket": settings.R2_BUCKET_NAME,
-            "Key": key,
-            "ContentType": content_type,
-        },
-        ExpiresIn=expires,
+    from app.services.storage_service import get_storage_service
+    return get_storage_service().generate_presigned_upload_url(
+        key, content_type=content_type, expires_in=expires
     )
 
 
@@ -767,9 +736,8 @@ def detect_pr_columns_from_r2(
     """Return wizard columns, headers, row count, parse warnings, missing-invoice
     count, and ``sheets_used`` from the purchase-register parse.
     """
-    c = _r2()
-    o = c.get_object(Bucket=settings.R2_BUCKET_NAME, Key=key)
-    raw = o["Body"].read()
+    from app.services.storage_service import get_storage_service
+    raw = get_storage_service().download_bytes(key)
     if len(raw) > MAX_UPLOAD_BYTES:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "File too large")
     df_full = _read_pr_dataframe(raw, filename)
@@ -839,7 +807,7 @@ def run_processing_job_sync(run_id: str) -> None:
     """Run the full import-wizard pipeline synchronously.
 
     Called via asyncio.to_thread() from the FastAPI endpoint so it executes in
-    a thread pool without blocking the event loop.  Everything runs in-process —
+    a thread pool without blocking the event loop.  Everything runs in-process --
     no Celery workers required.
     """
     from app.worker.tasks import run_import_job

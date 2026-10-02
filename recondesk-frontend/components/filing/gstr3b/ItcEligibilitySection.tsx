@@ -313,10 +313,12 @@ export function ItcEligibilitySection({
               }
               setSuggestion(result.suggestion);
               setEmptyHint(null);
-            } catch {
+            } catch (err: unknown) {
               setSuggestion(null);
               setEmptyHint(
-                "Could not load GSTR-2B suggestions. Try again, or enter the amount from the books."
+                isApiError(err)
+                  ? err.detail
+                  : "Could not load GSTR-2B suggestions. Try again, or enter the amount from the books."
               );
             } finally {
               setBusy(false);

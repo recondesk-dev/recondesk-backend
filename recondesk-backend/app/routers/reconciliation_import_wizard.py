@@ -279,8 +279,8 @@ async def gstr2b_upload_complete(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "File too large")
     size = ws.verify_r2_sha256(body.r2_key, body.file_hash)
 
-    _gstr2_obj = ws._r2().get_object(Bucket=settings.R2_BUCKET_NAME, Key=body.r2_key)
-    gstr2_raw = _gstr2_obj["Body"].read()
+    from app.services.storage_service import get_storage_service
+    gstr2_raw = get_storage_service().download_bytes(body.r2_key)
     file_gstin_raw = (
         _gstr2b_buyer_gstin_from_raw(gstr2_raw, filename=body.file_name) or ""
     )
@@ -421,9 +421,8 @@ async def sanity_check_gstr2b(
     key = r.get("gstr2b_r2_key")
     if not key:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "GSTR-2B file not uploaded")
-    c = ws._r2()
-    obj = c.get_object(Bucket=settings.R2_BUCKET_NAME, Key=key)
-    raw = obj["Body"].read()
+    from app.services.storage_service import get_storage_service
+    raw = get_storage_service().download_bytes(key)
     cg_res = (
         sb.table("client_gstins")
         .select("gstin")

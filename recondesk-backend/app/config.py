@@ -109,7 +109,29 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("SUPABASE_DATABASE_URL", "SUPABASE_DB_URL"),
     )
 
-    # Cloudflare R2
+    # Storage Configuration (AWS S3 primary with R2 migration fallback)
+    STORAGE_BACKEND: str = Field(
+        default="s3",
+        validation_alias=AliasChoices("STORAGE_BACKEND", "RECONDESK_STORAGE_BACKEND"),
+        description="Active storage backend: 's3' (native AWS S3) or 'r2' (legacy Cloudflare R2).",
+    )
+    AWS_REGION: str = Field(
+        default="ap-south-1",
+        validation_alias=AliasChoices("AWS_REGION", "AWS_DEFAULT_REGION", "COGNITO_REGION"),
+    )
+    AWS_S3_BUCKET_NAME: str = Field(
+        default="recondesk-storage-991216470563",
+        validation_alias=AliasChoices("AWS_S3_BUCKET_NAME", "S3_BUCKET_NAME", "STORAGE_BUCKET_NAME"),
+    )
+    AWS_S3_ENDPOINT_URL: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("AWS_S3_ENDPOINT_URL", "S3_ENDPOINT_URL"),
+        description="Custom S3 endpoint URL (e.g. for testing / LocalStack).",
+    )
+    AWS_ACCESS_KEY_ID: str = ""
+    AWS_SECRET_ACCESS_KEY: str = ""
+
+    # Cloudflare R2 (Retained for dual-read fallback and migration verification)
     R2_ENDPOINT_URL: str = ""
     R2_ACCOUNT_ID: str = ""
     R2_BUCKET_NAME: str = "recondesk-uploads"
@@ -204,6 +226,11 @@ class Settings(BaseSettings):
 
     @computed_field  # type: ignore[misc]
     @property
+    def S3_BUCKET(self) -> str:  # noqa: N802
+        return self.AWS_S3_BUCKET_NAME or self.R2_BUCKET_NAME
+
+    @computed_field  # type: ignore[misc]
+    @property
     def RAZORPAY_KEY(self) -> str:  # noqa: N802
         return self.RAZORPAY_KEY_ID
 
@@ -279,11 +306,14 @@ def validate_production_secrets() -> None:
         "JWT_SECRET or SECRET_KEY": s.jwt_signing_key,
         "DATABASE_URL": s.DATABASE_URL,
         "RAZORPAY_KEY_SECRET": s.RAZORPAY_KEY_SECRET,
-        "R2_SECRET_ACCESS_KEY": s.R2_SECRET_ACCESS_KEY,
         "REDIS_URL": s.REDIS_URL,
         "SUPABASE_URL": s.SUPABASE_URL,
         "SUPABASE_SERVICE_ROLE_KEY": s.SUPABASE_SERVICE_ROLE_KEY,
     }
+    if (s.STORAGE_BACKEND or "").lower() == "r2":
+        required["R2_SECRET_ACCESS_KEY"] = s.R2_SECRET_ACCESS_KEY
+    else:
+        required["AWS_S3_BUCKET_NAME"] = s.AWS_S3_BUCKET_NAME
     missing = [k for k, v in required.items() if not (str(v or "").strip())]
     if missing:
         raise RuntimeError(

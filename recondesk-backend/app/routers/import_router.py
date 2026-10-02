@@ -11,14 +11,12 @@ from functools import lru_cache
 from typing import Any
 from uuid import UUID, uuid4
 
-import boto3
-from botocore.config import Config
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
 from fastapi.responses import JSONResponse
 from supabase import Client, create_client
 
 from app.auth import get_current_active_user
-from app.config import get_r2_s3_endpoint_url, get_settings
+from app.config import get_settings
 from app.services.normalizer import NormalizationError, normalize_gstin
 from app.utils.audit import client_display_label, log_action, log_audit
 from app.worker.celery_app import celery_app
@@ -38,15 +36,8 @@ def _supabase() -> Client:
 
 
 def _s3():
-    s = get_settings()
-    return boto3.client(
-        "s3",
-        endpoint_url=get_r2_s3_endpoint_url(),
-        aws_access_key_id=s.R2_ACCESS_KEY_ID,
-        aws_secret_access_key=s.R2_SECRET_ACCESS_KEY,
-        config=Config(signature_version="s3v4"),
-        region_name="auto",
-    )
+    from app.services.storage_service import get_storage_service
+    return get_storage_service().get_s3_client()
 
 
 def _dispatch_import_job(run_id: str, file_type: str, r2_key: str) -> bool:
@@ -356,7 +347,6 @@ async def import_gstr2b(
         }
         sb.table("reconciliation_run").insert(insert_row).execute()
 
-    bucket = get_settings().R2_BUCKET_NAME
     ran_import_sync = False
     try:
         content_type = (
@@ -366,11 +356,11 @@ async def import_gstr2b(
             if upload_ext == "xls"
             else "application/json"
         )
-        _s3().put_object(
-            Bucket=bucket,
-            Key=r2_key,
-            Body=raw,
-            ContentType=content_type,
+        from app.services.storage_service import get_storage_service
+        get_storage_service().upload_bytes(
+            body=raw,
+            key=r2_key,
+            content_type=content_type,
         )
         queued_at = datetime.now(timezone.utc).isoformat()
         sb.table("reconciliation_run").update(
@@ -492,7 +482,6 @@ async def import_purchase_register(
     period_norm = str(run["period"]).strip()
     ts = int(datetime.now(timezone.utc).timestamp())
     r2_key = f"uploads/{cg}/{period_norm}/pr_{ts}{ext}"
-    bucket = get_settings().R2_BUCKET_NAME
     if ext == ".csv":
         content_type = "text/csv"
     elif ext == ".xls":
@@ -501,7 +490,8 @@ async def import_purchase_register(
         content_type = (
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
-    _s3().put_object(Bucket=bucket, Key=r2_key, Body=raw, ContentType=content_type)
+    from app.services.storage_service import get_storage_service
+    get_storage_service().upload_bytes(body=raw, key=r2_key, content_type=content_type)
 
     now = datetime.now(timezone.utc).isoformat()
     sb.table("reconciliation_run").update(

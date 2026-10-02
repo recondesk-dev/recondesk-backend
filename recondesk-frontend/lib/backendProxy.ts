@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
 import { COGNITO_COOKIE_NAMES } from "@/lib/cognito/cookies";
 import { verifyCognitoAccessToken } from "@/lib/cognito/jwt";
 import { resolveBackendProxyAuth } from "@/lib/cognito/sessionBridge";
@@ -18,11 +17,10 @@ const PROXY_GET_TIMEOUT_MS = 90_000;
  * HTTP 502 instead of opaque "Failed to fetch" (which wrongly triggers the
  * Connection-lost banner).
  *
- * Dual-Auth Precedence (Phase 2A, Requirement 5):
+ * Cognito Auth (100% Cognito Cutover):
  * 1. Caller Authorization header (highest priority)
- * 2. Supabase session (production priority)
- * 3. Verified Cognito access-token cookie (migration bridge)
- * 4. Fails closed / unauthenticated
+ * 2. Verified Cognito access-token cookie (sole authentication provider)
+ * 3. Fails closed / unauthenticated
  */
 export async function proxyToBackend(
   request: NextRequest,
@@ -36,14 +34,6 @@ export async function proxyToBackend(
 
   const resolvedAuth = await resolveBackendProxyAuth({
     incomingAuthHeader: auth,
-    getSupabaseToken: async () => {
-      const supabase = createClient();
-      if (!supabase) return null;
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      return session?.access_token;
-    },
     getCognitoToken: () => {
       return request.cookies.get(COGNITO_COOKIE_NAMES.ACCESS_TOKEN)?.value;
     },

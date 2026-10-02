@@ -5,13 +5,11 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-import boto3
-from botocore.config import Config
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
 from pydantic import BaseModel, Field
 
 from app.auth import get_current_active_user
-from app.config import get_r2_s3_endpoint_url, get_settings
+from app.config import get_settings
 from app.database import get_supabase
 from app.models.upload import PresignedUrlRequest, PresignedUrlResponse, UploadResponse
 from app.parsers.purchase_register_parser import parse_purchase_register
@@ -120,15 +118,8 @@ def _validate_upload_bytes(content: bytes, ext: str) -> None:
 
 
 def _get_r2_client():
-    settings = get_settings()
-    return boto3.client(
-        "s3",
-        endpoint_url=get_r2_s3_endpoint_url(),
-        aws_access_key_id=settings.R2_ACCESS_KEY_ID,
-        aws_secret_access_key=settings.R2_SECRET_ACCESS_KEY,
-        config=Config(signature_version="s3v4"),
-        region_name="auto",
-    )
+    from app.services.storage_service import get_storage_service
+    return get_storage_service().get_s3_client()
 
 
 def _parse_expires_at(value: str) -> datetime:
@@ -267,20 +258,16 @@ async def create_client_presigned_url(payload: ClientPresignedUrlRequest) -> Cli
     upload_request_id = str(upload_request["id"])
     object_key = f"uploads/{upload_request_id}/{uuid.uuid4()}_{safe_filename}"
 
-    settings = get_settings()
-    client = _get_r2_client()
-    upload_url = client.generate_presigned_url(
-        "put_object",
-        Params={
-            "Bucket": settings.R2_BUCKET_NAME,
-            "Key": object_key,
-            "ContentType": payload.content_type,
-        },
-        ExpiresIn=PRESIGNED_URL_EXPIRY_SECONDS,
+    from app.services.storage_service import get_storage_service
+    upload_url = get_storage_service().generate_presigned_upload_url(
+        key=object_key,
+        content_type=payload.content_type,
+        expires_in=PRESIGNED_URL_EXPIRY_SECONDS,
     )
 
+    settings = get_settings()
     public_base = (settings.R2_PUBLIC_URL or "").rstrip("/")
-    public_url = f"{public_base}/{object_key}"
+    public_url = f"{public_base}/{object_key}" if public_base else object_key
 
     return ClientPresignedUrlResponse(upload_url=upload_url, public_url=public_url)
 

@@ -20,16 +20,14 @@ from pathlib import Path
 from typing import Any, List, Optional
 from uuid import uuid4
 
-import boto3
 import openpyxl
-from botocore.config import Config
 from fastapi import APIRouter, Depends, HTTPException, Security, status
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field, field_validator
 
 from app.auth import get_current_active_user
-from app.config import get_r2_s3_endpoint_url, get_settings
+from app.config import get_settings
 from app.database import get_supabase
 from app.services.tally_bridge_sync import (
     apply_tally_bridge_sync,
@@ -126,15 +124,8 @@ class TallyPurchaseRegisterBody(BaseModel):
 
 
 def _s3_client():
-    s = get_settings()
-    return boto3.client(
-        "s3",
-        endpoint_url=get_r2_s3_endpoint_url(),
-        aws_access_key_id=s.R2_ACCESS_KEY_ID,
-        aws_secret_access_key=s.R2_SECRET_ACCESS_KEY,
-        config=Config(signature_version="s3v4"),
-        region_name="auto",
-    )
+    from app.services.storage_service import get_storage_service
+    return get_storage_service().get_s3_client()
 
 
 def _account_id_for_user(user: dict) -> str:
@@ -344,14 +335,13 @@ async def tally_sync_purchase_register(
             }
         ).execute()
 
-    # ── 4. Upload xlsx to R2 ──────────────────────────────────────────────
-    bucket = get_settings().R2_BUCKET_NAME
+    # ── 4. Upload xlsx to S3 ──────────────────────────────────────────────
     try:
-        _s3_client().put_object(
-            Bucket=bucket,
-            Key=r2_key,
-            Body=xlsx_bytes,
-            ContentType=(
+        from app.services.storage_service import get_storage_service
+        get_storage_service().upload_bytes(
+            body=xlsx_bytes,
+            key=r2_key,
+            content_type=(
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             ),
         )
@@ -527,14 +517,13 @@ def tally_sync_sales_register(
             }
         ).execute()
 
-    # ── 4. Upload xlsx to R2 ──────────────────────────────────────────────
-    bucket = get_settings().R2_BUCKET_NAME
+    # ── 4. Upload xlsx to S3 ──────────────────────────────────────────────
     try:
-        _s3_client().put_object(
-            Bucket=bucket,
-            Key=r2_key,
-            Body=xlsx_bytes,
-            ContentType=(
+        from app.services.storage_service import get_storage_service
+        get_storage_service().upload_bytes(
+            body=xlsx_bytes,
+            key=r2_key,
+            content_type=(
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             ),
         )

@@ -37,6 +37,25 @@ MSG_NETWORK_TIMEOUT = "Unable to connect to the GST portal. Please try again in 
 MSG_PORTAL_UNAVAILABLE = (
     "The GST portal service is temporarily unavailable. Please try again later."
 )
+MSG_GSTR1_NOT_FILED = (
+    "You have not filed GSTR-1 of the selected tax period. "
+    "Please file GSTR-1 before saving or filing GSTR-3B."
+)
+MSG_RETURN_ALREADY_FILED = (
+    "The GST return for this period has already been filed."
+)
+MSG_INVALID_TAX_PERIOD = (
+    "The selected tax period is invalid for this taxpayer."
+)
+MSG_TAXPAYER_INACTIVE = (
+    "The taxpayer registration is inactive or cancelled on the GST portal."
+)
+MSG_LIABILITY_MISMATCH = (
+    "Tax liability or payment mismatch. Please review and reconcile figures before saving."
+)
+MSG_FILING_PREREQUISITE = (
+    "Return cannot be filed before due date or without previous period filing."
+)
 
 # Pattern matchers for known raw error strings (case-insensitive)
 _GSTIN_PATTERNS = [
@@ -108,6 +127,33 @@ _TIMEOUT_PATTERNS = [
     re.compile(r"\bnetwork\s*error\b", re.I),
 ]
 
+_GSTR1_NOT_FILED_PATTERNS = [
+    re.compile(r"not\s*(?:yet\s*)?filed\s*gstr-?1", re.I),
+    re.compile(r"gstr-?1\s*(?:is\s*)?not\s*filed", re.I),
+    re.compile(r"have\s*not\s*filed\s*gstr-?1", re.I),
+    re.compile(r"file\s*gstr-?1\s*(?:first|before)", re.I),
+    re.compile(r"rt-r3bq1004", re.I),
+    re.compile(r"ret19101", re.I),
+]
+
+_ALREADY_FILED_PATTERNS = [
+    re.compile(r"already\s*(?:been\s*)?filed", re.I),
+    re.compile(r"return\s*already\s*filed", re.I),
+    re.compile(r"ret11405", re.I),
+    re.compile(r"rt-r3bq1003", re.I),
+]
+
+_INACTIVE_TAXPAYER_PATTERNS = [
+    re.compile(r"taxpayer\s*(?:is\s*)?inactive", re.I),
+    re.compile(r"registration\s*(?:is\s*)?cancelled", re.I),
+    re.compile(r"ret11408", re.I),
+]
+
+_LIABILITY_MISMATCH_PATTERNS = [
+    re.compile(r"liability\s*(?:mismatch|entered)", re.I),
+    re.compile(r"rt-3bas1070", re.I),
+]
+
 # Known GSTN Error Codes
 _ERROR_CODE_MAP: dict[str, str] = {
     # GSTIN format / validity
@@ -128,6 +174,19 @@ _ERROR_CODE_MAP: dict[str, str] = {
     # 2B specific
     "RET2B1023": MSG_2B_NOT_FILED,
     "RET2B1024": MSG_2B_STILL_PROCESSING,
+    # Filing sequence & prerequisites
+    "RT-R3BQ1004": MSG_GSTR1_NOT_FILED,
+    "RET19101": MSG_GSTR1_NOT_FILED,
+    "RT-R3BQ1001": MSG_FILING_PREREQUISITE,
+    "RET11412": MSG_FILING_PREREQUISITE,
+    "RT-R3BQ1002": MSG_INVALID_TAX_PERIOD,
+    "RET11404": MSG_INVALID_TAX_PERIOD,
+    "RT-R3BQ1003": MSG_RETURN_ALREADY_FILED,
+    "RET11405": MSG_RETURN_ALREADY_FILED,
+    "RET19103": MSG_RETURN_ALREADY_FILED,
+    "RT-3BAS1070": MSG_LIABILITY_MISMATCH,
+    "RET11408": MSG_TAXPAYER_INACTIVE,
+    "RET13504": MSG_PORTAL_UNAVAILABLE,
 }
 
 # Regex to detect provider brand names in strings (for scrub / defense-in-depth)
@@ -274,7 +333,30 @@ def map_gstn_error(
         if p.search(test_str):
             return MSG_NETWORK_TIMEOUT
 
-    # 4. Fallback: return default message (or generic fallback)
+    for p in _GSTR1_NOT_FILED_PATTERNS:
+        if p.search(test_str):
+            return MSG_GSTR1_NOT_FILED
+
+    for p in _ALREADY_FILED_PATTERNS:
+        if p.search(test_str):
+            return MSG_RETURN_ALREADY_FILED
+
+    for p in _INACTIVE_TAXPAYER_PATTERNS:
+        if p.search(test_str):
+            return MSG_TAXPAYER_INACTIVE
+
+    for p in _LIABILITY_MISMATCH_PATTERNS:
+        if p.search(test_str):
+            return MSG_LIABILITY_MISMATCH
+
+    # 4. If error is an explicit FilingGstnError from the GST portal with a clean message
+    if error is not None and error.__class__.__name__ in ("FilingGstnError", "SandboxGstnError"):
+        if raw_msg and not _PROVIDER_BRAND_RE.search(raw_msg):
+            lower_msg = raw_msg.lower()
+            if not any(k in lower_msg for k in ("schema", "traceback", "internal server", "exception", "database", "sql")):
+                return sanitize_message_text(raw_msg)
+
+    # 5. Fallback: return default message (or generic fallback)
     fallback = default_message or DEFAULT_GENERIC_ERROR_MESSAGE
 
     # Safety scrub: ensure fallback never has provider names

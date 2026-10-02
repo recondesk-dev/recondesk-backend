@@ -83,7 +83,7 @@ def _sign_test_token(
 
 class TestCognitoConfig:
     def test_default_config_matches_development_environment(self):
-        cfg = CognitoConfig()
+        cfg = CognitoConfig(_env_file=None)
         assert cfg.COGNITO_REGION == "ap-south-1"
         assert cfg.COGNITO_USER_POOL_ID == "ap-south-1_nvlPYMvFh"
         assert cfg.COGNITO_CLIENT_ID == "2qui5lp7if0g4lftbrag7o6sce"
@@ -604,9 +604,14 @@ class TestCognitoEndpoints:
             app.dependency_overrides.clear()
 
     def test_cognito_me_endpoint_fails_501_when_feature_flag_is_disabled(self, client):
-        resp = client.get("/api/v1/auth/cognito/me")
-        assert resp.status_code == 501
-        assert "disabled" in resp.json()["detail"].lower()
+        from app.cognito_config import get_cognito_config
+        app.dependency_overrides[get_cognito_config] = lambda: CognitoConfig(COGNITO_AUTH_ENABLED=False, _env_file=None)
+        try:
+            resp = client.get("/api/v1/auth/cognito/me")
+            assert resp.status_code == 501
+            assert "disabled" in resp.json()["detail"].lower()
+        finally:
+            app.dependency_overrides.clear()
 
     def test_cognito_me_endpoint_requires_bearer_token(self, client):
         from app.cognito_config import get_cognito_config

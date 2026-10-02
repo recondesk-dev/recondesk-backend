@@ -3,7 +3,6 @@
 import { useState } from "react";
 import Link from "next/link";
 import { Logo } from "@/components/ui/Logo";
-import { createClient } from "@/lib/supabase/client";
 import { Mail } from "lucide-react";
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -26,20 +25,27 @@ export default function ForgotPasswordPage() {
 
     setLoading(true);
 
-    const supabase = createClient();
-    const redirectTo = `${window.location.origin}/auth/callback?redirectTo=/reset-password`;
-    const { error: resetError } = await supabase.auth.resetPasswordForEmail(trimmed, {
-      redirectTo,
-    });
+    try {
+      // Amazon Cognito password recovery (100% Cognito Cutover)
+      const res = await fetch("/api/auth/cognito/forgot-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: trimmed }),
+      });
+      const data = await res.json().catch(() => null);
 
-    setLoading(false);
+      if (res.ok) {
+        setLoading(false);
+        setSuccess(true);
+        return;
+      }
 
-    if (resetError) {
-      setError(resetError.message);
-      return;
+      setError(data?.detail || data?.message || "Could not find an account with this email.");
+      setLoading(false);
+    } catch {
+      setError("An unexpected error occurred. Please try again.");
+      setLoading(false);
     }
-
-    setSuccess(true);
   };
 
   return (
@@ -54,12 +60,20 @@ export default function ForgotPasswordPage() {
         <div className="bg-white rounded-[22px] shadow-[var(--shadow-lift)] border border-white/85 p-8">
           <h2 className="text-xl font-semibold text-gray-900 mb-1">Reset your password</h2>
           <p className="text-sm text-gray-500 mb-6">
-            Enter your email and we&apos;ll send you a reset link
+            Enter your email and we&apos;ll send you a verification code
           </p>
 
           {success ? (
-            <div className="p-4 bg-green-50 border border-green-200 rounded-lg text-sm text-green-800">
-              Check your email for a password reset link
+            <div className="space-y-4">
+              <div className="p-4 bg-green-50 border border-green-200 rounded-lg text-sm text-green-800">
+                A verification code or reset link has been sent to <strong>{email}</strong> if an account exists.
+              </div>
+              <Link
+                href={`/reset-password?email=${encodeURIComponent(email.trim())}`}
+                className="btn-primary w-full flex items-center justify-center gap-2 text-center"
+              >
+                Enter Code & Reset Password
+              </Link>
             </div>
           ) : (
             <>

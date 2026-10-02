@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { createClient } from "@/lib/supabase/server";
 import { COGNITO_COOKIE_NAMES } from "@/lib/cognito/cookies";
 import { verifyCognitoAccessToken } from "@/lib/cognito/jwt";
 import { resolveAccessTokenBridge } from "@/lib/cognito/sessionBridge";
@@ -8,14 +7,9 @@ import { resolveAccessTokenBridge } from "@/lib/cognito/sessionBridge";
 /**
  * Returns the current user's access JWT using server-side cookie inspection.
  *
- * Dual-Auth Phase 2A Precedence:
- *   1. Valid Supabase session (provider="supabase")
- *   2. Valid Cognito access-token cookie (provider="cognito")
- *   3. 401 Unauthorized
- *
- * Precedence Rule (Requirement 5):
- * If both Supabase and Cognito sessions exist simultaneously, Supabase wins.
- * Reason: Supabase is current production auth and must not be broken or hijacked.
+ * Cognito Auth (100% Cognito Cutover):
+ *   1. Valid Cognito access-token cookie (provider="cognito")
+ *   2. 401 Unauthorized
  *
  * Security:
  * - Refresh tokens are NEVER exposed to the browser.
@@ -24,16 +18,6 @@ import { resolveAccessTokenBridge } from "@/lib/cognito/sessionBridge";
  */
 export async function GET(request: NextRequest) {
   const result = await resolveAccessTokenBridge({
-    getSupabaseToken: async () => {
-      const supabase = createClient();
-      if (!supabase) return null;
-      const {
-        data: { session },
-        error,
-      } = await supabase.auth.getSession();
-      if (error || !session?.access_token) return null;
-      return session.access_token;
-    },
     getCognitoCookie: () => {
       let token = request.cookies.get(COGNITO_COOKIE_NAMES.ACCESS_TOKEN)?.value;
       if (!token) {

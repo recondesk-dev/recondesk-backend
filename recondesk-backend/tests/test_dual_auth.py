@@ -139,9 +139,9 @@ class TestAuthenticatedUserModel:
 # ─── 2. Provider Hint Detection ───────────────────────────────────────────────
 
 class TestProviderHintDetection:
-    def test_detect_hs256_as_supabase(self):
+    def test_detect_hs256_returns_none_when_supabase_removed(self):
         token = _sign_supabase_hs256_token({"sub": "user-123", "exp": int(time.time()) + 3600})
-        assert _detect_auth_provider_hint(token) == "supabase"
+        assert _detect_auth_provider_hint(token) is None
 
     def test_detect_rs256_with_cognito_issuer_as_cognito(self, rsa_key_pair):
         priv, _, _ = rsa_key_pair
@@ -168,10 +168,10 @@ class TestProviderHintDetection:
         assert _detect_auth_provider_hint(token) is None
 
 
-# ─── 3. Supabase Authentication Path ──────────────────────────────────────────
+# ─── 3. Supabase Authentication Path (Disabled) ───────────────────────────────
 
 class TestSupabaseAuthPath:
-    def test_valid_supabase_hs256_resolves_authenticated_user(self):
+    def test_supabase_token_permanently_disabled_fails_closed(self):
         sub_id = str(uuid.uuid4())
         token = _sign_supabase_hs256_token(
             {
@@ -181,48 +181,10 @@ class TestSupabaseAuthPath:
                 "exp": int(time.time()) + 3600,
             }
         )
-        user = _verify_supabase_bearer_token(token)
-        assert isinstance(user, AuthenticatedUser)
-        assert user.id == sub_id
-        assert user.auth_provider == "supabase"
-        assert user.provider_subject == sub_id
-
-    def test_expired_supabase_token_fails_closed(self):
-        token = _sign_supabase_hs256_token(
-            {
-                "sub": "user-expired",
-                "exp": int(time.time()) - 60,
-            }
-        )
         with pytest.raises(HTTPException) as exc_info:
             _verify_supabase_bearer_token(token)
         assert exc_info.value.status_code == status.HTTP_401_UNAUTHORIZED
-        assert "expired" in exc_info.value.detail.lower()
-
-    def test_forged_supabase_signature_fails_closed(self):
-        token = _sign_supabase_hs256_token(
-            {"sub": "user-forged", "exp": int(time.time()) + 3600},
-            secret="attacker-secret-that-does-not-match",
-        )
-        with patch("app.auth.get_supabase") as mock_sb:
-            mock_sb.return_value.auth.get_user.side_effect = Exception("Invalid signature")
-            with pytest.raises(HTTPException) as exc_info:
-                _verify_supabase_bearer_token(token)
-            assert exc_info.value.status_code == status.HTTP_401_UNAUTHORIZED
-
-    def test_supabase_network_fallback_succeeds(self):
-        token = "special-opaque-or-foreign-token"
-        with patch("app.auth._decode_bearer_jwt", side_effect=Exception("Local decode failed")):
-            with patch("app.auth.get_supabase") as mock_sb:
-                mock_user = MagicMock()
-                mock_user.id = "net-user-123"
-                mock_user.email = "net@example.com"
-                mock_sb.return_value.auth.get_user.return_value = MagicMock(user=mock_user)
-
-                user = _verify_supabase_bearer_token(token)
-                assert user.id == "net-user-123"
-                assert user.auth_provider == "supabase"
-                assert user.provider_subject == "net-user-123"
+        assert "disabled" in exc_info.value.detail.lower()
 
 
 # ─── 4. Cognito Authentication Path ───────────────────────────────────────────
@@ -496,14 +458,14 @@ class TestGetCurrentUserDispatch:
         assert exc_info.value.status_code == status.HTTP_401_UNAUTHORIZED
 
     @pytest.mark.asyncio
-    async def test_dispatch_routes_supabase_token(self):
+    async def test_dispatch_rejects_supabase_token(self):
         uid = str(uuid.uuid4())
         token = _sign_supabase_hs256_token({"sub": uid, "exp": int(time.time()) + 3600})
         creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
 
-        user = await get_current_user(creds, store=self.store)
-        assert user.id == uid
-        assert user.auth_provider == "supabase"
+        with pytest.raises(HTTPException) as exc_info:
+            await get_current_user(creds, store=self.store)
+        assert exc_info.value.status_code == status.HTTP_401_UNAUTHORIZED
 
     @pytest.mark.asyncio
     async def test_dispatch_routes_cognito_token(self, rsa_key_pair):

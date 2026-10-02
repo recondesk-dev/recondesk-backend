@@ -112,12 +112,8 @@ def _file_info(import_row: dict[str, Any] | None, prefix: str) -> ManageDataFile
 
 
 def _presign_get(key: str, expires: int = 300) -> str:
-    c = ws._r2()
-    return c.generate_presigned_url(
-        "get_object",
-        Params={"Bucket": settings.R2_BUCKET_NAME, "Key": key},
-        ExpiresIn=expires,
-    )
+    from app.services.storage_service import get_storage_service
+    return get_storage_service().generate_presigned_download_url(key, expires_in=expires)
 
 
 def _assert_run_owned_by_admin(sb, run_id: str, admin_id: str) -> tuple[dict, dict | None]:

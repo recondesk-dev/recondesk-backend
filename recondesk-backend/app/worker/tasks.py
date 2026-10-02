@@ -13,11 +13,9 @@ from decimal import Decimal
 from typing import Any, Callable
 from uuid import UUID
 
-import boto3
-from botocore.config import Config
 from supabase import Client, create_client
 
-from app.config import get_r2_s3_endpoint_url, get_settings
+from app.config import get_settings
 from app.parsers.gstr2b_parser import parse_gstr2b
 from app.parsers.purchase_register_parser import parse_purchase_register
 from app.services import client_import_mapping as cim
@@ -59,15 +57,8 @@ def _supabase() -> Client:
 
 
 def _s3():
-    s = get_settings()
-    return boto3.client(
-        "s3",
-        endpoint_url=get_r2_s3_endpoint_url(),
-        aws_access_key_id=s.R2_ACCESS_KEY_ID,
-        aws_secret_access_key=s.R2_SECRET_ACCESS_KEY,
-        config=Config(signature_version="s3v4"),
-        region_name="auto",
-    )
+    from app.services.storage_service import get_storage_service
+    return get_storage_service().get_s3_client()
 
 
 def _json_safe(obj: Any) -> Any:
@@ -333,8 +324,8 @@ def run_import_job(run_id: str, file_type: str, r2_key: str) -> None:
             },
         )
 
-        obj = s3.get_object(Bucket=bucket, Key=r2_key)
-        body = obj["Body"].read()
+        from app.services.storage_service import get_storage_service
+        body = get_storage_service().download_bytes(r2_key)
 
         client_gstin_fallback = ""
         if client_gstin_id:

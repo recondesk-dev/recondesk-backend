@@ -134,6 +134,20 @@ class CognitoIdentityStore:
     ) -> Optional[tuple[str, str]]:  # (user_id, email)
         raise NotImplementedError
 
+    def create_user_profile(
+        self,
+        user_id: str,
+        email: str,
+        full_name: Optional[str] = None,
+        firm_name: Optional[str] = None,
+        phone: Optional[str] = None,
+        role: str = "admin",
+        is_active: bool = True,
+        runs_limit: int = 2,
+    ) -> dict[str, Any]:
+        """Create or initialize a canonical user profile in the persistent store."""
+        raise NotImplementedError
+
 
 class InMemoryCognitoIdentityStore(CognitoIdentityStore):
     """Thread-safe in-memory store for unit tests, local development, and mocking."""
@@ -150,6 +164,48 @@ class InMemoryCognitoIdentityStore(CognitoIdentityStore):
     def set_user_profile(self, user_id: str, profile: dict[str, Any]) -> None:
         """Register or mock a user profile in memory."""
         self._profiles[str(user_id)] = profile
+
+    def create_user_profile(
+        self,
+        user_id: str,
+        email: str,
+        full_name: Optional[str] = None,
+        firm_name: Optional[str] = None,
+        phone: Optional[str] = None,
+        role: str = "admin",
+        is_active: bool = True,
+        runs_limit: int = 2,
+    ) -> dict[str, Any]:
+        uid = str(user_id or uuid.uuid4()).strip()
+        prof = {
+            "id": uid,
+            "email": email.strip().lower(),
+            "full_name": full_name,
+            "firm_name": firm_name,
+            "phone": phone,
+            "role": role or "admin",
+            "is_active": is_active,
+            "runs_limit": runs_limit,
+            "free_runs_remaining": runs_limit,
+        }
+        self.set_user_profile(uid, prof)
+        return prof
+
+    def pre_provision_mapping(
+        self,
+        user_id: str,
+        cognito_sub: str,
+        email: str,
+        pool_id: Optional[str] = None,
+        provisioned_by: str = "admin",
+    ) -> CognitoIdentityMapping:
+        return self.admin_provision_mapping(
+            user_id=user_id,
+            cognito_sub=cognito_sub,
+            email=email,
+            provisioned_by=provisioned_by,
+            pool_id=pool_id,
+        )
 
     def get_user_profile_by_id(self, user_id: str) -> Optional[dict[str, Any]]:
         return self._profiles.get(str(user_id))

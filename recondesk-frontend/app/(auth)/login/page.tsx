@@ -4,7 +4,6 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Logo } from "@/components/ui/Logo";
-import { createClient } from "@/lib/supabase/client";
 import { EMAIL_VALIDATION_MESSAGE, isValidEmail } from "@/lib/auth-validation";
 import {
   clearCachedAuthRole,
@@ -75,24 +74,39 @@ export default function LoginPage() {
 
     setLoading(true);
 
-    const supabase = createClient();
-    const { error: authError } = await supabase.auth.signInWithPassword({
-      email: email.trim(),
-      password,
-    });
+    try {
+      // Authenticate exclusively through Amazon Cognito (100% Cognito Cutover)
+      const cognitoRes = await fetch("/api/auth/cognito/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim(), password }),
+      });
 
-    if (authError) {
-      if (authError.message.toLowerCase().includes("email not confirmed")) {
-        setError("Please verify your email address before signing in. Check your inbox for the confirmation link.");
-      } else {
-        setError("Incorrect email or password");
+      const cognitoData = await cognitoRes.json().catch(() => null);
+
+      if (cognitoRes.ok && cognitoData?.success) {
+        clearCachedAuthRole();
+        await invalidateAuthProfileCache();
+        router.push("/dashboard");
+        router.refresh();
+        return;
       }
+
+      // If Cognito returned an unconfirmed email error
+      if (cognitoRes.status === 403) {
+        setError(
+          cognitoData?.detail ||
+          "Please verify your email address before signing in. Check your inbox for the confirmation code."
+        );
+        setLoading(false);
+        return;
+      }
+
+      setError(cognitoData?.detail || "Incorrect email or password");
       setLoading(false);
-    } else {
-      clearCachedAuthRole();
-      await invalidateAuthProfileCache();
-      router.push("/dashboard");
-      router.refresh();
+    } catch {
+      setError("An unexpected error occurred during login. Please try again.");
+      setLoading(false);
     }
   };
 

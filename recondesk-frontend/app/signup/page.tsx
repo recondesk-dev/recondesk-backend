@@ -4,7 +4,6 @@ import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Logo } from "@/components/ui/Logo";
-import { createClient } from "@/lib/supabase/client";
 import {
   clearCachedAuthRole,
   invalidateAuthProfileCache,
@@ -164,9 +163,89 @@ function SignupForm() {
         ? "text-amber-600"
         : "text-green-600";
 
+  const [awaitingConfirmation, setAwaitingConfirmation] = useState(false);
+  const [confirmationCode, setConfirmationCode] = useState("");
+  const [confirming, setConfirming] = useState(false);
+  const [confirmMessage, setConfirmMessage] = useState<string | null>(null);
+  const [resending, setResending] = useState(false);
+
+  const handleConfirmCode = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!confirmationCode.trim()) {
+      setError("Please enter the verification code.");
+      return;
+    }
+    setError(null);
+    setConfirming(true);
+
+    try {
+      const res = await fetch("/api/auth/cognito/confirm-signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: form.email.trim(),
+          confirmation_code: confirmationCode.trim(),
+        }),
+      });
+      const data = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        setError(data?.detail || data?.message || "Invalid verification code.");
+        setConfirming(false);
+        return;
+      }
+
+      // Automatically log the user in via Cognito
+      try {
+        const loginRes = await fetch("/api/auth/cognito/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: form.email.trim(), password: form.password }),
+        });
+        if (loginRes.ok) {
+          clearCachedAuthRole();
+          await invalidateAuthProfileCache();
+          router.replace("/welcome");
+          return;
+        }
+      } catch {
+        // Fall back to login redirect
+      }
+
+      router.replace("/login?verified=true");
+    } catch {
+      setError("An unexpected error occurred. Please try logging in.");
+      setConfirming(false);
+    }
+  };
+
+  const handleResendCode = async () => {
+    setError(null);
+    setConfirmMessage(null);
+    setResending(true);
+    try {
+      const res = await fetch("/api/auth/cognito/resend-code", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: form.email.trim() }),
+      });
+      if (res.ok) {
+        setConfirmMessage("A new verification code has been sent to your email.");
+      } else {
+        const data = await res.json().catch(() => null);
+        setError(data?.detail || "Failed to resend code.");
+      }
+    } catch {
+      setError("Failed to resend code. Please try again.");
+    } finally {
+      setResending(false);
+    }
+  };
+
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setConfirmMessage(null);
 
     const validationErrors = validateSignupForm(form);
     if (Object.keys(validationErrors).length > 0) {
@@ -177,67 +256,66 @@ function SignupForm() {
 
     setLoading(true);
 
-    const supabase = createClient();
+    try {
+      // 1. Primary path: Amazon Cognito signup
+      const res = await fetch("/api/auth/cognito/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: form.email.trim(),
+          password: form.password,
+          full_name: form.name.trim(),
+          firm_name: form.firmName.trim(),
+          phone: form.phone.trim(),
+        }),
+      });
 
-    const metadataRole =
-      inviteRoleRaw === "staff"
-        ? "Staff"
-        : inviteRoleRaw === "admin"
-          ? "Admin"
-          : "Admin";
+      const data = await res.json().catch(() => null);
 
-    const siteUrl = (
-      process.env.NEXT_PUBLIC_SITE_URL ?? window.location.origin
-    ).replace(/\/$/, "");
-    const { data, error } = await supabase.auth.signUp({
-      email: form.email,
-      password: form.password,
-      options: {
-        emailRedirectTo: `${siteUrl}/auth/callback`,
-        data: {
-          full_name: form.name,
-          firm_name: form.firmName,
-          phone: form.phone,
-          role: metadataRole,
-        },
-      },
-    });
+      if (res.ok) {
+        if (inviteToken) {
+          const apiUrl = (
+            process.env.NEXT_PUBLIC_API_URL ?? DEFAULT_API_URL
+          ).replace(/\/$/, "");
+          try {
+            await fetch(
+              `${apiUrl}/api/team/accept/${encodeURIComponent(inviteToken)}`,
+              {
+                method: "POST",
+                headers: { Accept: "application/json" },
+              },
+            );
+          } catch {
+            /* Invitation can be completed via /team/accept/{token} if this fails */
+          }
+        }
 
-    if (error) {
-      setError(error.message);
-      setLoading(false);
-      return;
-    }
+        if (data?.user_confirmed) {
+          clearCachedAuthRole();
+          await invalidateAuthProfileCache();
+          setLoading(false);
+          router.replace("/welcome");
+          return;
+        }
 
-    // When email enumeration protection is enabled, Supabase returns an empty identities array for existing users
-    if (data?.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
-      setError("An account with this email address already exists. Please sign in or reset your password.");
-      setLoading(false);
-      return;
-    }
-
-    if (inviteToken) {
-      const apiUrl = (
-        process.env.NEXT_PUBLIC_API_URL ?? DEFAULT_API_URL
-      ).replace(/\/$/, "");
-      try {
-        await fetch(
-          `${apiUrl}/api/team/accept/${encodeURIComponent(inviteToken)}`,
-          {
-            method: "POST",
-            headers: { Accept: "application/json" },
-          },
-        );
-      } catch {
-        /* Invitation can be completed via /team/accept/{token} if this fails */
+        // Email confirmation code sent
+        setLoading(false);
+        setAwaitingConfirmation(true);
+        return;
       }
+
+      if (res.status === 409) {
+        setError("An account with this email address already exists. Please sign in or reset your password.");
+        setLoading(false);
+        return;
+      }
+
+      setError(data?.detail || data?.message || "Sign up failed");
+      setLoading(false);
+    } catch {
+      setError("An unexpected error occurred during signup. Please try again.");
+      setLoading(false);
     }
-
-    clearCachedAuthRole();
-    await invalidateAuthProfileCache();
-
-    setLoading(false);
-    router.replace("/welcome");
   };
 
   return (
@@ -248,9 +326,87 @@ function SignupForm() {
           <p className="mt-2 text-sm text-gray-900">Protect your clients&apos; ITC. Every month.</p>
         </div>
 
-        <div className="rounded-[22px] border border-white/85 bg-white p-8 shadow-[var(--shadow-lift)]">
-          <h2 className="mb-1 text-xl font-semibold text-gray-900">Create your account</h2>
-          <p className="mb-6 text-sm text-gray-500">Get started with ReconDesk for free</p>
+        {awaitingConfirmation ? (
+          <div className="rounded-[22px] border border-white/85 bg-white p-8 shadow-[var(--shadow-lift)]">
+            <h2 className="mb-1 text-xl font-semibold text-gray-900">Verify your email</h2>
+            <p className="mb-6 text-sm text-gray-500">
+              We sent a verification code to <span className="font-medium text-gray-900">{form.email}</span>. Enter the code below to activate your account.
+            </p>
+
+            {confirmMessage && (
+              <div className="mb-4 rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-700">
+                {confirmMessage}
+              </div>
+            )}
+
+            {error && (
+              <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                {error}
+              </div>
+            )}
+
+            <form onSubmit={handleConfirmCode} className="space-y-4">
+              <div>
+                <label htmlFor="confirmationCode" className="mb-1 block text-sm font-medium text-gray-700">
+                  Verification code
+                </label>
+                <input
+                  id="confirmationCode"
+                  name="confirmationCode"
+                  type="text"
+                  value={confirmationCode}
+                  onChange={(e) => setConfirmationCode(e.target.value)}
+                  placeholder="Enter 6-digit code"
+                  className="input-field text-center text-lg tracking-widest font-mono"
+                  required
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={confirming}
+                className="btn-primary w-full flex items-center justify-center gap-2 mt-4"
+              >
+                {confirming ? (
+                  <>
+                    <svg className="animate-spin h-4 w-4 text-white" viewBox="0 0 24 24" fill="none">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
+                    Verifying...
+                  </>
+                ) : (
+                  "Verify & Continue"
+                )}
+              </button>
+
+              <div className="flex items-center justify-between text-xs text-gray-500 pt-3">
+                <button
+                  type="button"
+                  onClick={handleResendCode}
+                  disabled={resending}
+                  className="text-brand hover:underline font-medium"
+                >
+                  {resending ? "Resending..." : "Resend verification code"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAwaitingConfirmation(false);
+                    setError(null);
+                    setConfirmMessage(null);
+                  }}
+                  className="text-gray-500 hover:text-gray-700"
+                >
+                  Edit details
+                </button>
+              </div>
+            </form>
+          </div>
+        ) : (
+          <div className="rounded-[22px] border border-white/85 bg-white p-8 shadow-[var(--shadow-lift)]">
+            <h2 className="mb-1 text-xl font-semibold text-gray-900">Create your account</h2>
+            <p className="mb-6 text-sm text-gray-500">Get started with ReconDesk for free</p>
 
           {inviteRoleRaw ? (
             <div className="mb-4 rounded-lg border border-brand-dim bg-brand-dim px-3 py-2 text-sm text-[#111827]">
@@ -440,6 +596,7 @@ function SignupForm() {
             </p>
           </form>
         </div>
+        )}
 
         <p className="mt-6 text-center text-sm text-gray-500">
           Already have an account?{" "}

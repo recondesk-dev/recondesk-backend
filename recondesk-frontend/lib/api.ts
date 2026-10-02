@@ -164,7 +164,13 @@ function formatApiErrorDetail(raw: unknown, fallback: string): string {
   if (typeof raw === "object") {
     const obj = raw as Record<string, unknown>;
     const errorKey =
-      typeof obj.error === "string" && obj.error.trim() ? obj.error.trim() : "";
+      typeof obj.error === "string" && obj.error.trim()
+        ? obj.error.trim()
+        : typeof obj.error_cd === "string" && obj.error_cd.trim()
+          ? obj.error_cd.trim()
+          : typeof obj.code === "string" && obj.code.trim()
+            ? obj.code.trim()
+            : "";
     if (Array.isArray(obj.errors) && obj.errors.length > 0) {
       const errs = obj.errors
         .map((item) =>
@@ -204,6 +210,7 @@ export function backendApiUrl(path: string): string {
 /** Browser paths that have a Next.js same-origin proxy (avoids CORS / Failed to fetch). */
 export function usesSameOriginProxy(path: string): boolean {
   return (
+    path.startsWith("/api/filing") ||
     path.startsWith("/api/notes") ||
     path.startsWith("/api/audit-observations") ||
     path.startsWith("/api/reconciliation") ||

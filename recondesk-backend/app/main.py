@@ -632,13 +632,14 @@ async def health_check():
     def _ping_supabase() -> None:
         get_supabase().table("user_profiles").select("id").limit(1).execute()
 
-    def _ping_r2_soft() -> None:
+    def _ping_storage_soft() -> None:
         from botocore.exceptions import ClientError
-        from app.utils.storage import _get_client
+        from app.services.storage_service import get_storage_service
 
+        svc = get_storage_service()
         try:
-            _get_client().head_object(
-                Bucket=settings.R2_BUCKET_NAME, Key=_HEALTH_PROBE_KEY
+            svc.get_s3_client().head_object(
+                Bucket=svc.s3_bucket, Key=_HEALTH_PROBE_KEY
             )
         except ClientError as exc:
             code = str(exc.response.get("Error", {}).get("Code", ""))
@@ -646,15 +647,16 @@ async def health_check():
                 return
             raise
 
-    supabase_state, r2_state = await asyncio.gather(
+    supabase_state, storage_state = await asyncio.gather(
         _timed_state("supabase", _ping_supabase),
-        _timed_state("r2", _ping_r2_soft),
+        _timed_state("storage", _ping_storage_soft),
     )
+    r2_state = storage_state
 
     env = "production" if (settings.APP_ENV or "").lower() == "production" else "development"
     now = datetime.now(timezone.utc)
     uptime_seconds = int((now - START_TIME).total_seconds())
-    overall = "ok" if supabase_state == "ok" and r2_state == "ok" else "degraded"
+    overall = "ok" if supabase_state == "ok" and storage_state == "ok" else "degraded"
 
     return {
         "status": overall,
@@ -662,6 +664,7 @@ async def health_check():
         "git_commit_sha": os.environ.get("RAILWAY_GIT_COMMIT_SHA", os.environ.get("COMMIT_SHA", "unknown")),
         "uptime_seconds": uptime_seconds,
         "supabase": supabase_state,
+        "storage": storage_state,
         "r2": r2_state,
         "environment": env,
         "timestamp": now.isoformat(),

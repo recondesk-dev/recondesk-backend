@@ -51,13 +51,8 @@ def verify_ownership_proof(
 ) -> bool:
     """Verify trusted, server-side proof of existing ReconDesk account ownership.
 
-    Security Policies (Items 1 & 2):
-      - 'mock_test_proof' is strictly prohibited from runtime paths.
-      - Never trust an 'admin_session' dictionary supplied by a request.
-      - An ordinary firm administrator must not be able to link another user's account
-        without that user's verified proof of ownership.
-      - Only trusted, server-side verified credentials (active Supabase JWT or
-        password verified against Supabase Auth) are accepted at runtime.
+    Supabase authentication has been removed; legacy Supabase JWT and password
+    proofs are deprecated and permanently disabled.
     """
     if not proof or not isinstance(proof, dict):
         return False
@@ -69,36 +64,10 @@ def verify_ownership_proof(
         _log.warning("Rejected disallowed ownership proof type in runtime path: %s", proof_type)
         return False
 
-    # 1. Active Supabase Session Token / JWT proof
-    if proof_type == "supabase_jwt":
-        token = proof.get("token")
-        if not token or not isinstance(token, str):
-            return False
-        try:
-            from app.auth import _decode_and_verify_token_network_first
-            payload = _decode_and_verify_token_network_first(token)
-            jwt_sub = payload.get("sub")
-            jwt_email = (payload.get("email") or "").strip().lower()
-            return jwt_sub == user_id and (not email or jwt_email == email.strip().lower())
-        except Exception as exc:
-            _log.warning("Supabase JWT ownership proof verification failed: %s", type(exc).__name__)
-            return False
-
-    # 2. Supabase password credential proof
-    if proof_type == "supabase_password":
-        password = proof.get("password")
-        if not password or not isinstance(password, str):
-            return False
-        try:
-            from app.database import get_supabase
-            sb = get_supabase()
-            res = sb.auth.sign_in_with_password({"email": email, "password": password})
-            if res and res.user and str(res.user.id) == user_id:
-                return True
-            return False
-        except Exception as exc:
-            _log.warning("Supabase password ownership proof verification failed: %s", type(exc).__name__)
-            return False
+    # Supabase password and legacy JWT verification have been permanently removed
+    if proof_type in ("supabase_password", "supabase_jwt"):
+        _log.warning("Supabase ownership proof is deprecated and unsupported")
+        return False
 
     return False
 
@@ -286,6 +255,87 @@ class SQLAlchemyCognitoIdentityStore(CognitoIdentityStore):
         except Exception as exc:
             _log.warning("Aurora user profile email lookup failed: %s", type(exc).__name__)
             return None
+
+    def create_user_profile(
+        self,
+        user_id: str,
+        email: str,
+        full_name: Optional[str] = None,
+        firm_name: Optional[str] = None,
+        phone: Optional[str] = None,
+        role: str = "admin",
+        is_active: bool = True,
+        runs_limit: int = 2,
+    ) -> dict[str, Any]:
+        """Create or initialize a canonical user profile in Aurora PostgreSQL."""
+        uid = str(user_id or uuid.uuid4()).strip()
+        clean_email = email.strip().lower()
+        now = datetime.now(timezone.utc)
+        with self._get_session() as session:
+            try:
+                stmt = select(UserProfileModel).where(UserProfileModel.id == uid)
+                existing = session.scalar(stmt)
+                if existing is not None:
+                    if full_name and not existing.full_name:
+                        existing.full_name = full_name.strip()
+                    if firm_name and not existing.firm_name:
+                        existing.firm_name = firm_name.strip()
+                    if phone and not existing.phone:
+                        existing.phone = phone.strip()
+                    session.commit()
+                    return {
+                        "id": str(existing.id),
+                        "email": existing.email,
+                        "full_name": existing.full_name,
+                        "firm_name": existing.firm_name,
+                        "phone": existing.phone,
+                        "role": existing.role,
+                        "is_active": existing.is_active,
+                    }
+
+                profile = UserProfileModel(
+                    id=uid,
+                    email=clean_email,
+                    full_name=full_name.strip() if full_name else None,
+                    firm_name=firm_name.strip() if firm_name else None,
+                    phone=phone.strip() if phone else None,
+                    role=role or "admin",
+                    is_active=is_active,
+                    runs_limit=runs_limit,
+                    free_runs_remaining=runs_limit,
+                    created_at=now,
+                )
+                session.add(profile)
+                session.commit()
+                return {
+                    "id": str(profile.id),
+                    "email": profile.email,
+                    "full_name": profile.full_name,
+                    "firm_name": profile.firm_name,
+                    "phone": profile.phone,
+                    "role": profile.role,
+                    "is_active": profile.is_active,
+                }
+            except Exception as exc:
+                session.rollback()
+                _log.warning("Failed to create UserProfile in Aurora: %s", type(exc).__name__)
+                raise
+
+    def pre_provision_mapping(
+        self,
+        user_id: str,
+        cognito_sub: str,
+        email: str,
+        pool_id: Optional[str] = None,
+        provisioned_by: str = "admin",
+    ) -> CognitoIdentityMapping:
+        return self.admin_provision_mapping(
+            user_id=user_id,
+            cognito_sub=cognito_sub,
+            email=email,
+            provisioned_by=provisioned_by,
+            pool_id=pool_id,
+        )
 
     def save_mapping(self, mapping: CognitoIdentityMapping) -> None:
         """Persist or update an unverified identity mapping.

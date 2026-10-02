@@ -7,8 +7,7 @@ import useSWR from "swr";
 
 import { isApiError, reconcileRunsApi, usersApi, type ReconcileRunSummaryDto } from "@/lib/api";
 import { formatINR } from "@/lib/format";
-import { setOnboardingDoneCookie } from "@/lib/onboarding-cookie";
-import { createClient, subscribeAccessToken } from "@/lib/supabase/client";
+import { subscribeAccessToken } from "@/lib/supabase/client";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -28,9 +27,12 @@ function CelebrateContent() {
     void usersApi
       .onboardingComplete(t)
       .then(async () => {
-        const supabase = createClient();
-        const { data } = await supabase.auth.getUser();
-        if (data.user?.id) setOnboardingDoneCookie(data.user.id);
+        const { fetchFreshAuthProfile } = await import("@/lib/auth-profile");
+        const profile = await fetchFreshAuthProfile(t);
+        if (profile.id) {
+          const { setOnboardingDoneCookie } = await import("@/lib/onboarding-cookie");
+          setOnboardingDoneCookie(profile.id);
+        }
       })
       .catch(() => {
         completedRef.current = false;

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { getAuthenticatedCognitoUser } from "@/lib/cognito/serverAuth";
+import { createAdminClient } from "@/lib/supabase/admin";
 import Razorpay from "razorpay";
 
 type PlanPricing = {
@@ -45,18 +46,16 @@ const PLAN_CATALOG: Record<string, PlanPricing> = {
 
 export async function POST(request: Request) {
   try {
-    const supabase = createClient();
-    if (!supabase) {
-      return NextResponse.json({ error: "Supabase not configured" }, { status: 500 });
+    const user = await getAuthenticatedCognitoUser(request);
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
-
-    if (userError || !user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    let adminDb: ReturnType<typeof createAdminClient>;
+    try {
+      adminDb = createAdminClient();
+    } catch {
+      return NextResponse.json({ error: "Database not configured" }, { status: 500 });
     }
 
     const body = await request.json();
@@ -176,7 +175,7 @@ export async function POST(request: Request) {
       status: "created" as const,
     };
 
-    const { error: dbError } = await (supabase.from("payments") as any).insert(paymentRow);
+    const { error: dbError } = await (adminDb.from("payments") as any).insert(paymentRow);
 
     if (dbError) {
       console.warn("Database insert with B2B fields failed, falling back to core columns:", dbError);
@@ -191,7 +190,7 @@ export async function POST(request: Request) {
         amount_paise: totalAmountPaise,
         status: "created" as const,
       };
-      await (supabase.from("payments") as any).insert(fallbackRow);
+      await (adminDb.from("payments") as any).insert(fallbackRow);
     }
 
     if (custGstin || custName || custCity) {
@@ -199,7 +198,7 @@ export async function POST(request: Request) {
       if (custGstin) profUpdate.firm_gstin = custGstin;
       if (custName) profUpdate.firm_name = custName;
       if (custCity) profUpdate.firm_city = custCity;
-      void (supabase.from("user_profiles") as any).update(profUpdate).eq("id", user.id);
+      void (adminDb.from("user_profiles") as any).update(profUpdate).eq("id", user.id);
     }
 
     return NextResponse.json({

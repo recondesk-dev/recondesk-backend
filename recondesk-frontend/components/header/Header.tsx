@@ -3,7 +3,6 @@
 import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { clearOnboardingDoneCookie } from "@/lib/onboarding-cookie";
-import { createClient } from "@/lib/supabase/client";
 import { Bell, ChevronDown, LogOut, User, Menu } from "lucide-react";
 
 interface UserProfile {
@@ -25,7 +24,6 @@ const ROLE_BADGE = {
 
 export default function Header({ user, onMenuToggle }: HeaderProps) {
   const router = useRouter();
-  const supabase = createClient();
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const role = (user.role ?? "Staff") as "Admin" | "Staff";
@@ -42,19 +40,6 @@ export default function Header({ user, onMenuToggle }: HeaderProps) {
 
   const handleLogout = async () => {
     clearOnboardingDoneCookie();
-    try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      if (session) {
-        await supabase.auth.signOut();
-        router.push("/login");
-        router.refresh();
-        return;
-      }
-    } catch {
-      // Fall through to Cognito cleanup
-    }
     window.location.href = "/api/auth/cognito-logout";
   };
 

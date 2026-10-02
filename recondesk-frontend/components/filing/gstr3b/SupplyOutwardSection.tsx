@@ -2,6 +2,7 @@
 
 import { useCallback, useState } from "react";
 
+import { isApiError } from "@/lib/api";
 import { DraftSuggestionBanner } from "@/components/filing/gstr3b/DraftSuggestionBanner";
 import {
   type Gstr3bFiguresState,
@@ -65,10 +66,12 @@ export function SupplyOutwardSection({
       }
       setSuggestion(result.suggestion);
       setEmptyHint(null);
-    } catch {
+    } catch (err: unknown) {
       setSuggestion(null);
       setEmptyHint(
-        "Could not load GSTR-1 suggestions. Try again, or enter the amount from the books."
+        isApiError(err)
+          ? err.detail
+          : "Could not load GSTR-1 suggestions. Try again, or enter the amount from the books."
       );
     } finally {
       setBusy(false);

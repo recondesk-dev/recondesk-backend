@@ -273,15 +273,19 @@ def ensure_user_profile(
             pass
         return profile
 
-    sb = client or get_supabase()
+    # Resolve email from Aurora / Cognito identity store
     email = None
     try:
-        auth_user = sb.auth.admin.get_user_by_id(uid)
-        if auth_user and getattr(auth_user, "user", None):
-            email = getattr(auth_user.user, "email", None)
+        from app.cognito_aurora_store import get_identity_store
+        store = get_identity_store()
+        if hasattr(store, "get_user_profile_by_id"):
+            stored_prof = store.get_user_profile_by_id(uid)
+            if stored_prof and stored_prof.get("email"):
+                email = stored_prof["email"]
     except Exception:
         email = None
 
+    sb = client or get_supabase()
     role = resolve_user_role(None, user_id=uid, email=email, client=sb)
 
     insert_payload = {

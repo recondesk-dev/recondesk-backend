@@ -115,33 +115,60 @@ def _latest_gstr1_run(sb, *, client_gstin_id: str, period: str) -> dict[str, Any
     want = normalize_period_yyyy_mm(period)
     if not want:
         return None
-    res = (
-        sb.table("gstr1_reconciliation_run")
-        .select("id, client_gstin_id, period, result_payload, created_at, completed_at")
-        .eq("client_gstin_id", client_gstin_id)
-        .order("created_at", desc=True)
-        .limit(50)
-        .execute()
-    )
+    try:
+        res = (
+            sb.table("gstr1_reconciliation_run")
+            .select("id, client_gstin_id, period, created_at, completed_at")
+            .eq("client_gstin_id", client_gstin_id)
+            .order("created_at", desc=True)
+            .limit(50)
+            .execute()
+        )
+    except Exception as exc:
+        _log.warning("Could not query gstr1_reconciliation_run for client %s: %s", client_gstin_id, exc)
+        return None
+
+    matching_id = None
     for row in res.data or []:
         if normalize_period_yyyy_mm(row.get("period")) == want:
-            return row
-    return None
+            matching_id = row.get("id")
+            break
+    if not matching_id:
+        return None
+
+    try:
+        full_res = (
+            sb.table("gstr1_reconciliation_run")
+            .select("id, client_gstin_id, period, result_payload, created_at, completed_at")
+            .eq("id", matching_id)
+            .limit(1)
+            .execute()
+        )
+        return full_res.data[0] if full_res.data else None
+    except Exception as exc:
+        _log.warning("Could not fetch gstr1_reconciliation_run payload for run %s: %s", matching_id, exc)
+        return None
 
 
 def _latest_gstr2b_run(sb, *, client_gstin_id: str, period: str) -> dict[str, Any] | None:
     want = normalize_period_yyyy_mm(period)
     if not want:
         return None
-    res = (
-        sb.table("reconciliation_run")
-        .select("id, client_gstin_id, period, status, completed_at, created_at")
-        .eq("client_gstin_id", client_gstin_id)
-        .in_("status", list(_RUN_STATUSES))
-        .order("completed_at", desc=True)
-        .limit(100)
-        .execute()
-    )
+    valid_statuses = ["COMPLETED", "completed", "FINAL", "final"]
+    try:
+        res = (
+            sb.table("reconciliation_run")
+            .select("id, client_gstin_id, period, status, completed_at, created_at")
+            .eq("client_gstin_id", client_gstin_id)
+            .in_("status", valid_statuses)
+            .order("completed_at", desc=True)
+            .limit(100)
+            .execute()
+        )
+    except Exception as exc:
+        _log.warning("Could not query reconciliation_run for client %s: %s", client_gstin_id, exc)
+        return None
+
     for row in res.data or []:
         if normalize_period_yyyy_mm(row.get("period")) == want:
             return row

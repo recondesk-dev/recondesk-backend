@@ -98,24 +98,17 @@ def test_signup_fails_with_nonexistent_domain_mx(client: TestClient):
 
 def test_signup_passes_mx_check_on_valid_domain(client: TestClient):
     """Signup endpoint passes MX validation for valid email domain."""
-    mock_db = MagicMock()
-    mock_user = MagicMock()
-    mock_user.id = "11111111-1111-1111-1111-111111111111"
-    mock_auth_res = MagicMock()
-    mock_auth_res.user = mock_user
-    mock_db.auth.sign_up.return_value = mock_auth_res
-
-    # Mock DB table calls for profile creation
-    mock_table = MagicMock()
-    mock_db.table.return_value = mock_table
-    mock_table.upsert.return_value = mock_table
-    mock_table.update.return_value = mock_table
-    mock_table.eq.return_value = mock_table
-    mock_table.execute.return_value = MagicMock()
+    from app.routers.cognito_auth import CognitoSignupResponse
+    mock_cognito_res = CognitoSignupResponse(
+        user_id="11111111-1111-1111-1111-111111111111",
+        message="Sign up successful.",
+        cognito_sub="cog-sub-123",
+        user_confirmed=False,
+    )
 
     with (
         patch("app.utils.email_domain.has_mx_record", return_value=True),
-        patch("app.routers.auth.get_db", return_value=mock_db),
+        patch("app.routers.cognito_auth.cognito_signup", return_value=mock_cognito_res),
         patch("app.routers.auth.log_action", return_value=None),
     ):
         response = client.post(

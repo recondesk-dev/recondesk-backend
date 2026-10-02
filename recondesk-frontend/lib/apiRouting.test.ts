@@ -50,6 +50,8 @@ describe("REM-01: usesSameOriginProxy routing classifications", () => {
       "/api/gstr2a-delta/summary",
       "/api/einvoicing/generate",
       "/api/notices/client/123",
+      "/api/filing/gstr-3b/2026-07/suggestions/table4",
+      "/api/filing/gstr-3b/2026-07/save",
     ];
 
     for (const path of proxiedPaths) {

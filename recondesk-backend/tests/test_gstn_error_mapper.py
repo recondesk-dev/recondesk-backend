@@ -327,3 +327,28 @@ def test_gstr2b_autofetch_routes_raise_http_error_sanitization():
     assert "Sandbox" not in str(err.detail)
     assert err.detail == MSG_INVALID_GSTIN
 
+
+def test_gstr1_not_filed_mapping():
+    from app.integrations.gstn_error_mapper import MSG_GSTR1_NOT_FILED, MSG_RETURN_ALREADY_FILED
+
+    # By error code
+    assert map_gstn_error("Some error", error_code="RT-R3BQ1004") == MSG_GSTR1_NOT_FILED
+    assert map_gstn_error("Some error", error_code="RET19101") == MSG_GSTR1_NOT_FILED
+
+    # By raw message pattern
+    assert map_gstn_error("You have not filed GSTR-1 of the selected tax period.") == MSG_GSTR1_NOT_FILED
+    assert map_gstn_error("GSTR-1 not filed for this period") == MSG_GSTR1_NOT_FILED
+    assert map_gstn_error("Return already filed", error_code="RET11405") == MSG_RETURN_ALREADY_FILED
+
+
+def test_filing_gstn_error_with_clean_message():
+    from app.routers.filing import _map_client_error
+
+    # When FilingGstnError has RT-R3BQ1004
+    exc = FilingGstnError("You have not filed GSTR-1 of the selected tax period.", error_cd="RT-R3BQ1004")
+    res = _map_client_error(exc)
+    assert res.status_code == 502
+    assert "GSTR-1" in res.detail["message"]
+    assert res.detail["error_cd"] == "RT-R3BQ1004"
+
+

@@ -40,6 +40,7 @@ import {
 import {
   resolveAccessTokenBridge,
   resolveBackendProxyAuth,
+  resolveBillingCallerAuth,
 } from "../lib/cognito/sessionBridge.ts";
 
 // Helper to generate RSA key pair and JWKS
@@ -1108,10 +1109,10 @@ describe("Dual-Auth Phase 2A: Session Bridge, Precedence & Cookies", () => {
     assert.equal(mockRes.cookies.get(COGNITO_COOKIE_NAMES.STATE).options.maxAge, 0);
   });
 
-  test("9. /api/auth/access-token bridge: returns Supabase token when Supabase session exists (precedence rule)", async () => {
+  test("9. /api/auth/access-token bridge: returns Cognito token when both exist (Phase 7 precedence rule)", async () => {
     const { token: cognitoToken } = createValidCognitoAccessToken();
 
-    // Both Supabase session AND Cognito cookie exist: Supabase MUST win
+    // Both Supabase session AND Cognito cookie exist: Cognito MUST win in Phase 7
     const result = await resolveAccessTokenBridge({
       getSupabaseToken: async () => "supabase-jwt-token-xyz",
       getCognitoCookie: () => cognitoToken,
@@ -1121,9 +1122,21 @@ describe("Dual-Auth Phase 2A: Session Bridge, Precedence & Cookies", () => {
     });
 
     assert.equal(result.status, 200);
-    assert.equal(result.body.provider, "supabase", "Supabase must take precedence over Cognito");
-    assert.equal(result.body.access_token, "supabase-jwt-token-xyz");
+    assert.equal(result.body.provider, "cognito", "Cognito must take precedence over Supabase in Phase 7");
+    assert.equal(result.body.access_token, cognitoToken);
     assert.equal(result.body.refresh_token, undefined, "Refresh token must never be returned");
+  });
+
+  test("9b. /api/auth/access-token bridge: fails closed (401) without Supabase fallback when Cognito session is absent", async () => {
+    const result = await resolveAccessTokenBridge({
+      getSupabaseToken: async () => "supabase-jwt-token-xyz",
+      getCognitoCookie: () => null,
+      verifyCognitoToken: async () => {},
+    });
+
+    assert.equal(result.status, 401);
+    assert.equal(result.body.error, "Unauthorized");
+    assert.equal(result.body.access_token, undefined);
   });
 
   test("10. /api/auth/access-token bridge: returns Cognito token with provider='cognito' when only Cognito exists and is valid", async () => {
@@ -1185,17 +1198,30 @@ describe("Dual-Auth Phase 2A: Session Bridge, Precedence & Cookies", () => {
     assert.equal(resolved, "Bearer custom-explicit-api-key");
   });
 
-  test("13. backendProxy: attaches Supabase bearer token when Supabase session exists (precedence rule)", async () => {
+  test("13. backendProxy: attaches Cognito bearer token when both exist (Phase 7 precedence rule)", async () => {
     const { token: cognitoToken } = createValidCognitoAccessToken();
 
     const resolved = await resolveBackendProxyAuth({
       incomingAuthHeader: null,
       getSupabaseToken: async () => "supabase-session-jwt",
       getCognitoToken: () => cognitoToken,
+      verifyCognitoToken: async (tok) => {
+        await verifyCognitoAccessToken({ token: tok, config: mockConfig, jwksOverride: jwks });
+      },
+    });
+
+    assert.equal(resolved, `Bearer ${cognitoToken}`, "Cognito session must win over Supabase in Phase 7");
+  });
+
+  test("13b. backendProxy: returns null without Supabase fallback when Cognito session is absent", async () => {
+    const resolved = await resolveBackendProxyAuth({
+      incomingAuthHeader: null,
+      getSupabaseToken: async () => "supabase-session-jwt",
+      getCognitoToken: () => null,
       verifyCognitoToken: async () => {},
     });
 
-    assert.equal(resolved, "Bearer supabase-session-jwt", "Supabase session must win over Cognito cookie");
+    assert.equal(resolved, null, "Must return null unauthenticated when Cognito is absent");
   });
 
   test("14. backendProxy: attaches Cognito bearer token when Supabase is absent and Cognito token is valid", async () => {
@@ -1541,10 +1567,8 @@ describe("Dual-Auth Phase 2B: Middleware Authentication & Precedence", () => {
     let authProvider = null;
     let onboardingUserId = null;
 
-    if (supabaseUser) {
-      isAuthenticated = true;
-      authProvider = "supabase";
-    } else if (cognitoCookie && cognitoCookie.trim().length > 0) {
+    // Phase 7: Cognito is checked first (primary production path)
+    if (cognitoCookie && cognitoCookie.trim().length > 0) {
       try {
         await verifyCognitoAccessToken({
           token: cognitoCookie.trim(),
@@ -1554,7 +1578,7 @@ describe("Dual-Auth Phase 2B: Middleware Authentication & Precedence", () => {
         isAuthenticated = true;
         authProvider = "cognito";
       } catch {
-        // Fails closed
+        // Fails closed for Cognito, proceeds to check Supabase fallback
       }
     }
 
@@ -1567,31 +1591,22 @@ describe("Dual-Auth Phase 2B: Middleware Authentication & Precedence", () => {
       };
     }
 
-    // Only set onboarding cookie when a canonical Supabase user.id is available.
-    // Cognito sub is the provider identity and Phase 2A's trusted mapping returns
-    // the canonical ReconDesk user_profiles.id separately.
-    // Middleware must NOT manufacture a canonical ReconDesk user ID from claims.sub.
-    if (authProvider === "supabase" && supabaseUser) {
-      onboardingUserId = supabaseUser.id;
-    }
-
     return {
       isAuthenticated: true,
-      authProvider,
-      onboardingUserId,
+      authProvider: "cognito",
+      onboardingUserId: null,
       redirect: pathname === "/" ? "/dashboard" : null,
     };
   }
 
-  test("existing Supabase behavior still works", async () => {
-    const { isAuthenticated, authProvider, onboardingUserId } = await simulateMiddlewareAuth({
+  test("unauthenticated when Cognito cookie is missing (no Supabase fallback)", async () => {
+    const { isAuthenticated, authProvider } = await simulateMiddlewareAuth({
       supabaseUser: { id: "supabase-user-uuid-123" },
       cognitoCookie: null,
     });
 
-    assert.equal(isAuthenticated, true);
-    assert.equal(authProvider, "supabase");
-    assert.equal(onboardingUserId, "supabase-user-uuid-123");
+    assert.equal(isAuthenticated, false);
+    assert.equal(authProvider, null);
   });
 
   test("Cognito access cookie authenticates session without manufacturing user ID from claims.sub", async () => {
@@ -1607,7 +1622,7 @@ describe("Dual-Auth Phase 2B: Middleware Authentication & Precedence", () => {
     assert.notEqual(onboardingUserId, payload.sub);
   });
 
-  test("Supabase wins when both sessions exist (precedence rule)", async () => {
+  test("Cognito wins when both sessions exist (Phase 7 precedence rule)", async () => {
     const { token: cognitoToken } = createValidCognitoAccessToken();
     const { isAuthenticated, authProvider, onboardingUserId } = await simulateMiddlewareAuth({
       supabaseUser: { id: "supabase-user-uuid-123" },
@@ -1615,8 +1630,8 @@ describe("Dual-Auth Phase 2B: Middleware Authentication & Precedence", () => {
     });
 
     assert.equal(isAuthenticated, true);
-    assert.equal(authProvider, "supabase", "Supabase must take precedence");
-    assert.equal(onboardingUserId, "supabase-user-uuid-123", "Supabase user ID must be chosen");
+    assert.equal(authProvider, "cognito", "Cognito must take precedence in Phase 7");
+    assert.equal(onboardingUserId, null, "Cognito does not manufacture onboarding user ID from claims");
   });
 
   test("expired Cognito access cookie is rejected in middleware", async () => {
@@ -1997,5 +2012,143 @@ describe("Dual-Auth Phase 2B: Full Session Lifecycle & Expiry Handling", () => {
     const result = await simulateFetchWithSingleRefreshRetry();
     assert.equal(result, false, "Must fail closed to false");
     assert.equal(refreshAttemptCount, 1, "Must never attempt more than 1 refresh retry");
+  });
+});
+
+describe("Phase 7 Final Cleanup: Billing Auth via Amazon Cognito (Zero Supabase Auth)", () => {
+  const { privateKey, jwks, kid } = generateTestJwks();
+
+  test("resolveBillingCallerAuth succeeds with Authorization Bearer token", async () => {
+    const validAccessPayload = {
+      sub: "cognito-sub-user-billing-1",
+      iss: `https://cognito-idp.${mockConfig.region}.amazonaws.com/${mockConfig.userPoolId}`,
+      client_id: mockConfig.clientId,
+      token_use: "access",
+      exp: Math.floor(Date.now() / 1000) + 3600,
+      iat: Math.floor(Date.now() / 1000),
+    };
+    const token = signTestJwt(validAccessPayload, privateKey, kid);
+
+    const user = await resolveBillingCallerAuth({
+      authHeader: `Bearer ${token}`,
+      verifyCognitoToken: async (tok) => {
+        const claims = await verifyCognitoAccessToken({
+          token: tok,
+          config: mockConfig,
+          jwksOverride: jwks,
+        });
+        return { sub: claims.sub, email: claims.email };
+      },
+      lookupMapping: async (sub) => {
+        if (sub === "cognito-sub-user-billing-1") {
+          return { userId: "user-uuid-1111-2222", email: "billing-test@example.com" };
+        }
+        return { userId: null };
+      },
+    });
+
+    assert.ok(user, "User must authenticate successfully");
+    assert.equal(user.id, "user-uuid-1111-2222");
+    assert.equal(user.cognitoSub, "cognito-sub-user-billing-1");
+    assert.equal(user.token, token);
+  });
+
+  test("resolveBillingCallerAuth succeeds with Cognito access token cookie", async () => {
+    const validAccessPayload = {
+      sub: "cognito-sub-user-billing-2",
+      iss: `https://cognito-idp.${mockConfig.region}.amazonaws.com/${mockConfig.userPoolId}`,
+      client_id: mockConfig.clientId,
+      token_use: "access",
+      exp: Math.floor(Date.now() / 1000) + 3600,
+      iat: Math.floor(Date.now() / 1000),
+    };
+    const token = signTestJwt(validAccessPayload, privateKey, kid);
+
+    const user = await resolveBillingCallerAuth({
+      cookieToken: token,
+      verifyCognitoToken: async (tok) => {
+        const claims = await verifyCognitoAccessToken({
+          token: tok,
+          config: mockConfig,
+          jwksOverride: jwks,
+        });
+        return { sub: claims.sub, email: claims.email };
+      },
+      lookupMapping: async (sub) => {
+        if (sub === "cognito-sub-user-billing-2") {
+          return { userId: "user-uuid-3333-4444", email: "billing-cookie@example.com" };
+        }
+        return { userId: null };
+      },
+    });
+
+    assert.ok(user, "User must authenticate from cookie successfully");
+    assert.equal(user.id, "user-uuid-3333-4444");
+    assert.equal(user.cognitoSub, "cognito-sub-user-billing-2");
+  });
+
+  test("resolveBillingCallerAuth fails closed when unauthenticated (no token or cookie)", async () => {
+    const user = await resolveBillingCallerAuth({
+      authHeader: null,
+      cookieToken: null,
+      verifyCognitoToken: async () => ({ sub: "dummy" }),
+      lookupMapping: async () => ({ userId: "dummy" }),
+    });
+
+    assert.equal(user, null, "Must fail closed to null for unauthenticated caller");
+  });
+
+  test("resolveBillingCallerAuth fails closed on expired Cognito token", async () => {
+    const expiredPayload = {
+      sub: "cognito-sub-user-expired",
+      iss: `https://cognito-idp.${mockConfig.region}.amazonaws.com/${mockConfig.userPoolId}`,
+      client_id: mockConfig.clientId,
+      token_use: "access",
+      exp: Math.floor(Date.now() / 1000) - 300,
+      iat: Math.floor(Date.now() / 1000) - 3600,
+    };
+    const expiredToken = signTestJwt(expiredPayload, privateKey, kid);
+
+    const user = await resolveBillingCallerAuth({
+      authHeader: `Bearer ${expiredToken}`,
+      verifyCognitoToken: async (tok) => {
+        const claims = await verifyCognitoAccessToken({
+          token: tok,
+          config: mockConfig,
+          jwksOverride: jwks,
+        });
+        return { sub: claims.sub };
+      },
+      lookupMapping: async () => ({ userId: "should-not-reach" }),
+    });
+
+    assert.equal(user, null, "Must fail closed to null for expired token");
+  });
+
+  test("resolveBillingCallerAuth fails closed when mapping returns no user_id", async () => {
+    const validAccessPayload = {
+      sub: "cognito-sub-user-unverified",
+      iss: `https://cognito-idp.${mockConfig.region}.amazonaws.com/${mockConfig.userPoolId}`,
+      client_id: mockConfig.clientId,
+      token_use: "access",
+      exp: Math.floor(Date.now() / 1000) + 3600,
+      iat: Math.floor(Date.now() / 1000),
+    };
+    const token = signTestJwt(validAccessPayload, privateKey, kid);
+
+    const user = await resolveBillingCallerAuth({
+      authHeader: `Bearer ${token}`,
+      verifyCognitoToken: async (tok) => {
+        const claims = await verifyCognitoAccessToken({
+          token: tok,
+          config: mockConfig,
+          jwksOverride: jwks,
+        });
+        return { sub: claims.sub };
+      },
+      lookupMapping: async () => ({ userId: null }),
+    });
+
+    assert.equal(user, null, "Unverified mapping must not authenticate");
   });
 });

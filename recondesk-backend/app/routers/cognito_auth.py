@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import uuid
 from typing import Any, Callable, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -16,13 +17,27 @@ from app.cognito_identity import (
     complete_account_linking,
     resolve_cognito_user_id,
 )
-from app.cognito_verifier import get_current_cognito_claims
-from app.database import get_user_profile
+from app.cognito_verifier import get_current_cognito_claims, verify_cognito_token
+from app.database import get_supabase, get_user_profile
+from app.services.cognito_service import (
+    CognitoCodeExpiredError,
+    CognitoCodeMismatchError,
+    CognitoInvalidCredentialsError,
+    CognitoInvalidPasswordError,
+    CognitoRateLimitError,
+    CognitoService,
+    CognitoServiceError,
+    CognitoUserExistsError,
+    CognitoUserNotConfirmedError,
+    CognitoUserNotFoundError,
+    get_cognito_service,
+)
+from app.utils.email_domain import validate_email_mx
 from app.utils.rate_limit import limiter
 
 _log = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/cognito", tags=["Cognito Auth (Dev)"])
+router = APIRouter(prefix="/cognito", tags=["Cognito Auth"])
 
 from app.cognito_aurora_store import get_identity_store, set_identity_store
 
@@ -407,3 +422,421 @@ async def cognito_lookup_mapping(
         account_mapping_status="pending_trusted_mapping_phase",
         user_id=None,
     )
+
+
+# ── Phase 7: Production Cognito Authentication Endpoints ──────────────────────
+
+
+class CognitoSignupRequest(BaseModel):
+    email: str = Field(..., description="User email address")
+    password: str = Field(..., min_length=6, description="User password")
+    full_name: str = Field(..., min_length=1, description="Full name")
+    firm_name: Optional[str] = Field(None, description="Accounting / CA firm name")
+    phone: Optional[str] = Field(None, description="Contact phone number")
+
+
+class CognitoSignupResponse(BaseModel):
+    message: str
+    user_id: str
+    cognito_sub: str
+    user_confirmed: bool
+    delivery_medium: Optional[str] = None
+    destination: Optional[str] = None
+
+
+class CognitoConfirmSignupRequest(BaseModel):
+    email: str
+    confirmation_code: str
+
+
+class CognitoResendCodeRequest(BaseModel):
+    email: str
+
+
+class CognitoLoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+class CognitoLoginResponse(BaseModel):
+    access_token: str
+    id_token: Optional[str] = None
+    refresh_token: Optional[str] = None
+    expires_in: int = 3600
+    token_type: str = "Bearer"
+    user: dict[str, Any]
+    provider: str = "cognito"
+
+
+class CognitoForgotPasswordRequest(BaseModel):
+    email: str
+
+
+class CognitoConfirmForgotPasswordRequest(BaseModel):
+    email: str
+    confirmation_code: str
+    new_password: str = Field(..., min_length=6)
+
+
+class CognitoRefreshRequest(BaseModel):
+    refresh_token: str
+
+
+class CognitoLogoutRequest(BaseModel):
+    access_token: Optional[str] = None
+
+
+@router.post("/signup", response_model=CognitoSignupResponse, status_code=status.HTTP_201_CREATED)
+@limiter.limit("10/minute")
+async def cognito_signup(
+    request: Request,
+    payload: CognitoSignupRequest,
+    config: CognitoConfig = Depends(get_cognito_config),
+    cognito_service: CognitoService = Depends(get_cognito_service),
+    store: CognitoIdentityStore = Depends(get_identity_store),
+) -> CognitoSignupResponse:
+    """Register a new user in Amazon Cognito User Pool and provision their profile in Aurora."""
+    if not config.COGNITO_AUTH_ENABLED:
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail="Cognito authentication is disabled on this server.",
+        )
+
+    clean_email = payload.email.strip().lower()
+    validate_email_mx(clean_email)
+
+    try:
+        res = cognito_service.signup(
+            email=clean_email,
+            password=payload.password,
+            full_name=payload.full_name,
+            phone=payload.phone,
+        )
+    except CognitoUserExistsError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="An account with this email address already exists. Please sign in or reset your password.",
+        ) from exc
+    except CognitoInvalidPasswordError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=exc.message,
+        ) from exc
+    except CognitoServiceError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=exc.message,
+        ) from exc
+
+    user_sub = str(res["user_sub"])
+    user_confirmed = bool(res["user_confirmed"])
+    delivery = res.get("code_delivery_details") or {}
+
+    # Check if profile already exists in Aurora
+    existing_profile = None
+    if hasattr(store, "get_user_profile_by_email"):
+        existing_profile = store.get_user_profile_by_email(clean_email)
+
+    if existing_profile:
+        user_id = str(existing_profile["id"])
+    else:
+        user_id = str(uuid.uuid4())
+        if hasattr(store, "create_user_profile"):
+            store.create_user_profile(
+                user_id=user_id,
+                email=clean_email,
+                full_name=payload.full_name,
+                firm_name=payload.firm_name,
+                phone=payload.phone,
+                role="admin",
+                is_active=True,
+                runs_limit=2,
+            )
+
+    # Pre-provision mapping in Aurora
+    if hasattr(store, "pre_provision_mapping"):
+        try:
+            store.pre_provision_mapping(
+                user_id=user_id,
+                cognito_sub=user_sub,
+                email=clean_email,
+                pool_id=config.COGNITO_USER_POOL_ID,
+                provisioned_by="self_signup",
+            )
+        except Exception as exc:
+            _log.warning("Could not pre-provision mapping during signup: %s", exc)
+
+    # Mirror to Supabase if Supabase is active
+    try:
+        sb = get_supabase()
+        sb.table("user_profiles").upsert({
+            "id": user_id,
+            "email": clean_email,
+            "full_name": payload.full_name,
+            "firm_name": payload.firm_name,
+            "phone": payload.phone,
+            "role": "admin",
+            "is_active": True,
+            "runs_limit": 2,
+        }, on_conflict="id").execute()
+    except Exception as exc:
+        _log.debug("Supabase mirror during signup skipped: %s", exc)
+
+    return CognitoSignupResponse(
+        message="Sign up successful. Please verify your email with the confirmation code.",
+        user_id=user_id,
+        cognito_sub=user_sub,
+        user_confirmed=user_confirmed,
+        delivery_medium=delivery.get("DeliveryMedium"),
+        destination=delivery.get("Destination"),
+    )
+
+
+@router.post("/confirm-signup")
+@limiter.limit("10/minute")
+async def cognito_confirm_signup(
+    request: Request,
+    payload: CognitoConfirmSignupRequest,
+    config: CognitoConfig = Depends(get_cognito_config),
+    cognito_service: CognitoService = Depends(get_cognito_service),
+) -> dict[str, Any]:
+    """Verify signup confirmation code with Cognito."""
+    if not config.COGNITO_AUTH_ENABLED:
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail="Cognito authentication is disabled on this server.",
+        )
+    try:
+        cognito_service.confirm_signup(payload.email, payload.confirmation_code)
+        return {"message": "Account confirmed successfully. You can now log in."}
+    except (CognitoCodeMismatchError, CognitoCodeExpiredError) as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=exc.message) from exc
+    except CognitoServiceError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=exc.message) from exc
+
+
+@router.post("/resend-code")
+@limiter.limit("5/minute")
+async def cognito_resend_code(
+    request: Request,
+    payload: CognitoResendCodeRequest,
+    config: CognitoConfig = Depends(get_cognito_config),
+    cognito_service: CognitoService = Depends(get_cognito_service),
+) -> dict[str, Any]:
+    """Resend email confirmation code."""
+    if not config.COGNITO_AUTH_ENABLED:
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail="Cognito authentication is disabled on this server.",
+        )
+    try:
+        res = cognito_service.resend_confirmation_code(payload.email)
+        return {
+            "message": "Verification code resent successfully.",
+            "details": res.get("code_delivery_details"),
+        }
+    except CognitoServiceError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=exc.message) from exc
+
+
+@router.post("/login", response_model=CognitoLoginResponse)
+@limiter.limit("10/minute")
+async def cognito_login(
+    request: Request,
+    payload: CognitoLoginRequest,
+    config: CognitoConfig = Depends(get_cognito_config),
+    cognito_service: CognitoService = Depends(get_cognito_service),
+    store: CognitoIdentityStore = Depends(get_identity_store),
+) -> CognitoLoginResponse:
+    """Direct username & password authentication with Amazon Cognito and Supabase fallback."""
+    if not config.COGNITO_AUTH_ENABLED:
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail="Cognito authentication is disabled on this server.",
+        )
+
+    clean_email = payload.email.strip().lower()
+    cognito_tokens = None
+
+    # 1. Authenticate directly via Amazon Cognito (100% Cognito Cutover)
+    try:
+        cognito_tokens = cognito_service.login(clean_email, payload.password)
+    except (CognitoInvalidCredentialsError, CognitoUserNotFoundError):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect email or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    except CognitoUserNotConfirmedError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Email address is not confirmed. Please check your inbox for the verification code.",
+        ) from exc
+    except CognitoServiceError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=exc.message,
+        ) from exc
+
+    # 2. Cognito tokens obtained: extract claims and ensure Aurora mapping exists
+    access_token = cognito_tokens["access_token"]
+    try:
+        claims = verify_cognito_token(access_token, expected_token_use="access", config=config)
+    except Exception as exc:
+        _log.error("Failed to verify newly issued Cognito token: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to verify authentication session.",
+        ) from exc
+
+    sub = str(claims.get("sub") or "").strip()
+    configured_pool = config.COGNITO_USER_POOL_ID.strip()
+
+    # Resolve mapped profile
+    user_id = None
+    profile = None
+    if hasattr(store, "get_mapping_by_sub"):
+        mapping = store.get_mapping_by_sub(sub, pool_id=configured_pool)
+        if mapping and mapping.verified:
+            user_id = mapping.user_id
+
+    if not user_id:
+        # Check if profile exists by email in Aurora or Supabase
+        prof = _lookup_profile_by_email(clean_email)
+        if prof:
+            user_id = str(prof["id"])
+            profile = prof
+        else:
+            user_id = str(uuid.uuid4())
+            if hasattr(store, "create_user_profile"):
+                profile = store.create_user_profile(
+                    user_id=user_id,
+                    email=clean_email,
+                    role="admin",
+                    is_active=True,
+                )
+
+        if hasattr(store, "pre_provision_mapping"):
+            try:
+                store.pre_provision_mapping(
+                    user_id=user_id,
+                    cognito_sub=sub,
+                    email=clean_email,
+                    pool_id=configured_pool,
+                    provisioned_by="direct_login",
+                )
+            except Exception as exc:
+                _log.warning("Could not pre-provision mapping on login: %s", exc)
+
+    if not profile and hasattr(store, "get_user_profile_by_id"):
+        profile = store.get_user_profile_by_id(user_id)
+    if not profile:
+        profile = _lookup_profile_by_id(user_id)
+
+    return CognitoLoginResponse(
+        access_token=access_token,
+        id_token=cognito_tokens.get("id_token"),
+        refresh_token=cognito_tokens.get("refresh_token"),
+        expires_in=cognito_tokens.get("expires_in", 3600),
+        token_type="Bearer",
+        user=profile or {"id": user_id, "email": clean_email},
+        provider="cognito",
+    )
+
+
+@router.post("/forgot-password")
+@limiter.limit("5/minute")
+async def cognito_forgot_password(
+    request: Request,
+    payload: CognitoForgotPasswordRequest,
+    config: CognitoConfig = Depends(get_cognito_config),
+    cognito_service: CognitoService = Depends(get_cognito_service),
+) -> dict[str, Any]:
+    """Initiate password reset via Amazon Cognito."""
+    if not config.COGNITO_AUTH_ENABLED:
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail="Cognito authentication is disabled on this server.",
+        )
+    try:
+        res = cognito_service.forgot_password(payload.email)
+        return {
+            "message": "Password reset code sent to your email.",
+            "delivery": res.get("code_delivery_details"),
+        }
+    except CognitoUserNotFoundError:
+        return {"message": "If an account with that email exists, a password reset code has been sent."}
+    except CognitoServiceError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=exc.message) from exc
+
+
+@router.post("/confirm-forgot-password")
+@limiter.limit("5/minute")
+async def cognito_confirm_forgot_password(
+    request: Request,
+    payload: CognitoConfirmForgotPasswordRequest,
+    config: CognitoConfig = Depends(get_cognito_config),
+    cognito_service: CognitoService = Depends(get_cognito_service),
+) -> dict[str, Any]:
+    """Complete password reset using confirmation code and new password."""
+    if not config.COGNITO_AUTH_ENABLED:
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail="Cognito authentication is disabled on this server.",
+        )
+    try:
+        cognito_service.confirm_forgot_password(
+            email=payload.email,
+            confirmation_code=payload.confirmation_code,
+            new_password=payload.new_password,
+        )
+        return {"message": "Password reset successfully. You may now log in with your new password."}
+    except (CognitoCodeMismatchError, CognitoCodeExpiredError, CognitoInvalidPasswordError) as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=exc.message) from exc
+    except CognitoServiceError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=exc.message) from exc
+
+
+@router.post("/refresh")
+@limiter.limit("20/minute")
+async def cognito_refresh(
+    request: Request,
+    payload: CognitoRefreshRequest,
+    config: CognitoConfig = Depends(get_cognito_config),
+    cognito_service: CognitoService = Depends(get_cognito_service),
+) -> dict[str, Any]:
+    """Exchange refresh token for fresh Cognito access and ID tokens."""
+    if not config.COGNITO_AUTH_ENABLED:
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail="Cognito authentication is disabled on this server.",
+        )
+    try:
+        tokens = cognito_service.refresh(payload.refresh_token)
+        return tokens
+    except CognitoServiceError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired refresh token.",
+        ) from exc
+
+
+@router.post("/logout")
+async def cognito_logout(
+    request: Request,
+    payload: Optional[CognitoLogoutRequest] = None,
+    cognito_service: CognitoService = Depends(get_cognito_service),
+) -> dict[str, Any]:
+    """Revoke tokens and sign out of Cognito."""
+    token = None
+    if payload and payload.access_token:
+        token = payload.access_token
+    else:
+        auth_header = request.headers.get("authorization", "")
+        if auth_header.lower().startswith("bearer "):
+            token = auth_header[7:].strip()
+
+    if token:
+        cognito_service.global_sign_out(token)
+
+    return {"message": "Logged out successfully."}
