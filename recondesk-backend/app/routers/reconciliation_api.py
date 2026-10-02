@@ -95,6 +95,15 @@ _bucket_build_locks: dict[str, threading.Lock] = {}
 _bucket_build_locks_guard = threading.Lock()
 
 
+def _get_compliance_repo():
+    """Return Aurora compliance repo or None (Aurora unavailable / not configured)."""
+    try:
+        from app.repositories.compliance import get_compliance_repository
+        return get_compliance_repository()
+    except Exception:
+        return None
+
+
 def _bucket_build_lock(key: str) -> threading.Lock:
     with _bucket_build_locks_guard:
         lock = _bucket_build_locks.get(key)
@@ -2308,28 +2317,40 @@ def _rule37_action_insert_payload(
 
 
 def _persist_rule37_action_row(sb, payload: dict[str, Any]) -> None:
-    """Delete-then-insert into ``rule37_actions`` (idempotent per run + record_hash)."""
+    """Delete-then-insert into ``rule37_actions`` (idempotent per run + record_hash).
+
+    Aurora is PRIMARY. Supabase is fallback only when Aurora is unavailable.
+    """
     import traceback
 
     run_id = str(payload["run_id"])
     record_hash = str(payload["record_hash"])
-    print("rule37 update payload:", payload)
     _log.info("rule37_actions insert payload run_id=%s hash=%s", run_id, record_hash)
+
+    # ── Aurora primary write ──────────────────────────────────────────────
+    repo = _get_compliance_repo()
+    if repo is not None:
+        ok = repo.upsert_rule37_action(payload)
+        if ok:
+            return
+        _log.warning(
+            "rule37_actions: Aurora upsert failed run_id=%s hash=%s; falling back to Supabase",
+            run_id, record_hash,
+        )
+
+    # ── Supabase fallback write ───────────────────────────────────────────
     try:
         sb.table("rule37_actions").delete().eq("run_id", run_id).eq(
             "record_hash", record_hash
         ).execute()
         sb.table("rule37_actions").insert(payload).execute()
     except Exception as e:
-        print("rule37 update error:", str(e))
-        traceback.print_exc()
         if _is_schema_compat_error(e):
             minimal = {
                 k: v
                 for k, v in payload.items()
                 if k not in _RULE37_SETTLEMENT_COLUMNS
             }
-            print("rule37 retry payload (base columns only):", minimal)
             _log.warning(
                 "rule37_actions settlement columns unavailable; retrying base insert "
                 "run_id=%s hash=%s",
@@ -2446,6 +2467,20 @@ def _rule37_status_to_action(status: str) -> Optional[str]:
 
 
 def _rule37_actions_history_for_run(sb, run_id: str) -> list[dict[str, Any]]:
+    """Return all rule37_actions for a run ordered by created_at desc.
+
+    Aurora is PRIMARY; Supabase is fallback.
+    """
+    repo = _get_compliance_repo()
+    if repo is not None:
+        try:
+            rows = repo.get_rule37_actions_for_run(run_id)
+            # Sort by created_at desc (repo returns unsorted)
+            rows.sort(key=lambda r: str(r.get("created_at") or ""), reverse=True)
+            return rows
+        except Exception as exc:
+            _log.warning("rule37 actions history: Aurora failed run_id=%s, using Supabase: %s", run_id, exc)
+
     try:
         r = (
             sb.table("rule37_actions")
@@ -2465,21 +2500,37 @@ def _rule37_actions_history_for_run(sb, run_id: str) -> list[dict[str, Any]]:
 
 
 def _rule37_action_details_for_run(sb, run_id: str) -> dict[str, dict[str, Any]]:
-    try:
-        r = (
-            sb.table("rule37_actions")
-            .select(
-                "id, record_hash, status, amount_paid, tds_deducted, tds_confirmed, "
-                "total_settled, remaining_unpaid_amount, payment_coverage, review_metadata, source"
+    """Return {api_record_id: row} for all rule37_actions on this run.
+
+    Aurora is PRIMARY; Supabase is fallback.
+    """
+    rows: list[dict] = []
+    repo = _get_compliance_repo()
+    if repo is not None:
+        try:
+            rows = repo.get_rule37_actions_for_run(run_id)
+        except Exception as exc:
+            _log.warning("rule37 action details: Aurora failed run_id=%s, using Supabase: %s", run_id, exc)
+            rows = []
+
+    if not rows:
+        try:
+            r = (
+                sb.table("rule37_actions")
+                .select(
+                    "id, record_hash, status, amount_paid, tds_deducted, tds_confirmed, "
+                    "total_settled, remaining_unpaid_amount, payment_coverage, review_metadata, source"
+                )
+                .eq("run_id", run_id)
+                .execute()
             )
-            .eq("run_id", run_id)
-            .execute()
-        )
-    except Exception:
-        _log.exception("rule37 action details read failed run_id=%s", run_id)
-        return {}
+            rows = list(r.data or [])
+        except Exception:
+            _log.exception("rule37 action details read failed run_id=%s", run_id)
+            return {}
+
     out: dict[str, dict[str, Any]] = {}
-    for row in r.data or []:
+    for row in rows:
         record_hash = str(row.get("record_hash") or "").strip()
         status = str(row.get("status") or "").strip().lower()
         if not record_hash or status not in {"resolved", "acknowledged", "pending_review", "rejected"}:
@@ -2757,19 +2808,32 @@ def _rule37_actions_for_run(sb, run_id: str) -> dict[str, str]:
     Reads from the dedicated ``rule37_actions`` table.  The ``record_hash``
     stored there is the bare value without the ``r37:`` prefix; we re-attach
     it here so callers get the full API id back.
+
+    Aurora is PRIMARY; Supabase is fallback.
     """
-    try:
-        r = (
-            sb.table("rule37_actions")
-            .select("record_hash, status")
-            .eq("run_id", run_id)
-            .execute()
-        )
-    except Exception:
-        _log.exception("rule37 actions read failed reconciliation_run=%s", run_id)
-        return {}
+    rows: list[dict] = []
+    repo = _get_compliance_repo()
+    if repo is not None:
+        try:
+            rows = repo.get_rule37_actions_for_run(run_id)
+        except Exception as exc:
+            _log.warning("_rule37_actions_for_run: Aurora failed run_id=%s, using Supabase: %s", run_id, exc)
+
+    if not rows:
+        try:
+            r = (
+                sb.table("rule37_actions")
+                .select("record_hash, status")
+                .eq("run_id", run_id)
+                .execute()
+            )
+            rows = list(r.data or [])
+        except Exception:
+            _log.exception("rule37 actions read failed reconciliation_run=%s", run_id)
+            return {}
+
     out: dict[str, str] = {}
-    for row in r.data or []:
+    for row in rows:
         record_hash = str(row.get("record_hash") or "").strip()
         status = str(row.get("status") or "").strip().lower()
         if record_hash and status in {"resolved", "acknowledged", "pending_review", "rejected"}:
@@ -2779,9 +2843,31 @@ def _rule37_actions_for_run(sb, run_id: str) -> dict[str, str]:
 
 
 def _decision_statuses_for_run(sb, run_id: str) -> dict[str, str]:
+    """Return {record_id: status} for all decision_status notes on this run.
+
+    Aurora is PRIMARY; Supabase is fallback.
+    """
     if not sb:
         return {}
     rows: list[dict] = []
+
+    # Aurora primary
+    repo = _get_compliance_repo()
+    if repo is not None:
+        try:
+            aurora_rows = repo.get_mismatch_notes_by_run_id(run_id, note_type="decision_status")
+            if aurora_rows:
+                out: dict[str, str] = {}
+                for row in aurora_rows:
+                    record_id = str(row.get("record_id") or "").strip()
+                    note = str(row.get("note") or "").strip().lower()
+                    if record_id and note in {"acted", "ignored", "pending"}:
+                        out[record_id] = note
+                return out
+        except Exception as exc:
+            _log.warning("_decision_statuses_for_run: Aurora failed run_id=%s, falling back: %s", run_id, exc)
+
+    # Supabase fallback (read only)
     for use_note_type in (True, False):
         try:
             q = (
@@ -2802,7 +2888,8 @@ def _decision_statuses_for_run(sb, run_id: str) -> dict[str, str]:
                 continue
             _log.exception("decision statuses reconciliation_run=%s", run_id)
             return {}
-    out: dict[str, str] = {}
+
+    out = {}
     for row in rows:
         record_id = str(row.get("record_id") or "").strip()
         note = str(row.get("note") or "").strip().lower()
@@ -2822,10 +2909,43 @@ def _upsert_decision_status(
 
     API ids may carry a type tag (``pm:``, ``wr:``, …); strip it so the UUID
     column accepts the value.
+
+    Aurora is PRIMARY. Supabase is fallback only when Aurora is unavailable.
     """
     now = datetime.now(timezone.utc).isoformat()
     db_rid = _db_record_id(record_id)
 
+    # ── Aurora primary write ──────────────────────────────────────────────
+    repo = _get_compliance_repo()
+    if repo is not None:
+        try:
+            repo.delete_mismatch_notes_by_run_and_record(run_id, db_rid)
+            aurora_row = {
+                "record_id": db_rid,
+                "run_id": run_id,
+                "user_id": user_id,
+                "firm_owner_id": user_id,
+                "note": status_value,
+                "record_type": "pr",
+                "note_type": "decision_status",
+                "severity": "low",
+                "created_at": now,
+            }
+            inserted = repo.insert_mismatch_note(aurora_row)
+            if inserted:
+                invalidate_run_bucket_cache(run_id)
+                return
+            _log.warning(
+                "decision_status: Aurora insert returned None run_id=%s record_id=%s; falling back",
+                run_id, record_id,
+            )
+        except Exception as exc:
+            _log.warning(
+                "decision_status: Aurora failed run_id=%s record_id=%s; falling back: %s",
+                run_id, record_id, exc,
+            )
+
+    # ── Supabase fallback write (only when Aurora unavailable) ────────────
     # ── Step 1: remove any prior status row for this (run, record) pair ──
     try:
         sb.table("mismatch_notes").delete().eq("run_id", run_id).eq(
@@ -5449,8 +5569,42 @@ def _clear_invoice_tracking_for_run(sb, rid: str) -> None:
     ``invoice_tracking.first_seen_run_id`` / ``last_seen_run_id`` reference
     ``reconciliation_run(id)`` without ON DELETE CASCADE, so a bare parent
     delete raises PostgreSQL 23503 and surfaces as a generic 500.
+
+    Aurora is PRIMARY; Supabase is fallback.
     """
-    rows: list[dict] = []
+    repo = _get_compliance_repo()
+    if repo is not None:
+        try:
+            rows: list[dict] = []
+            for col in ("first_seen_run_id", "last_seen_run_id"):
+                rows.extend(repo.get_invoice_tracking_by_run(column=col, run_id=rid))
+
+            seen_ids: set[str] = set()
+            for trow in rows:
+                tid = str(trow.get("id") or "")
+                if not tid or tid in seen_ids:
+                    continue
+                seen_ids.add(tid)
+                first = str(trow.get("first_seen_run_id") or "")
+                last = str(trow.get("last_seen_run_id") or "")
+                if first == rid:
+                    repo.delete_invoice_tracking_by_id(tid)
+                    continue
+                if last == rid and first and first != rid:
+                    repo.update_invoice_tracking_last_seen(tid, first)
+
+            # Final sweep
+            repo.delete_invoice_tracking_by_run_col("last_seen_run_id", rid)
+            repo.delete_invoice_tracking_by_run_col("first_seen_run_id", rid)
+            return
+        except Exception as exc:
+            _log.warning(
+                "_clear_invoice_tracking_for_run: Aurora failed for run %s: %s; falling back to Supabase",
+                rid, exc,
+            )
+
+    # Supabase fallback
+    rows = []
     try:
         for column in ("first_seen_run_id", "last_seen_run_id"):
             res = (
@@ -5480,7 +5634,7 @@ def _clear_invoice_tracking_for_run(sb, rid: str) -> None:
             return
         raise
 
-    seen_ids: set[str] = set()
+    seen_ids = set()
     for trow in rows:
         tid = str(trow.get("id") or "")
         if not tid or tid in seen_ids:
@@ -5499,6 +5653,8 @@ def _clear_invoice_tracking_for_run(sb, rid: str) -> None:
     # Final sweep in case any last_seen refs remain.
     _safe_delete_by_eq(sb, "invoice_tracking", "last_seen_run_id", rid)
     _safe_delete_by_eq(sb, "invoice_tracking", "first_seen_run_id", rid)
+
+
 
 
 def _clear_table4_and_ledger_for_run(sb, rid: str) -> None:
@@ -7984,7 +8140,10 @@ async def record_exception_disposition(
     body: ExceptionDispositionInput,
     current_user: dict = Depends(get_current_active_user),
 ):
-    """Record an audit disposition on an ITC-affecting exception."""
+    """Record an audit disposition on an ITC-affecting exception.
+
+    Aurora is PRIMARY. Supabase is fallback.
+    """
     rid = _parse_uuid(run_id, "run_id")
     sb = get_supabase()
     assert_run_accessible(sb, rid, current_user)
@@ -8039,6 +8198,18 @@ async def record_exception_disposition(
         "created_by": uid,
     }
 
+    # ── Aurora primary write ──────────────────────────────────────────────
+    repo = _get_compliance_repo()
+    if repo is not None:
+        aurora_result = repo.upsert_exception_disposition(record_data)
+        if aurora_result is not None:
+            return aurora_result
+        _log.warning(
+            "record_exception_disposition: Aurora upsert returned None run_id=%s; falling back to Supabase",
+            rid,
+        )
+
+    # ── Supabase fallback write ───────────────────────────────────────────
     res = (
         sb.table("reconciliation_exception_dispositions")
         .upsert(record_data, on_conflict="run_id,record_id,exception_type")

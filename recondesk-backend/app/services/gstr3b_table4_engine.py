@@ -198,11 +198,33 @@ def load_reclaim_events_for_run(sb: Client, run_id: str) -> list[dict[str, Any]]
 # Database Ingestion & Dispositions
 # ---------------------------------------------------------------------------
 
+def _get_compliance_repo():
+    """Return Aurora compliance repo or None."""
+    try:
+        from app.repositories.compliance import get_compliance_repository
+        return get_compliance_repository()
+    except Exception:
+        return None
+
+
 def load_exception_dispositions(sb: Client, run_id: str) -> dict[str, dict[str, Any]]:
     """Load all recorded CA exception dispositions for run_id.
 
     Keyed by f"{record_id}:{exception_type}".
+
+    Aurora is PRIMARY; Supabase is fallback.
     """
+    repo = _get_compliance_repo()
+    if repo is not None:
+        try:
+            return repo.get_exception_dispositions_for_run(run_id)
+        except Exception as exc:
+            _log.warning(
+                "load_exception_dispositions: Aurora failed run_id=%s, falling back: %s",
+                run_id, exc,
+            )
+
+    # Supabase fallback (read only)
     try:
         res = (
             sb.table("reconciliation_exception_dispositions")
@@ -271,24 +293,65 @@ def compute_table4_adjustments_digest(
 
 
 def load_rule37_settlements(sb: Client, run_id: str) -> set[str]:
-    """Load settled record identifiers from rule37_actions and rule37_resolutions."""
-    settled: set[str] = set()
-    try:
-        r1 = sb.table("rule37_actions").select("record_hash, status").eq("run_id", run_id).execute()
-        for row in r1.data or []:
-            st = str(row.get("status") or "").upper()
-            if st in ("SETTLED", "REVERSED", "PAID_ELIGIBLE", "EXCLUDED"):
-                settled.add(str(row.get("record_hash") or ""))
-    except Exception:
-        pass
+    """Load settled record identifiers from rule37_actions and rule37_resolutions.
 
-    try:
-        r2 = sb.table("rule37_resolutions").select("invoice_result_id").eq("run_id", run_id).execute()
-        for row in r2.data or []:
-            if row.get("invoice_result_id"):
-                settled.add(str(row.get("invoice_result_id")))
-    except Exception:
-        pass
+    Aurora is PRIMARY; Supabase is fallback.
+    """
+    settled: set[str] = set()
+    repo = _get_compliance_repo()
+
+    # rule37_actions
+    if repo is not None:
+        try:
+            actions = repo.get_rule37_actions_for_run(run_id)
+            for row in actions:
+                st = str(row.get("status") or "").upper()
+                if st in ("SETTLED", "REVERSED", "PAID_ELIGIBLE", "EXCLUDED"):
+                    settled.add(str(row.get("record_hash") or ""))
+        except Exception as exc:
+            _log.warning("load_rule37_settlements: Aurora rule37_actions failed, using Supabase: %s", exc)
+            try:
+                r1 = sb.table("rule37_actions").select("record_hash, status").eq("run_id", run_id).execute()
+                for row in r1.data or []:
+                    st = str(row.get("status") or "").upper()
+                    if st in ("SETTLED", "REVERSED", "PAID_ELIGIBLE", "EXCLUDED"):
+                        settled.add(str(row.get("record_hash") or ""))
+            except Exception:
+                pass
+    else:
+        try:
+            r1 = sb.table("rule37_actions").select("record_hash, status").eq("run_id", run_id).execute()
+            for row in r1.data or []:
+                st = str(row.get("status") or "").upper()
+                if st in ("SETTLED", "REVERSED", "PAID_ELIGIBLE", "EXCLUDED"):
+                    settled.add(str(row.get("record_hash") or ""))
+        except Exception:
+            pass
+
+    # rule37_resolutions
+    if repo is not None:
+        try:
+            resolutions = repo.get_rule37_resolutions_for_run(run_id)
+            for row in resolutions:
+                if row.get("invoice_result_id"):
+                    settled.add(str(row.get("invoice_result_id")))
+        except Exception as exc:
+            _log.warning("load_rule37_settlements: Aurora rule37_resolutions failed, using Supabase: %s", exc)
+            try:
+                r2 = sb.table("rule37_resolutions").select("invoice_result_id").eq("run_id", run_id).execute()
+                for row in r2.data or []:
+                    if row.get("invoice_result_id"):
+                        settled.add(str(row.get("invoice_result_id")))
+            except Exception:
+                pass
+    else:
+        try:
+            r2 = sb.table("rule37_resolutions").select("invoice_result_id").eq("run_id", run_id).execute()
+            for row in r2.data or []:
+                if row.get("invoice_result_id"):
+                    settled.add(str(row.get("invoice_result_id")))
+        except Exception:
+            pass
 
     return settled
 

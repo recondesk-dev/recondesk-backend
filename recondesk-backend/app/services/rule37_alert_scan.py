@@ -245,6 +245,15 @@ def _build_pr_for_rule37(
     return out
 
 
+def _get_compliance_repo():
+    """Return Aurora compliance repo or None."""
+    try:
+        from app.repositories.compliance import get_compliance_repository
+        return get_compliance_repository()
+    except Exception:
+        return None
+
+
 def _upsert_dedup(
     sb: Client,
     *,
@@ -254,6 +263,24 @@ def _upsert_dedup(
     tier: str,
     now: datetime,
 ) -> None:
+    """Upsert rule37_alert_dedup — Aurora primary, Supabase fallback."""
+    repo = _get_compliance_repo()
+    if repo is not None:
+        ok = repo.upsert_rule37_dedup(
+            firm_owner_id=firm_owner_id,
+            client_gstin_id=client_gstin_id,
+            invoice_key=invoice_key,
+            tier=tier,
+            now=now,
+        )
+        if ok:
+            return
+        _log.warning(
+            "rule37_alert_scan: Aurora upsert_dedup failed for key=%s, falling back to Supabase",
+            invoice_key,
+        )
+
+    # Supabase fallback write (only when Aurora unavailable)
     payload = {
         "firm_owner_id": firm_owner_id,
         "client_gstin_id": client_gstin_id,
@@ -267,6 +294,17 @@ def _upsert_dedup(
 
 
 def _load_dedup_map(sb: Client, client_gstin_id: str) -> dict[str, dict[str, Any]]:
+    """Load rule37_alert_dedup — Aurora primary, Supabase fallback."""
+    repo = _get_compliance_repo()
+    if repo is not None:
+        try:
+            return repo.load_rule37_dedup_map(client_gstin_id)
+        except Exception as exc:
+            _log.warning(
+                "rule37_alert_scan: Aurora load_dedup_map failed, falling back: %s", exc
+            )
+
+    # Supabase fallback (read only)
     res = (
         sb.table("rule37_alert_dedup")
         .select("invoice_key, last_alert_tier, last_sent_at")

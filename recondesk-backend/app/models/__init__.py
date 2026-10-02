@@ -13,6 +13,14 @@ from app.models.wizard import (
     ReconciliationImportRun,
     ReconciliationImportRunAuditLog,
 )
+from app.models.compliance import (
+    InvoiceTracking,
+    MismatchNote,
+    ReconciliationExceptionDisposition,
+    Rule37Action,
+    Rule37AlertDedup,
+    Rule37Resolution,
+)
 
 __all__ = [
     "Base",
@@ -27,4 +35,10 @@ __all__ = [
     "ClientImportMapping",
     "ReconciliationImportRun",
     "ReconciliationImportRunAuditLog",
+    "MismatchNote",
+    "ReconciliationExceptionDisposition",
+    "InvoiceTracking",
+    "Rule37Action",
+    "Rule37Resolution",
+    "Rule37AlertDedup",
 ]

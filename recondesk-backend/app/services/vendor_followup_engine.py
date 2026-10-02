@@ -18,6 +18,16 @@ from supabase import Client
 
 logger = logging.getLogger(__name__)
 
+
+def _get_compliance_repo():
+    """Return Aurora compliance repo or None."""
+    try:
+        from app.repositories.compliance import get_compliance_repository
+        return get_compliance_repository()
+    except Exception:
+        return None
+
+
 # Standard sanitization fallbacks for missing vendor master tokens
 DEFAULT_CONTACT_FALLBACK = "Accounts Payable Team"
 DEFAULT_SUPPLIER_NAME_FALLBACK = "Valued Supplier"
@@ -323,15 +333,24 @@ def get_vendor_risk_summaries(sb: Client, client_gstin_id: str) -> list[dict[str
     except Exception as exc:
         logger.warning("Error fetching supplier_compliance_summary: %s", exc)
 
-    # 2. Fetch Rule 37 overdue actions for invoice details
+    # 2. Fetch Rule 37 overdue actions for invoice details — Aurora primary
     try:
-        r37_res = (
-            sb.table("rule37_actions")
-            .select("supplier_gstin, supplier_name, invoice_number, at_risk_itc_paise, action_status")
-            .eq("client_gstin_id", client_gstin_id)
-            .execute()
-        )
-        for r in r37_res.data or []:
+        repo = _get_compliance_repo()
+        r37_rows: list[dict] = []
+        if repo is not None:
+            r37_rows = repo.get_rule37_actions_for_client(
+                str(client_gstin_id),
+                columns=["supplier_gstin", "supplier_name", "invoice_number", "at_risk_itc_paise", "action_status"],
+            )
+        if not r37_rows:
+            r37_res = (
+                sb.table("rule37_actions")
+                .select("supplier_gstin, supplier_name, invoice_number, at_risk_itc_paise, action_status")
+                .eq("client_gstin_id", client_gstin_id)
+                .execute()
+            )
+            r37_rows = list(r37_res.data or [])
+        for r in r37_rows:
             gstin = str(r.get("supplier_gstin") or "").strip().upper()
             if not gstin:
                 continue
@@ -367,6 +386,7 @@ def get_vendor_risk_summaries(sb: Client, client_gstin_id: str) -> list[dict[str
                 vendor_map[gstin]["at_risk_itc_rupees"] = round(vendor_map[gstin]["at_risk_itc_rupees"] + amt, 2)
     except Exception as exc:
         logger.warning("Error fetching rule37_actions for vendor follow-up: %s", exc)
+
 
     # 3. Attach past follow-up dispatch history and evaluate promise status
     try:
@@ -651,17 +671,30 @@ def fetch_vendor_invoices(sb: Client, client_gstin_id: str, supplier_gstin: str)
     except Exception as exc:
         logger.warning("Error fetching itc_work_items for vendor %s: %s", supplier_gstin, exc)
 
-    # 2. Query rule37_actions
+    # 2. Query rule37_actions — Aurora primary
     try:
-        r37_res = (
-            sb.table("rule37_actions")
-            .select("invoice_number, invoice_date, taxable_value_paise, at_risk_itc_paise, action_status")
-            .eq("client_gstin_id", client_gstin_id)
-            .eq("supplier_gstin", supplier_gstin)
-            .limit(50)
-            .execute()
-        )
-        for r in r37_res.data or []:
+        repo = _get_compliance_repo()
+        r37_rows: list[dict] = []
+        if repo is not None:
+            all_client = repo.get_rule37_actions_for_client(
+                str(client_gstin_id),
+                columns=["invoice_number", "invoice_date", "taxable_value_paise", "at_risk_itc_paise", "action_status", "supplier_gstin"],
+            )
+            r37_rows = [
+                r for r in all_client
+                if str(r.get("supplier_gstin") or "").strip().upper() == str(supplier_gstin).strip().upper()
+            ][:50]
+        if not r37_rows:
+            r37_res = (
+                sb.table("rule37_actions")
+                .select("invoice_number, invoice_date, taxable_value_paise, at_risk_itc_paise, action_status")
+                .eq("client_gstin_id", client_gstin_id)
+                .eq("supplier_gstin", supplier_gstin)
+                .limit(50)
+                .execute()
+            )
+            r37_rows = list(r37_res.data or [])
+        for r in r37_rows:
             inv_no = str(r.get("invoice_number") or "").strip()
             if not inv_no or inv_no in seen:
                 continue

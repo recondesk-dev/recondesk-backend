@@ -21,6 +21,16 @@ from app.services.gstr9c_itc_fy_rollup import (
 logger = logging.getLogger(__name__)
 
 
+def _get_compliance_repo():
+    """Return Aurora compliance repo or None."""
+    try:
+        from app.repositories.compliance import get_compliance_repository
+        return get_compliance_repository()
+    except Exception:
+        return None
+
+
+
 def _safe_float(val: Any, default: float = 0.0) -> float:
     if val is None or val == "":
         return default
@@ -160,20 +170,34 @@ def compute_gstr9(sb: Client, client_gstin_id: str, fy: str) -> dict[str, Any]:
     }
 
     # ── Table 7: ITC Reversals & Ineligible ITC ────────────────────────────────
-    # Query Rule 37 overdue actions
+    # Query Rule 37 overdue actions — Aurora primary
     rule37_reversal = 0.0
     try:
-        r37_res = (
-            sb.table("rule37_actions")
-            .select("at_risk_itc_paise")
-            .eq("client_gstin_id", client_gstin_id)
-            .eq("action_status", "OVERDUE_UNPAID")
-            .execute()
-        )
-        for r in r37_res.data or []:
+        repo = _get_compliance_repo()
+        r37_rows: list[dict] = []
+        if repo is not None:
+            r37_rows = repo.get_rule37_actions_for_client(
+                str(client_gstin_id),
+                columns=["at_risk_itc_paise", "action_status"],
+            )
+            r37_rows = [
+                r for r in r37_rows
+                if str(r.get("action_status") or "").upper() == "OVERDUE_UNPAID"
+            ]
+        if not r37_rows:
+            r37_res = (
+                sb.table("rule37_actions")
+                .select("at_risk_itc_paise")
+                .eq("client_gstin_id", client_gstin_id)
+                .eq("action_status", "OVERDUE_UNPAID")
+                .execute()
+            )
+            r37_rows = list(r37_res.data or [])
+        for r in r37_rows:
             rule37_reversal += (float(r.get("at_risk_itc_paise") or 0)) / 100.0
     except Exception:
         pass
+
 
     table7 = {
         "7A_rule37": _get_cell_value("table7", "7A_rule37", round(rule37_reversal, 2), overrides),

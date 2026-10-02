@@ -123,19 +123,43 @@ def _paise_to_rupees(paise: int) -> float:
     return round(int(paise or 0) / 100.0, 2)
 
 
-def _actions_resolved_hashes(sb: Client, run_id: str) -> set[str]:
+def _get_compliance_repo():
+    """Return Aurora compliance repo or None."""
     try:
-        res = (
-            sb.table("rule37_actions")
-            .select("record_hash, status")
-            .eq("run_id", run_id)
-            .execute()
-        )
+        from app.repositories.compliance import get_compliance_repository
+        return get_compliance_repository()
     except Exception:
-        _log.exception("tally_bridge: failed reading rule37_actions run_id=%s", run_id)
-        return set()
+        return None
+
+
+def _actions_resolved_hashes(sb: Client, run_id: str) -> set[str]:
+    """Return resolved rule37_action record_hashes for a run.
+
+    Aurora is PRIMARY; Supabase is fallback.
+    """
+    rows: list[dict] = []
+    repo = _get_compliance_repo()
+    if repo is not None:
+        try:
+            rows = repo.get_rule37_actions_for_run(run_id)
+        except Exception:
+            rows = []
+
+    if not rows:
+        try:
+            res = (
+                sb.table("rule37_actions")
+                .select("record_hash, status")
+                .eq("run_id", run_id)
+                .execute()
+            )
+            rows = list(res.data or [])
+        except Exception:
+            _log.exception("tally_bridge: failed reading rule37_actions run_id=%s", run_id)
+            return set()
+
     out: set[str] = set()
-    for row in res.data or []:
+    for row in rows:
         if str(row.get("status") or "").strip().lower() == "resolved":
             h = str(row.get("record_hash") or "").strip()
             if h:
@@ -505,16 +529,25 @@ def apply_tally_bridge_sync(
                 )
 
                 rec_hash = _rule37_record_hash(record_id)
-                existing = (
-                    sb.table("rule37_actions")
-                    .select("status")
-                    .eq("run_id", best_run_id)
-                    .eq("record_hash", rec_hash)
-                    .execute()
-                )
-                existing_statuses = {
-                    str(r.get("status") or "").lower() for r in (existing.data or [])
-                }
+                # Aurora primary read
+                repo = _get_compliance_repo()
+                existing_row = None
+                if repo is not None:
+                    existing_row = repo.get_rule37_action_by_hash(best_run_id, rec_hash)
+                if existing_row is None:
+                    # Supabase fallback
+                    existing = (
+                        sb.table("rule37_actions")
+                        .select("status")
+                        .eq("run_id", best_run_id)
+                        .eq("record_hash", rec_hash)
+                        .execute()
+                    )
+                    existing_statuses = {
+                        str(r.get("status") or "").lower() for r in (existing.data or [])
+                    }
+                else:
+                    existing_statuses = {str(existing_row.get("status") or "").lower()}
             except Exception:
                 existing_statuses = set()
 

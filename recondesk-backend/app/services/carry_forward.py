@@ -10,6 +10,9 @@ Key logic:
 - If an invoice is now matched: mark is_resolved=True, reset counter
 - Consecutive unmatched runs >= 3 → flag as chronic ITC risk
 
+Aurora is the PRIMARY datastore for invoice_tracking.
+Supabase is used as a READ fallback when Aurora is unavailable.
+
 Run the following in the Supabase SQL editor (not applied via Alembic):
 
     create table if not exists invoice_tracking (
@@ -64,15 +67,28 @@ _PAGE_SIZE = 1000
 _UPSERT_BATCH = 200
 
 
-def _bulk_fetch_tracking_rows(
+def _get_compliance_repo():
+    """Return the Aurora compliance repository (or None if unavailable)."""
+    try:
+        from app.repositories.compliance import get_compliance_repository
+        return get_compliance_repository()
+    except Exception:
+        return None
+
+
+def _bulk_fetch_tracking_rows_aurora(
+    client_gstin_id: UUID,
+    repo,
+) -> dict[tuple[str, str], dict]:
+    """Fetch ALL existing tracking rows from Aurora for this client."""
+    return repo.bulk_fetch_invoice_tracking(client_gstin_id)
+
+
+def _bulk_fetch_tracking_rows_supabase(
     supabase,
     client_gstin_id: UUID,
 ) -> dict[tuple[str, str], dict]:
-    """Fetch ALL existing tracking rows for this client in one paginated read.
-
-    Returns a dict keyed by (invoice_number, supplier_gstin).
-    This replaces the previous per-row SELECT that caused N+1 timeouts.
-    """
+    """Fetch ALL existing tracking rows from Supabase for this client (fallback)."""
     index: dict[tuple[str, str], dict] = {}
     offset = 0
     while True:
@@ -97,7 +113,48 @@ def _bulk_fetch_tracking_rows(
     return index
 
 
-def _batched_upsert(supabase, table: str, rows: list[dict], on_conflict: str) -> None:
+def _bulk_fetch_tracking_rows(
+    supabase,
+    client_gstin_id: UUID,
+) -> dict[tuple[str, str], dict]:
+    """Fetch ALL existing tracking rows.
+
+    Aurora is primary; Supabase is fallback for reads only.
+    Returns a dict keyed by (invoice_number, supplier_gstin).
+    """
+    repo = _get_compliance_repo()
+    if repo is not None:
+        try:
+            result = _bulk_fetch_tracking_rows_aurora(client_gstin_id, repo)
+            logger.debug(
+                "carry_forward: Aurora returned %d invoice_tracking rows for client=%s",
+                len(result), client_gstin_id,
+            )
+            return result
+        except Exception as exc:
+            logger.warning(
+                "carry_forward: Aurora bulk fetch failed, falling back to Supabase: %s", exc
+            )
+
+    # Supabase fallback (read only)
+    return _bulk_fetch_tracking_rows_supabase(supabase, client_gstin_id)
+
+
+def _batched_upsert_aurora(repo, rows: list[dict]) -> None:
+    """Write invoice_tracking rows to Aurora in batches."""
+    for i in range(0, len(rows), _UPSERT_BATCH):
+        chunk = rows[i : i + _UPSERT_BATCH]
+        try:
+            repo.batch_upsert_invoice_tracking(chunk)
+        except Exception as exc:
+            logger.error(
+                "carry_forward Aurora batch upsert failed (batch %d, size %d): %s",
+                i // _UPSERT_BATCH, len(chunk), exc,
+            )
+
+
+def _batched_upsert_supabase(supabase, table: str, rows: list[dict], on_conflict: str) -> None:
+    """Supabase fallback write for invoice_tracking."""
     for i in range(0, len(rows), _UPSERT_BATCH):
         chunk = rows[i : i + _UPSERT_BATCH]
         try:
@@ -125,8 +182,12 @@ async def update_invoice_tracking(
 
     Performance: O(1) bulk fetch + O(ceil(n/200)) batched upserts instead
     of the previous O(n) per-row SELECT + individual INSERT/UPDATE.
+
+    Aurora is PRIMARY. Supabase is fallback for reads only when Aurora is
+    unavailable.
     """
     supabase = get_supabase()
+    repo = _get_compliance_repo()
     now_iso = datetime.now(timezone.utc).isoformat()
 
     # ── 1. Bulk-fetch all existing tracking rows for this client ──────────────
@@ -217,11 +278,19 @@ async def update_invoice_tracking(
     )
     resolved = len([r for r in rows_to_update if r.get("is_resolved")])
 
-    if rows_to_insert:
-        _batched_upsert(supabase, "invoice_tracking", rows_to_insert, "id")
-
-    if rows_to_update:
-        _batched_upsert(supabase, "invoice_tracking", rows_to_update, "id")
+    if repo is not None:
+        # Aurora primary writes
+        if rows_to_insert:
+            _batched_upsert_aurora(repo, rows_to_insert)
+        if rows_to_update:
+            _batched_upsert_aurora(repo, rows_to_update)
+    else:
+        # Supabase fallback writes (only when Aurora unavailable)
+        logger.warning("carry_forward: Aurora unavailable — writing invoice_tracking to Supabase")
+        if rows_to_insert:
+            _batched_upsert_supabase(supabase, "invoice_tracking", rows_to_insert, "id")
+        if rows_to_update:
+            _batched_upsert_supabase(supabase, "invoice_tracking", rows_to_update, "id")
 
     logger.info(
         "carry_forward run_id=%s: inserts=%d updates=%d resolved=%d chronic=%d",
@@ -234,7 +303,17 @@ async def get_chronic_risks(client_gstin_id: UUID) -> list[dict]:
     """
     Returns all unresolved invoices that have been unmatched for
     >= CHRONIC_RISK_THRESHOLD consecutive runs. Used by Results API.
+
+    Aurora is primary; Supabase is fallback for reads.
     """
+    repo = _get_compliance_repo()
+    if repo is not None:
+        try:
+            return repo.get_chronic_risks(client_gstin_id, threshold=CHRONIC_RISK_THRESHOLD)
+        except Exception as exc:
+            logger.warning("carry_forward: Aurora get_chronic_risks failed, falling back: %s", exc)
+
+    # Supabase fallback (read only)
     supabase = get_supabase()
     result = (
         supabase.table("invoice_tracking")

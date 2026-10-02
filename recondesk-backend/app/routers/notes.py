@@ -2,6 +2,9 @@
 
 ``mismatch_notes`` stores *record_type* as only ``'gstr'`` or ``'pr'`` (DB check).
 API bodies may use legacy category names; they are mapped before insert.
+
+Aurora is the PRIMARY datastore for mismatch_notes.
+Supabase is retained as a read/write fallback during the migration window.
 """
 
 from __future__ import annotations
@@ -41,6 +44,15 @@ def _normalize_record_type_to_db(value: str) -> str:
         return "pr"
     # Unknown label — safest default is purchase-register side
     return "pr"
+
+
+def _get_compliance_repo():
+    """Return Aurora compliance repo or None."""
+    try:
+        from app.repositories.compliance import get_compliance_repository
+        return get_compliance_repository()
+    except Exception:
+        return None
 
 
 def _new_note_row_response(
@@ -146,12 +158,25 @@ async def add_note(
         "record_type": db_type,
         "created_at": now,
     }
-    result = sb.table("mismatch_notes").insert(ins).execute()
-    if not result.data:
-        return {}
-    row0 = result.data[0] if isinstance(result.data, list) else result.data
-    if not isinstance(row0, dict):
-        return {}
+
+    row0: dict = {}
+
+    # ── Aurora primary write ──────────────────────────────────────────────
+    repo = _get_compliance_repo()
+    if repo is not None:
+        aurora_result = repo.insert_mismatch_note(ins)
+        if aurora_result:
+            row0 = aurora_result
+
+    # ── Supabase fallback (write + return row if Aurora failed) ──────────
+    if not row0:
+        result = sb.table("mismatch_notes").insert(ins).execute()
+        if not result.data:
+            return {}
+        row0 = result.data[0] if isinstance(result.data, list) else result.data
+        if not isinstance(row0, dict):
+            return {}
+
     run_row = (
         sb.table("reconciliation_run")
         .select("client_gstin_id, period")
@@ -185,6 +210,35 @@ async def list_notes(
     # Strip ``pm:`` / ``wr:`` / … tags — PostgREST rejects prefixed values on UUID cols.
     db_record_id = _db_record_id(record_id)
     sb = get_supabase()
+
+    # ── Aurora primary read ───────────────────────────────────────────────
+    repo = _get_compliance_repo()
+    aurora_rows: list[dict] = []
+    if repo is not None:
+        try:
+            aurora_rows = repo.get_mismatch_notes_by_record_id(
+                db_record_id, include_decision_status=False
+            )
+        except Exception:
+            aurora_rows = []
+
+    if aurora_rows:
+        uids = {str(x.get("user_id")) for x in aurora_rows if x.get("user_id")}
+        profs = _full_names_by_user_ids(sb, uids)
+        return [
+            {
+                "id": n.get("id"),
+                "record_id": n.get("record_id"),
+                "record_type": n.get("record_type"),
+                "run_id": n.get("run_id"),
+                "note": n.get("note"),
+                "created_at": n.get("created_at"),
+                "author_full_name": profs.get(str(n.get("user_id", "")), "Unknown"),
+            }
+            for n in aurora_rows
+        ]
+
+    # ── Supabase fallback (read only) ─────────────────────────────────────
     try:
         res = (
             sb.table("mismatch_notes")
@@ -231,22 +285,39 @@ async def patch_note(
 ):
     nid = _parse_uuid(note_id, "note_id")
     sb = get_supabase()
-    res = (
-        sb.table("mismatch_notes")
-        .select("id, run_id")
-        .eq("id", nid)
-        .limit(1)
-        .execute()
-    )
-    if not res.data:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="note not found",
+
+    # ── Aurora primary: fetch then update ─────────────────────────────────
+    repo = _get_compliance_repo()
+    run_id: str = ""
+
+    if repo is not None:
+        aurora_note = repo.get_mismatch_note_by_id(nid)
+        if aurora_note:
+            run_id = str(aurora_note.get("run_id", ""))
+            assert_run_accessible(sb, run_id, current_user)
+            _assert_run_not_locked_for_mutation(sb, run_id)
+            repo.update_mismatch_note(nid, note=body.note)
+        # Fall through to Supabase if Aurora note not found
+
+    if not run_id:
+        # ── Supabase fallback ─────────────────────────────────────────────
+        res = (
+            sb.table("mismatch_notes")
+            .select("id, run_id")
+            .eq("id", nid)
+            .limit(1)
+            .execute()
         )
-    n = res.data[0]
-    run_id = str(n.get("run_id", ""))
-    assert_run_accessible(sb, run_id, current_user)
-    _assert_run_not_locked_for_mutation(sb, run_id)
-    sb.table("mismatch_notes").update({"note": body.note}).eq("id", nid).execute()
+        if not res.data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="note not found",
+            )
+        n = res.data[0]
+        run_id = str(n.get("run_id", ""))
+        assert_run_accessible(sb, run_id, current_user)
+        _assert_run_not_locked_for_mutation(sb, run_id)
+        sb.table("mismatch_notes").update({"note": body.note}).eq("id", nid).execute()
+
     run_row = (
         sb.table("reconciliation_run")
         .select("client_gstin_id, period")
@@ -279,6 +350,21 @@ async def delete_note(
 ):
     nid = _parse_uuid(note_id, "note_id")
     sb = get_supabase()
+
+    # ── Aurora primary: fetch then delete ─────────────────────────────────
+    repo = _get_compliance_repo()
+    run_id: str = ""
+
+    if repo is not None:
+        aurora_note = repo.get_mismatch_note_by_id(nid)
+        if aurora_note:
+            run_id = str(aurora_note.get("run_id", ""))
+            assert_run_accessible(sb, run_id, current_user)
+            _assert_run_not_locked_for_mutation(sb, run_id)
+            repo.delete_mismatch_note(nid)
+            return None
+
+    # ── Supabase fallback ─────────────────────────────────────────────────
     res = (
         sb.table("mismatch_notes")
         .select("id, run_id")

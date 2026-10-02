@@ -81,19 +81,42 @@ def _rule37_record_id(item: dict[str, Any]) -> str | None:
     return f"r37:h:{digest}"
 
 
-def _rule37_action_record_ids(sb: Client, run_id: str) -> set[str]:
-    """Return the set of API record ids (``r37:…``) that have been acted on."""
+def _get_compliance_repo():
+    """Return Aurora compliance repo or None."""
     try:
-        r = (
-            sb.table("rule37_actions")
-            .select("record_hash, status")
-            .eq("run_id", run_id)
-            .execute()
-        )
+        from app.repositories.compliance import get_compliance_repository
+        return get_compliance_repository()
     except Exception:
-        return set()
+        return None
+
+
+def _rule37_action_record_ids(sb: Client, run_id: str) -> set[str]:
+    """Return the set of API record ids (``r37:…``) that have been acted on.
+
+    Aurora is PRIMARY; Supabase is fallback.
+    """
+    rows: list[dict] = []
+    repo = _get_compliance_repo()
+    if repo is not None:
+        try:
+            rows = repo.get_rule37_actions_for_run(run_id)
+        except Exception:
+            rows = []
+
+    if not rows:
+        try:
+            r = (
+                sb.table("rule37_actions")
+                .select("record_hash, status")
+                .eq("run_id", run_id)
+                .execute()
+            )
+            rows = list(r.data or [])
+        except Exception:
+            return set()
+
     acted: set[str] = set()
-    for row in r.data or []:
+    for row in rows:
         if not isinstance(row, dict):
             continue
         status = str(row.get("status") or "").strip().lower()
@@ -154,14 +177,37 @@ def count_unresolved_rule37(sb: Client, run_id: str) -> Tuple[int, int, int]:
             if record_id and record_id in acted:
                 acted_needed += 1
 
-    n2 = (
-        sb.table("rule37_resolutions")
-        .select("id", count="exact")
-        .eq("run_id", run_id)
-        .limit(0)
-        .execute()
-    )
-    legacy_have = int(n2.count or 0)
+    # rule37_resolutions count — Aurora primary
+    repo = _get_compliance_repo()
+    legacy_have = 0
+    if repo is not None:
+        try:
+            legacy_have = repo.count_rule37_resolutions_for_run(run_id)
+        except Exception:
+            try:
+                n2 = (
+                    sb.table("rule37_resolutions")
+                    .select("id", count="exact")
+                    .eq("run_id", run_id)
+                    .limit(0)
+                    .execute()
+                )
+                legacy_have = int(n2.count or 0)
+            except Exception:
+                legacy_have = 0
+    else:
+        try:
+            n2 = (
+                sb.table("rule37_resolutions")
+                .select("id", count="exact")
+                .eq("run_id", run_id)
+                .limit(0)
+                .execute()
+            )
+            legacy_have = int(n2.count or 0)
+        except Exception:
+            legacy_have = 0
+
     have = min(need, acted_needed + legacy_have)
     return need, have, max(0, need - have)
 
