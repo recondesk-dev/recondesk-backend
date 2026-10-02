@@ -179,19 +179,37 @@ def is_section_16_4_or_pos_restricted(
     return False, ""
 
 
-def load_reclaim_events_for_run(sb: Client, run_id: str) -> list[dict[str, Any]]:
-    """Load active reclaim events executed in this reconciliation run."""
+def _get_gstr3b_repo():
+    """Return Aurora GSTR-3B repo or None."""
     try:
-        res = (
-            sb.table("gstr3b_reclaim_events")
-            .select("*")
-            .eq("reclaim_run_id", run_id)
-            .execute()
-        )
-        return res.data or []
+        from app.repositories import get_gstr3b_repository
+        return get_gstr3b_repository()
     except Exception:
-        _log.warning("load_reclaim_events_for_run failed for run_id=%s", run_id, exc_info=True)
-        return []
+        return None
+
+
+def load_reclaim_events_for_run(sb: Client, run_id: str) -> list[dict[str, Any]]:
+    """Load active reclaim events executed in this reconciliation run (Aurora PRIMARY)."""
+    repo = _get_gstr3b_repo()
+    if repo:
+        try:
+            return repo.get_reclaim_events_for_run(run_id)
+        except Exception:
+            _log.warning("Aurora load_reclaim_events_for_run failed for run_id=%s, trying fallback", run_id, exc_info=True)
+
+    if sb:
+        try:
+            res = (
+                sb.table("gstr3b_reclaim_events")
+                .select("*")
+                .eq("reclaim_run_id", run_id)
+                .execute()
+            )
+            return res.data or []
+        except Exception:
+            _log.warning("load_reclaim_events_for_run failed for run_id=%s", run_id, exc_info=True)
+            return []
+    return []
 
 
 # ---------------------------------------------------------------------------
@@ -246,19 +264,28 @@ def load_exception_dispositions(sb: Client, run_id: str) -> dict[str, dict[str, 
 
 
 def load_table4_adjustments(sb: Client, run_id: str) -> list[dict[str, Any]]:
-    """Load active (non-deleted) external adjustments for run_id."""
-    try:
-        res = (
-            sb.table("gstr3b_table4_adjustments")
-            .select("*")
-            .eq("run_id", run_id)
-            .eq("is_deleted", False)
-            .execute()
-        )
-        return res.data or []
-    except Exception:
-        _log.warning("load_table4_adjustments failed for run_id=%s", run_id, exc_info=True)
-        return []
+    """Load active (non-deleted) external adjustments for run_id (Aurora PRIMARY)."""
+    repo = _get_gstr3b_repo()
+    if repo:
+        try:
+            return repo.list_table4_adjustments_for_run(run_id, include_deleted=False)
+        except Exception:
+            _log.warning("Aurora load_table4_adjustments failed for run_id=%s, trying fallback", run_id, exc_info=True)
+
+    if sb:
+        try:
+            res = (
+                sb.table("gstr3b_table4_adjustments")
+                .select("*")
+                .eq("run_id", run_id)
+                .eq("is_deleted", False)
+                .execute()
+            )
+            return res.data or []
+        except Exception:
+            _log.warning("load_table4_adjustments failed for run_id=%s", run_id, exc_info=True)
+            return []
+    return []
 
 
 def compute_table4_adjustments_digest(
@@ -474,16 +501,39 @@ def compile_gstr3b_table4(
     recorded exception dispositions, and verified external adjustments.
     """
     # 1. Fetch Run Metadata
-    run_row = (
-        sb.table("reconciliation_run")
-        .select("id, client_gstin_id, period, status, is_locked, finalized_at, finalized_by, client_gstins(gstin, trade_name, legal_name)")
-        .eq("id", run_id)
-        .limit(1)
-        .execute()
-    )
-    if not run_row.data:
+    r0 = None
+    try:
+        from app.repositories import get_reconciliation_repository
+        recon_repo = get_reconciliation_repository()
+        if recon_repo:
+            run_entity = recon_repo.get_run(run_id)
+            if run_entity:
+                r0 = {
+                    "id": str(run_entity.id),
+                    "client_gstin_id": str(run_entity.client_gstin_id),
+                    "period": str(run_entity.period),
+                    "status": str(run_entity.status),
+                    "is_locked": bool(getattr(run_entity, "is_locked", False)),
+                    "finalized_at": run_entity.finalized_at.isoformat() if run_entity.finalized_at else None,
+                    "finalized_by": str(run_entity.finalized_by) if run_entity.finalized_by else None,
+                    "client_gstins": {"gstin": str(run_entity.client_gstin or "")},
+                }
+    except Exception:
+        pass
+
+    if not r0 and sb:
+        run_row = (
+            sb.table("reconciliation_run")
+            .select("id, client_gstin_id, period, status, is_locked, finalized_at, finalized_by, client_gstins(gstin, trade_name, legal_name)")
+            .eq("id", run_id)
+            .limit(1)
+            .execute()
+        )
+        if run_row.data:
+            r0 = run_row.data[0]
+
+    if not r0:
         raise ValueError(f"Reconciliation run not found: {run_id}")
-    r0 = run_row.data[0]
     client_gstin_id = str(r0.get("client_gstin_id") or "")
     tax_period = str(r0.get("period") or "")
     cg_data = r0.get("client_gstins") or {}
@@ -491,15 +541,26 @@ def compile_gstr3b_table4(
 
     # If finalized and snapshot exists in gstr3b_table4_summaries, load authoritative copy
     if is_finalized or str(r0.get("status", "")).upper() == "FINAL":
-        existing_summary = (
-            sb.table("gstr3b_table4_summaries")
-            .select("*")
-            .eq("run_id", run_id)
-            .limit(1)
-            .execute()
-        )
-        if existing_summary.data and existing_summary.data[0].get("status") == "FINALIZED":
-            snap = existing_summary.data[0]
+        snap = None
+        repo = _get_gstr3b_repo()
+        if repo:
+            try:
+                snap = repo.get_table4_summary_for_run(run_id, is_current_only=True)
+            except Exception:
+                _log.warning("Aurora get_table4_summary_for_run failed for %s, trying fallback", run_id, exc_info=True)
+
+        if not snap and sb:
+            existing_summary = (
+                sb.table("gstr3b_table4_summaries")
+                .select("*")
+                .eq("run_id", run_id)
+                .limit(1)
+                .execute()
+            )
+            if existing_summary.data:
+                snap = existing_summary.data[0]
+
+        if snap and snap.get("status") == "FINALIZED":
             return _format_table4_response(
                 snap=snap,
                 run_id=run_id,
@@ -967,30 +1028,23 @@ def compile_and_save_final_table4_snapshot(
     now_iso = datetime.now(timezone.utc).isoformat()
 
     # Get client_gstin_id and period
-    r_info = sb.table("reconciliation_run").select("client_gstin_id, period").eq("id", run_id).limit(1).execute()
-    client_gstin_id = r_info.data[0].get("client_gstin_id") if r_info.data else None
-    period = r_info.data[0].get("period") if r_info.data else res["tax_period"]
+    client_gstin_id = None
+    period = res["tax_period"]
+    try:
+        from app.repositories import get_reconciliation_repository
+        recon_repo = get_reconciliation_repository()
+        if recon_repo:
+            run_entity = recon_repo.get_run(run_id)
+            if run_entity:
+                client_gstin_id = str(run_entity.client_gstin_id)
+                period = str(run_entity.period)
+    except Exception:
+        pass
 
-    # Determine next snapshot version and supersede previous active snapshots
-    existing_summaries = (
-        sb.table("gstr3b_table4_summaries")
-        .select("id, version, is_current")
-        .eq("run_id", run_id)
-        .order("version", desc=True)
-        .execute()
-    )
-    max_version = 0
-    if existing_summaries.data:
-        max_version = max(int(row.get("version") or 0) for row in existing_summaries.data)
-        for row in existing_summaries.data:
-            if row.get("is_current"):
-                sb.table("gstr3b_table4_summaries").update({
-                    "is_current": False,
-                    "superseded_at": now_iso,
-                    "superseded_by": user_id,
-                }).eq("id", row["id"]).execute()
-
-    new_version = max_version + 1
+    if not client_gstin_id and sb:
+        r_info = sb.table("reconciliation_run").select("client_gstin_id, period").eq("id", run_id).limit(1).execute()
+        client_gstin_id = r_info.data[0].get("client_gstin_id") if r_info.data else None
+        period = r_info.data[0].get("period") if r_info.data else res["tax_period"]
 
     contributing_outcomes = res.get("contributing_outcome_ids") or []
     contributing_disps = res.get("contributing_disposition_ids") or []
@@ -1001,7 +1055,7 @@ def compile_and_save_final_table4_snapshot(
         "run_id": run_id,
         "client_gstin_id": client_gstin_id,
         "tax_period": period,
-        "version": new_version,
+        "version": 1,
         "is_current": True,
         "status": "FINALIZED",
         "table_4a1": sec4a["row_4a1_import_goods"],
@@ -1028,14 +1082,53 @@ def compile_and_save_final_table4_snapshot(
         "updated_at": now_iso,
     }
 
-    insert_res = sb.table("gstr3b_table4_summaries").insert(record).execute()
-    summary_id = insert_res.data[0].get("id") if insert_res.data else None
+    # 1. Aurora PRIMARY snapshot creation
+    repo = _get_gstr3b_repo()
+    summary_id = None
+    new_version = 1
+    if repo:
+        try:
+            saved_snap = repo.create_table4_summary_snapshot(record, supersede_previous=True)
+            summary_id = saved_snap.get("id")
+            new_version = int(saved_snap.get("version") or 1)
+        except Exception:
+            _log.warning("Aurora create_table4_summary_snapshot failed for %s, trying fallback", run_id, exc_info=True)
+            if not sb:
+                raise
 
-    # Link summary_id onto reconciliation_run
-    if summary_id:
-        sb.table("reconciliation_run").update({
-            "table4_summary_id": summary_id,
-        }).eq("id", run_id).execute()
+    # 2. Supabase fallback
+    if not summary_id and sb:
+        existing_summaries = (
+            sb.table("gstr3b_table4_summaries")
+            .select("id, version, is_current")
+            .eq("run_id", run_id)
+            .order("version", desc=True)
+            .execute()
+        )
+        max_version = 0
+        if existing_summaries.data:
+            max_version = max(int(row.get("version") or 0) for row in existing_summaries.data)
+            for row in existing_summaries.data:
+                if row.get("is_current"):
+                    sb.table("gstr3b_table4_summaries").update({
+                        "is_current": False,
+                        "superseded_at": now_iso,
+                        "superseded_by": user_id,
+                    }).eq("id", row["id"]).execute()
+
+        new_version = max_version + 1
+        record["version"] = new_version
+        insert_res = sb.table("gstr3b_table4_summaries").insert(record).execute()
+        summary_id = insert_res.data[0].get("id") if insert_res.data else None
+
+        # Link summary_id onto reconciliation_run
+        if summary_id:
+            sb.table("reconciliation_run").update({
+                "table4_summary_id": summary_id,
+            }).eq("id", run_id).execute()
+
+    if not summary_id:
+        raise RuntimeError("Failed to persist Table 4 summary snapshot to any datastore.")
 
     # Auto-register 4(B)(2) temporary reversals into the General Reversal & Reclaim Ledger
     try:

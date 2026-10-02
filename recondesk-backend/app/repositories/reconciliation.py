@@ -311,6 +311,26 @@ class AuroraReconciliationRepository:
             except Exception:
                 pass
 
+            # Step 4b: Delete gstr3b_table4_adjustments
+            try:
+                with session.begin_nested():
+                    session.execute(
+                        text("DELETE FROM gstr3b_table4_adjustments WHERE run_id = :rid"),
+                        {"rid": rid},
+                    )
+            except Exception:
+                pass
+
+            # Step 4c: Delete gstr3b_reconciliation
+            try:
+                with session.begin_nested():
+                    session.execute(
+                        text("DELETE FROM gstr3b_reconciliation WHERE run_id = :rid"),
+                        {"rid": rid},
+                    )
+            except Exception:
+                pass
+
             # Step 5: Repoint/delete invoice_tracking
             try:
                 with session.begin_nested():

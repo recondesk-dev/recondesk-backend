@@ -381,12 +381,29 @@ def select_latest_runs_with_summary(
     return list(best.values())
 
 
+def _get_gstr3b_repo():
+    try:
+        from app.repositories import get_gstr3b_repository
+        return get_gstr3b_repository()
+    except Exception:
+        return None
+
+
 def fetch_gstr3b_for_run_ids(
     sb: Client, run_ids: list[str]
 ) -> dict[str, dict[str, Any]]:
-    """Latest gstr3b_reconciliation row per run_id."""
-    out: dict[str, dict[str, Any]] = {}
+    """Latest gstr3b_reconciliation row per run_id (Aurora PRIMARY)."""
     if not run_ids:
+        return {}
+    repo = _get_gstr3b_repo()
+    if repo:
+        try:
+            return repo.fetch_latest_gstr3b_for_runs(run_ids)
+        except Exception:
+            _log.warning("Aurora fetch_latest_gstr3b_for_runs failed, trying fallback", exc_info=True)
+
+    out: dict[str, dict[str, Any]] = {}
+    if not sb:
         return out
     for i in range(0, len(run_ids), 50):
         chunk = run_ids[i : i + 50]
@@ -414,14 +431,23 @@ def fetch_gstr3b_by_period_for_gstin(
     gstin: str,
     periods: set[str],
 ) -> dict[str, dict[str, Any]]:
-    """Latest GSTR-3B upload per ``YYYY-MM`` tax period for a client GSTIN.
+    """Latest GSTR-3B upload per ``YYYY-MM`` tax period for a client GSTIN (Aurora PRIMARY).
 
     Used as a fallback when the selected latest 2B run for a month does not
     itself have a ``gstr3b_reconciliation`` row (3B uploaded on an older run).
     """
-    out: dict[str, dict[str, Any]] = {}
     gstin_n = (gstin or "").strip().upper()
     if not gstin_n or not periods:
+        return {}
+    repo = _get_gstr3b_repo()
+    if repo:
+        try:
+            return repo.fetch_gstr3b_by_period_for_gstin(gstin=gstin_n, periods=periods, limit=200)
+        except Exception:
+            _log.warning("Aurora fetch_gstr3b_by_period_for_gstin failed, trying fallback", exc_info=True)
+
+    out: dict[str, dict[str, Any]] = {}
+    if not sb:
         return out
     res = (
         sb.table("gstr3b_reconciliation")

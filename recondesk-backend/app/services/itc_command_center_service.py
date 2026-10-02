@@ -137,15 +137,27 @@ def get_itc_command_center_data(
             blocking_record_ids.add(str(b.get("record_id")))
 
         # Check Table 4 Snapshot if finalized
-        snap_res = (
-            sb.table("gstr3b_table4_summaries")
-            .select("*")
-            .eq("run_id", run_id)
-            .limit(1)
-            .execute()
-        )
-        if snap_res.data and snap_res.data[0].get("status") == "FINALIZED":
-            snap = snap_res.data[0]
+        snap = None
+        try:
+            from app.repositories import get_gstr3b_repository
+            gstr3b_repo = get_gstr3b_repository()
+            if gstr3b_repo:
+                snap = gstr3b_repo.get_table4_summary_for_run(run_id, is_current_only=True)
+        except Exception:
+            _log.warning("Aurora get_table4_summary_for_run failed in command center for %s", run_id, exc_info=True)
+
+        if not snap and sb:
+            snap_res = (
+                sb.table("gstr3b_table4_summaries")
+                .select("*")
+                .eq("run_id", run_id)
+                .limit(1)
+                .execute()
+            )
+            if snap_res.data:
+                snap = snap_res.data[0]
+
+        if snap and snap.get("status") == "FINALIZED":
             audit_hash = snap.get("audit_hash")
             eligible_itc_paise = snap.get("table_4a5", {}).get("total_tax_paise", 0)
             reversed_itc_paise = snap.get("table_4b_total", {}).get("total_tax_paise", 0)

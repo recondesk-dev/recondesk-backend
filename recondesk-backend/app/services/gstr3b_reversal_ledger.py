@@ -40,6 +40,15 @@ _log = logging.getLogger(__name__)
 _python_fallback_reclaim_lock = threading.Lock()
 
 
+def _get_gstr3b_repo():
+    """Return Aurora GSTR-3B repository if configured."""
+    try:
+        from app.repositories.gstr3b import get_gstr3b_repository
+        return get_gstr3b_repository()
+    except Exception:
+        return None
+
+
 # ---------------------------------------------------------------------------
 # Enums
 # ---------------------------------------------------------------------------
@@ -353,10 +362,21 @@ def create_reversal_ledger_entry(sb: Client, entry: ReversalLedgerCreate) -> dic
         "created_by": entry.created_by,
     }
 
-    res = sb.table("gstr3b_reversal_ledger").insert(payload).execute()
-    if not res.data:
-        raise RuntimeError("Failed to insert reversal ledger row.")
-    return res.data[0]
+    repo = _get_gstr3b_repo()
+    if repo:
+        try:
+            return repo.create_reversal_ledger_entry(payload)
+        except Exception:
+            _log.warning("Aurora create_reversal_ledger_entry failed, trying fallback", exc_info=True)
+            if not sb:
+                raise
+
+    if sb:
+        res = sb.table("gstr3b_reversal_ledger").insert(payload).execute()
+        if not res.data:
+            raise RuntimeError("Failed to insert reversal ledger row.")
+        return res.data[0]
+    raise RuntimeError("No database client available to insert reversal ledger row.")
 
 
 def update_reversal_ledger_status(
@@ -384,16 +404,39 @@ def update_reversal_ledger_status(
     if reclaim_eligibility_date:
         updates["reclaim_eligibility_date"] = str(reclaim_eligibility_date)
 
-    res = sb.table("gstr3b_reversal_ledger").update(updates).eq("id", ledger_id).execute()
-    return res.data[0]
+    repo = _get_gstr3b_repo()
+    if repo:
+        try:
+            res = repo.update_reversal_ledger_entry(ledger_id, updates)
+            if res:
+                return res
+        except Exception:
+            _log.warning("Aurora update_reversal_ledger_status failed for %s, trying fallback", ledger_id, exc_info=True)
+            if not sb:
+                raise
+
+    if sb:
+        res = sb.table("gstr3b_reversal_ledger").update(updates).eq("id", ledger_id).execute()
+        return res.data[0]
+    raise RuntimeError("No database client available to update reversal ledger status.")
 
 
 def get_reversal_ledger_entry(sb: Client, ledger_id: str) -> dict[str, Any]:
-    """Fetch single reversal ledger entry by UUID."""
-    res = sb.table("gstr3b_reversal_ledger").select("*").eq("id", ledger_id).limit(1).execute()
-    if not res.data:
-        raise ValueError(f"Reversal ledger entry not found: {ledger_id}")
-    return res.data[0]
+    """Fetch single reversal ledger entry by UUID (Aurora PRIMARY)."""
+    repo = _get_gstr3b_repo()
+    if repo:
+        try:
+            row = repo.get_reversal_ledger_entry(ledger_id)
+            if row:
+                return row
+        except Exception:
+            _log.warning("Aurora get_reversal_ledger_entry failed for %s, trying fallback", ledger_id, exc_info=True)
+
+    if sb:
+        res = sb.table("gstr3b_reversal_ledger").select("*").eq("id", ledger_id).limit(1).execute()
+        if res.data:
+            return res.data[0]
+    raise ValueError(f"Reversal ledger entry not found: {ledger_id}")
 
 
 def list_reversal_ledger_entries(
@@ -404,28 +447,51 @@ def list_reversal_ledger_entries(
     tax_period: Optional[str] = None,
     is_reclaimable: Optional[bool] = None,
 ) -> list[dict[str, Any]]:
-    """List reversal ledger entries with filtering."""
-    q = sb.table("gstr3b_reversal_ledger").select("*").eq("client_gstin_id", client_gstin_id)
-    if status:
-        q = q.eq("status", status)
-    if tax_period:
-        q = q.eq("reversal_tax_period", tax_period)
-    if is_reclaimable is not None:
-        q = q.eq("is_reclaimable", is_reclaimable)
-    res = q.order("created_at", desc=True).execute()
-    return res.data or []
+    """List reversal ledger entries with filtering (Aurora PRIMARY)."""
+    repo = _get_gstr3b_repo()
+    if repo:
+        try:
+            return repo.list_reversal_ledger_entries(
+                client_gstin_id=client_gstin_id,
+                status_filter=[status] if status else None,
+                tax_period=tax_period,
+                is_reclaimable=is_reclaimable,
+            )
+        except Exception:
+            _log.warning("Aurora list_reversal_ledger_entries failed for client %s, trying fallback", client_gstin_id, exc_info=True)
+
+    if sb:
+        q = sb.table("gstr3b_reversal_ledger").select("*").eq("client_gstin_id", client_gstin_id)
+        if status:
+            q = q.eq("status", status)
+        if tax_period:
+            q = q.eq("reversal_tax_period", tax_period)
+        if is_reclaimable is not None:
+            q = q.eq("is_reclaimable", is_reclaimable)
+        res = q.order("created_at", desc=True).execute()
+        return res.data or []
+    return []
 
 
 def get_authoritative_reclaim_history(sb: Client, ledger_id: str) -> list[dict[str, Any]]:
-    """Fetch immutable reclaim events for a reversal ledger row (authoritative source of truth)."""
-    res = (
-        sb.table("gstr3b_reclaim_events")
-        .select("*")
-        .eq("ledger_id", ledger_id)
-        .order("created_at", desc=False)
-        .execute()
-    )
-    return res.data or []
+    """Fetch immutable reclaim events for a reversal ledger row (Aurora PRIMARY)."""
+    repo = _get_gstr3b_repo()
+    if repo:
+        try:
+            return repo.get_reclaim_events_for_ledger(ledger_id)
+        except Exception:
+            _log.warning("Aurora get_reclaim_events_for_ledger failed for %s, trying fallback", ledger_id, exc_info=True)
+
+    if sb:
+        res = (
+            sb.table("gstr3b_reclaim_events")
+            .select("*")
+            .eq("ledger_id", ledger_id)
+            .order("created_at", desc=False)
+            .execute()
+        )
+        return res.data or []
+    return []
 
 
 def calculate_available_balance(sb: Client, ledger_id: str) -> AvailableBalancePaise:
@@ -462,49 +528,82 @@ def calculate_available_balance(sb: Client, ledger_id: str) -> AvailableBalanceP
 
 
 def execute_reclaim_event(sb: Client, req: ReclaimEventCreate) -> ReclaimExecutionResult:
-    """Execute an atomic reclaim event against an eligible 4(B)(2) reversal ledger row."""
-    # Try RPC stored procedure first
-    try:
-        rpc_params = {
-            "p_ledger_id": req.ledger_id,
-            "p_reclaim_run_id": req.reclaim_run_id,
-            "p_reclaim_tax_period": req.reclaim_tax_period,
-            "p_reclaimed_igst_paise": req.reclaimed_igst_paise,
-            "p_reclaimed_cgst_paise": req.reclaimed_cgst_paise,
-            "p_reclaimed_sgst_paise": req.reclaimed_sgst_paise,
-            "p_reclaimed_cess_paise": req.reclaimed_cess_paise,
-            "p_statutory_evidence_type": req.statutory_evidence_type.value,
-            "p_evidence_reference": req.evidence_reference,
-            "p_evidence_document_date": str(req.evidence_document_date) if req.evidence_document_date else None,
-            "p_authorized_by": req.authorized_by,
-            "p_reclaim_notes": req.reclaim_notes,
-            "p_event_type": req.event_type.value,
-            "p_compensates_event_id": req.compensates_event_id,
-            "p_idempotency_key": req.idempotency_key.strip() if req.idempotency_key else None,
-        }
-        rpc_res = sb.rpc("fn_execute_reclaim_event", rpc_params).execute()
-        if rpc_res.data and isinstance(rpc_res.data, dict):
-            d = rpc_res.data
-            return ReclaimExecutionResult(
-                event_id=str(d.get("event_id")),
-                ledger_id=str(d.get("ledger_id")),
-                status=str(d.get("status")),
-                is_idempotent_replay=bool(d.get("is_idempotent_replay", False)),
-                event_type=req.event_type.value,
-                reclaimed_igst_paise=int(d.get("reclaimed_igst_paise") or 0),
-                reclaimed_cgst_paise=int(d.get("reclaimed_cgst_paise") or 0),
-                reclaimed_sgst_paise=int(d.get("reclaimed_sgst_paise") or 0),
-                reclaimed_cess_paise=int(d.get("reclaimed_cess_paise") or 0),
-                remaining_igst_paise=int(d.get("remaining_igst_paise") or 0),
-                remaining_cgst_paise=int(d.get("remaining_cgst_paise") or 0),
-                remaining_sgst_paise=int(d.get("remaining_sgst_paise") or 0),
-                remaining_cess_paise=int(d.get("remaining_cess_paise") or 0),
-            )
-    except Exception as e:
-        err_msg = str(e)
-        if any(k in err_msg for k in ("EXCESS_RECLAIM", "NEGATIVE_RECLAIM", "ZERO_RECLAIM", "REVERSAL_ENTRY_IS_NOT_RECLAIMABLE", "REVERSAL_LEDGER_ENTRY_NOT_FOUND")):
-            raise ValueError(err_msg) from e
-        _log.info("RPC not available, running python validation: %s", err_msg)
+    """Execute an atomic reclaim event against an eligible 4(B)(2) reversal ledger row (Aurora PRIMARY)."""
+    rpc_params = {
+        "p_ledger_id": req.ledger_id,
+        "p_reclaim_run_id": req.reclaim_run_id,
+        "p_reclaim_tax_period": req.reclaim_tax_period,
+        "p_reclaimed_igst_paise": req.reclaimed_igst_paise,
+        "p_reclaimed_cgst_paise": req.reclaimed_cgst_paise,
+        "p_reclaimed_sgst_paise": req.reclaimed_sgst_paise,
+        "p_reclaimed_cess_paise": req.reclaimed_cess_paise,
+        "p_statutory_evidence_type": req.statutory_evidence_type.value,
+        "p_evidence_reference": req.evidence_reference,
+        "p_evidence_document_date": str(req.evidence_document_date) if req.evidence_document_date else None,
+        "p_authorized_by": req.authorized_by,
+        "p_reclaim_notes": req.reclaim_notes,
+        "p_event_type": req.event_type.value,
+        "p_compensates_event_id": req.compensates_event_id,
+        "p_idempotency_key": req.idempotency_key.strip() if req.idempotency_key else None,
+    }
+
+    # 1. Aurora PRIMARY RPC execution
+    repo = _get_gstr3b_repo()
+    if repo:
+        try:
+            d = repo.execute_reclaim_rpc(rpc_params)
+            if d and isinstance(d, dict):
+                return ReclaimExecutionResult(
+                    event_id=str(d.get("event_id")),
+                    ledger_id=str(d.get("ledger_id")),
+                    status=str(d.get("status")),
+                    is_idempotent_replay=bool(d.get("is_idempotent_replay", False)),
+                    event_type=req.event_type.value,
+                    reclaimed_igst_paise=int(d.get("reclaimed_igst_paise") or 0),
+                    reclaimed_cgst_paise=int(d.get("reclaimed_cgst_paise") or 0),
+                    reclaimed_sgst_paise=int(d.get("reclaimed_sgst_paise") or 0),
+                    reclaimed_cess_paise=int(d.get("reclaimed_cess_paise") or 0),
+                    remaining_igst_paise=int(d.get("remaining_igst_paise") or 0),
+                    remaining_cgst_paise=int(d.get("remaining_cgst_paise") or 0),
+                    remaining_sgst_paise=int(d.get("remaining_sgst_paise") or 0),
+                    remaining_cess_paise=int(d.get("remaining_cess_paise") or 0),
+                )
+        except ValueError:
+            raise
+        except Exception as e:
+            err_msg = str(e)
+            if any(k in err_msg for k in ("EXCESS_RECLAIM", "NEGATIVE_RECLAIM", "ZERO_RECLAIM", "REVERSAL_ENTRY_IS_NOT_RECLAIMABLE", "REVERSAL_LEDGER_ENTRY_NOT_FOUND")):
+                raise ValueError(err_msg) from e
+            _log.info("Aurora RPC failed (%s), trying legacy fallback", err_msg)
+            if not sb:
+                raise
+
+    # 2. Legacy Supabase RPC fallback
+    if sb:
+        try:
+            rpc_res = sb.rpc("fn_execute_reclaim_event", rpc_params).execute()
+            if rpc_res.data and isinstance(rpc_res.data, dict):
+                d = rpc_res.data
+                return ReclaimExecutionResult(
+                    event_id=str(d.get("event_id")),
+                    ledger_id=str(d.get("ledger_id")),
+                    status=str(d.get("status")),
+                    is_idempotent_replay=bool(d.get("is_idempotent_replay", False)),
+                    event_type=req.event_type.value,
+                    reclaimed_igst_paise=int(d.get("reclaimed_igst_paise") or 0),
+                    reclaimed_cgst_paise=int(d.get("reclaimed_cgst_paise") or 0),
+                    reclaimed_sgst_paise=int(d.get("reclaimed_sgst_paise") or 0),
+                    reclaimed_cess_paise=int(d.get("reclaimed_cess_paise") or 0),
+                    remaining_igst_paise=int(d.get("remaining_igst_paise") or 0),
+                    remaining_cgst_paise=int(d.get("remaining_cgst_paise") or 0),
+                    remaining_sgst_paise=int(d.get("remaining_sgst_paise") or 0),
+                    remaining_cess_paise=int(d.get("remaining_cess_paise") or 0),
+                )
+        except Exception as e:
+            err_msg = str(e)
+            if any(k in err_msg for k in ("EXCESS_RECLAIM", "NEGATIVE_RECLAIM", "ZERO_RECLAIM", "REVERSAL_ENTRY_IS_NOT_RECLAIMABLE", "REVERSAL_LEDGER_ENTRY_NOT_FOUND")):
+                raise ValueError(err_msg) from e
+            _log.info("RPC not available, running python validation: %s", err_msg)
 
     # Python-level atomic execution (for mock/unit test suites)
     with _python_fallback_reclaim_lock:
@@ -679,8 +778,21 @@ def fulfill_reversal_condition(
     }
     updates["source_payload"] = sp
 
-    res = sb.table("gstr3b_reversal_ledger").update(updates).eq("id", ledger_id).execute()
-    return res.data[0] if res.data else {}
+    repo = _get_gstr3b_repo()
+    if repo:
+        try:
+            res = repo.update_reversal_ledger_entry(ledger_id, updates)
+            if res:
+                return res
+        except Exception:
+            _log.warning("Aurora update_reversal_ledger_entry failed for %s, trying fallback", ledger_id, exc_info=True)
+            if not sb:
+                raise
+
+    if sb:
+        res = sb.table("gstr3b_reversal_ledger").update(updates).eq("id", ledger_id).execute()
+        return res.data[0] if res.data else {}
+    raise RuntimeError("No database client available to update reversal ledger row.")
 
 
 def authorize_reclaim(
@@ -705,8 +817,22 @@ def authorize_reclaim(
         "reclaim_eligibility_date": str(r_date),
         "updated_at": now_iso,
     }
-    res = sb.table("gstr3b_reversal_ledger").update(updates).eq("id", ledger_id).execute()
-    return res.data[0] if res.data else {}
+
+    repo = _get_gstr3b_repo()
+    if repo:
+        try:
+            res = repo.update_reversal_ledger_entry(ledger_id, updates)
+            if res:
+                return res
+        except Exception:
+            _log.warning("Aurora update_reversal_ledger_entry failed for %s, trying fallback", ledger_id, exc_info=True)
+            if not sb:
+                raise
+
+    if sb:
+        res = sb.table("gstr3b_reversal_ledger").update(updates).eq("id", ledger_id).execute()
+        return res.data[0] if res.data else {}
+    raise RuntimeError("No database client available to update reversal ledger row.")
 
 
 def validate_reclaim_request(sb: Client, req: ReclaimEventCreate) -> tuple[bool, Optional[str]]:
@@ -750,24 +876,35 @@ def get_reclaimable_reversals(
     tax_period: Optional[str] = None,
 ) -> list[dict[str, Any]]:
     """Retrieve all open/authorized reversal ledger entries that possess available reclaim balances."""
-    q = (
-        sb.table("gstr3b_reversal_ledger")
-        .select("*")
-        .eq("client_gstin_id", client_gstin_id)
-        .eq("is_reclaimable", True)
-        .in_("status", [
-            ReversalStatus.OPEN.value,
-            ReversalStatus.CONDITION_FULFILLED.value,
-            ReversalStatus.RECLAIM_AUTHORIZED.value,
-            ReversalStatus.PARTIALLY_RECLAIMED.value,
-        ])
-    )
-    if tax_period:
-        q = q.lte("reversal_tax_period", tax_period)
+    repo = _get_gstr3b_repo()
+    rows = None
+    if repo:
+        try:
+            rows = repo.get_reclaimable_reversals(client_gstin_id, before_or_on_period=tax_period)
+        except Exception:
+            _log.warning("Aurora get_reclaimable_reversals failed for %s, trying fallback", client_gstin_id, exc_info=True)
+            rows = None
 
-    res = q.order("reversal_tax_period", desc=False).execute()
-    rows = res.data or []
+    if rows is None and sb:
+        q = (
+            sb.table("gstr3b_reversal_ledger")
+            .select("*")
+            .eq("client_gstin_id", client_gstin_id)
+            .eq("is_reclaimable", True)
+            .in_("status", [
+                ReversalStatus.OPEN.value,
+                ReversalStatus.CONDITION_FULFILLED.value,
+                ReversalStatus.RECLAIM_AUTHORIZED.value,
+                ReversalStatus.PARTIALLY_RECLAIMED.value,
+            ])
+        )
+        if tax_period:
+            q = q.lte("reversal_tax_period", tax_period)
 
+        res = q.order("reversal_tax_period", desc=False).execute()
+        rows = res.data or []
+
+    rows = rows or []
     result = []
     for r in rows:
         bal = calculate_available_balance(sb, r["id"])
@@ -806,8 +943,23 @@ def register_table4_reversals_to_ledger(
         RULE37_CONCERNS,
     )
 
-    r_row = sb.table("reconciliation_run").select("id, client_gstin_id, period").eq("id", run_id).limit(1).execute()
-    if not r_row.data:
+    r_row = None
+    # Check Aurora reconciliation_run first if available
+    try:
+        from app.repositories import get_reconciliation_repository
+        recon_repo = get_reconciliation_repository()
+        if recon_repo:
+            run_entity = recon_repo.get_run(run_id)
+            if run_entity:
+                r_row_data = {"client_gstin_id": str(run_entity.client_gstin_id), "period": str(run_entity.period)}
+                r_row = type("Res", (), {"data": [r_row_data]})()
+    except Exception:
+        pass
+
+    if not r_row and sb:
+        r_row = sb.table("reconciliation_run").select("id, client_gstin_id, period").eq("id", run_id).limit(1).execute()
+
+    if not r_row or not r_row.data:
         raise ValueError(f"Reconciliation run not found: {run_id}")
     client_gstin_id = r_row.data[0]["client_gstin_id"]
     tax_period = r_row.data[0]["period"]
@@ -822,8 +974,20 @@ def register_table4_reversals_to_ledger(
     registered: list[dict[str, Any]] = []
 
     # Fetch already registered entries for this run to maintain idempotency
-    existing_ledger = sb.table("gstr3b_reversal_ledger").select("source_record_id, source_type").eq("source_run_id", run_id).execute()
-    existing_keys = {(x["source_type"], x["source_record_id"]) for x in (existing_ledger.data or [])}
+    existing_keys: set[tuple[str, str]] = set()
+    repo = _get_gstr3b_repo()
+    if repo:
+        try:
+            aurora_existing = repo.list_reversal_ledger_entries(source_run_id=run_id)
+            existing_keys = {(x["source_type"], x["source_record_id"]) for x in aurora_existing}
+        except Exception:
+            _log.warning("Aurora list_reversal_ledger_entries failed for run %s, trying fallback", run_id, exc_info=True)
+            if sb:
+                existing_ledger = sb.table("gstr3b_reversal_ledger").select("source_record_id, source_type").eq("source_run_id", run_id).execute()
+                existing_keys = {(x["source_type"], x["source_record_id"]) for x in (existing_ledger.data or [])}
+    elif sb:
+        existing_ledger = sb.table("gstr3b_reversal_ledger").select("source_record_id, source_type").eq("source_run_id", run_id).execute()
+        existing_keys = {(x["source_type"], x["source_record_id"]) for x in (existing_ledger.data or [])}
 
     for r in all_outcomes:
         rec_id = r.id

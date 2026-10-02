@@ -104,6 +104,15 @@ def _get_compliance_repo():
         return None
 
 
+def _get_gstr3b_repo():
+    """Return Aurora GSTR-3B repo or None (Aurora unavailable / not configured)."""
+    try:
+        from app.repositories import get_gstr3b_repository
+        return get_gstr3b_repository()
+    except Exception:
+        return None
+
+
 def _bucket_build_lock(key: str) -> threading.Lock:
     with _bucket_build_locks_guard:
         lock = _bucket_build_locks.get(key)
@@ -1978,16 +1987,25 @@ async def post_execute_table4_reclaim(
     except Exception as exc:
         err_str = str(exc)
         if "uq_reclaim_events_client_idempotency" in err_str or "UNIQUE CONSTRAINT" in err_str:
-            ev_row = (
-                sb.table("gstr3b_reclaim_events")
-                .select("*")
-                .eq("client_gstin_id", ledger["client_gstin_id"])
-                .eq("idempotency_key", clean_idemp)
-                .limit(1)
-                .execute()
-            )
-            if ev_row.data:
-                ev = ev_row.data[0]
+            ev = None
+            repo = _get_gstr3b_repo()
+            if repo:
+                try:
+                    ev = repo.get_reclaim_event_by_idempotency_key(ledger["client_gstin_id"], clean_idemp)
+                except Exception:
+                    _log.warning("Aurora get_reclaim_event_by_idempotency_key failed, trying fallback", exc_info=True)
+            if not ev and sb:
+                ev_row = (
+                    sb.table("gstr3b_reclaim_events")
+                    .select("*")
+                    .eq("client_gstin_id", ledger["client_gstin_id"])
+                    .eq("idempotency_key", clean_idemp)
+                    .limit(1)
+                    .execute()
+                )
+                if ev_row.data:
+                    ev = ev_row.data[0]
+            if ev:
                 cur_bal = calculate_available_balance(sb, lid)
                 return {
                     "success": True,
@@ -5704,38 +5722,52 @@ def _clear_invoice_tracking_for_run(sb, rid: str) -> None:
 
 
 def _clear_table4_and_ledger_for_run(sb, rid: str) -> None:
-    """Remove dependent GSTR-3B Table 4 snapshots, reclaim events, and reversal ledger rows.
+    """Remove dependent GSTR-3B Table 4 snapshots, reclaim events, reversal ledger rows, adjustments, and reconciliations.
 
     These tables have ON DELETE RESTRICT foreign keys referencing reconciliation_run(id)
     to protect historical finalized data, and must be cleaned up before the parent run is deleted.
     """
-    # 1. Clear circular FK reconciliation_run(table4_summary_id)
-    try:
-        sb.table("reconciliation_run").update({"table4_summary_id": None}).eq("id", rid).execute()
-    except Exception as exc:
-        _log.warning("could not clear table4_summary_id on run %s: %s", rid, exc)
+    repo = _get_gstr3b_repo()
+    if repo:
+        try:
+            repo.delete_run_records(rid)
+        except Exception as exc:
+            _log.warning("Aurora delete_run_records failed for %s: %s", rid, exc)
 
-    # 2. Clear reclaim events referencing this run or this run's reversal ledger
-    try:
-        ledger_res = (
-            sb.table("gstr3b_reversal_ledger")
-            .select("id")
-            .eq("source_run_id", rid)
-            .execute()
-        )
-        ledger_ids = [str(r.get("id")) for r in (ledger_res.data or []) if r.get("id")]
-        if ledger_ids:
-            for lid in ledger_ids:
-                _safe_delete_by_eq(sb, "gstr3b_reclaim_events", "ledger_id", lid)
-        _safe_delete_by_eq(sb, "gstr3b_reclaim_events", "reclaim_run_id", rid)
-    except Exception as exc:
-        _log.warning("could not clear gstr3b_reclaim_events for run %s: %s", rid, exc)
+    if sb:
+        # 1. Clear circular FK reconciliation_run(table4_summary_id)
+        try:
+            sb.table("reconciliation_run").update({"table4_summary_id": None}).eq("id", rid).execute()
+        except Exception as exc:
+            _log.warning("could not clear table4_summary_id on run %s: %s", rid, exc)
 
-    # 3. Clear reversal ledger entries originated by this run
-    _safe_delete_by_eq(sb, "gstr3b_reversal_ledger", "source_run_id", rid)
+        # 2. Clear reclaim events referencing this run or this run's reversal ledger
+        try:
+            ledger_res = (
+                sb.table("gstr3b_reversal_ledger")
+                .select("id")
+                .eq("source_run_id", rid)
+                .execute()
+            )
+            ledger_ids = [str(r.get("id")) for r in (ledger_res.data or []) if r.get("id")]
+            if ledger_ids:
+                for lid in ledger_ids:
+                    _safe_delete_by_eq(sb, "gstr3b_reclaim_events", "ledger_id", lid)
+            _safe_delete_by_eq(sb, "gstr3b_reclaim_events", "reclaim_run_id", rid)
+        except Exception as exc:
+            _log.warning("could not clear gstr3b_reclaim_events for run %s: %s", rid, exc)
 
-    # 4. Clear Table 4 summaries for this run
-    _safe_delete_by_eq(sb, "gstr3b_table4_summaries", "run_id", rid)
+        # 3. Clear reversal ledger entries originated by this run
+        _safe_delete_by_eq(sb, "gstr3b_reversal_ledger", "source_run_id", rid)
+
+        # 4. Clear Table 4 summaries for this run
+        _safe_delete_by_eq(sb, "gstr3b_table4_summaries", "run_id", rid)
+
+        # 5. Clear Table 4 adjustments for this run
+        _safe_delete_by_eq(sb, "gstr3b_table4_adjustments", "run_id", rid)
+
+        # 6. Clear GSTR-3B reconciliation for this run
+        _safe_delete_by_eq(sb, "gstr3b_reconciliation", "run_id", rid)
 
 
 @reconcile_runs_router.delete("/runs/{run_id}")
@@ -7113,19 +7145,29 @@ async def reconcile_run_rcm_tie_out(
 
         # Load GSTR-3B data (from gstr3b_reconciliation or payload)
         g3b_raw = None
-        try:
-            res = (
-                sb.table("gstr3b_reconciliation")
-                .select("raw_gstr3b")
-                .eq("run_id", rid)
-                .order("uploaded_at", desc=True)
-                .limit(1)
-                .execute()
-            )
-            if res.data and res.data[0].get("raw_gstr3b"):
-                g3b_raw = res.data[0]["raw_gstr3b"]
-        except Exception as exc:
-            _log.debug("No gstr3b_reconciliation entry for run %s: %s", rid, exc)
+        repo = _get_gstr3b_repo()
+        if repo:
+            try:
+                recon_row = repo.get_gstr3b_reconciliation_for_run(rid)
+                if recon_row and recon_row.get("raw_gstr3b"):
+                    g3b_raw = recon_row["raw_gstr3b"]
+            except Exception as exc:
+                _log.debug("Aurora gstr3b_reconciliation lookup for run %s: %s", rid, exc)
+
+        if not g3b_raw and sb:
+            try:
+                res = (
+                    sb.table("gstr3b_reconciliation")
+                    .select("raw_gstr3b")
+                    .eq("run_id", rid)
+                    .order("uploaded_at", desc=True)
+                    .limit(1)
+                    .execute()
+                )
+                if res.data and res.data[0].get("raw_gstr3b"):
+                    g3b_raw = res.data[0]["raw_gstr3b"]
+            except Exception as exc:
+                _log.debug("No gstr3b_reconciliation entry for run %s: %s", rid, exc)
 
         if not g3b_raw:
             p = ro.load_payload(sb, rid)
@@ -7408,26 +7450,34 @@ async def reconcile_export_excel_workbook(
         ]
 
         gstr3b_result: Optional[dict[str, Any]] = None
-        try:
-            g3b_ex = (
-                sb.table("gstr3b_reconciliation")
-                .select(
-                    "id, run_id, client_gstin, tax_period, overall_status, "
-                    "gstr3b_igst_claimed, gstr3b_cgst_claimed, gstr3b_sgst_claimed, "
-                    "gstr2b_igst_available, gstr2b_cgst_available, gstr2b_sgst_available, "
-                    "igst_difference, cgst_difference, sgst_difference, "
-                    "igst_status, cgst_status, sgst_status, "
-                    "outward_supply_total, uploaded_at"
+        repo = _get_gstr3b_repo()
+        if repo:
+            try:
+                gstr3b_result = repo.get_gstr3b_reconciliation_for_run(rid)
+            except Exception:
+                _log.exception("excel export: Aurora gstr3b fetch failed run=%s", rid)
+
+        if not gstr3b_result and sb:
+            try:
+                g3b_ex = (
+                    sb.table("gstr3b_reconciliation")
+                    .select(
+                        "id, run_id, client_gstin, tax_period, overall_status, "
+                        "gstr3b_igst_claimed, gstr3b_cgst_claimed, gstr3b_sgst_claimed, "
+                        "gstr2b_igst_available, gstr2b_cgst_available, gstr2b_sgst_available, "
+                        "igst_difference, cgst_difference, sgst_difference, "
+                        "igst_status, cgst_status, sgst_status, "
+                        "outward_supply_total, uploaded_at"
+                    )
+                    .eq("run_id", rid)
+                    .order("uploaded_at", desc=True)
+                    .limit(1)
+                    .execute()
                 )
-                .eq("run_id", rid)
-                .order("uploaded_at", desc=True)
-                .limit(1)
-                .execute()
-            )
-            if g3b_ex.data:
-                gstr3b_result = dict(g3b_ex.data[0])
-        except Exception:
-            _log.exception("excel export: gstr3b fetch failed run=%s", rid)
+                if g3b_ex.data:
+                    gstr3b_result = dict(g3b_ex.data[0])
+            except Exception:
+                _log.exception("excel export: gstr3b fetch failed run=%s", rid)
 
         followup_rows: list[dict[str, Any]] = []
         try:
@@ -7679,36 +7729,49 @@ async def upload_and_reconcile_gstr3b(
         "uploaded_at":           now_iso,
     }
 
-    # Upsert: one record per run (overwrite if re-uploaded)
-    try:
-        existing = (
-            sb.table("gstr3b_reconciliation")
-            .select("id")
-            .eq("run_id", rid)
-            .execute()
-        )
-        if existing.data:
-            existing_id = existing.data[0]["id"]
-            ins = (
+    # Upsert: one record per run (overwrite if re-uploaded) - Aurora PRIMARY
+    repo = _get_gstr3b_repo()
+    saved_row = None
+    if repo:
+        try:
+            saved_row = repo.upsert_gstr3b_reconciliation(rid, row_data)
+        except Exception as exc:
+            _log.warning("Aurora upsert_gstr3b_reconciliation failed run_id=%s, trying fallback: %s", rid, exc)
+            if not sb:
+                raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to persist GSTR-3B reconciliation result") from exc
+
+    if not saved_row and sb:
+        try:
+            existing = (
                 sb.table("gstr3b_reconciliation")
-                .update(row_data)
-                .eq("id", existing_id)
+                .select("id")
+                .eq("run_id", rid)
                 .execute()
             )
-        else:
-            ins = sb.table("gstr3b_reconciliation").insert(row_data).execute()
-    except Exception as exc:
-        detail = supabase_error_message(exc, context="gstr3b_reconciliation upsert")
-        _log.exception("gstr3b upsert failed run_id=%s detail=%s", rid, detail)
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=detail) from exc
+            if existing.data:
+                existing_id = existing.data[0]["id"]
+                ins = (
+                    sb.table("gstr3b_reconciliation")
+                    .update(row_data)
+                    .eq("id", existing_id)
+                    .execute()
+                )
+            else:
+                ins = sb.table("gstr3b_reconciliation").insert(row_data).execute()
+            if ins.data:
+                saved_row = ins.data[0]
+        except Exception as exc:
+            detail = supabase_error_message(exc, context="gstr3b_reconciliation upsert")
+            _log.exception("gstr3b upsert failed run_id=%s detail=%s", rid, detail)
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=detail) from exc
 
-    if not ins.data:
+    if not saved_row:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to persist GSTR-3B reconciliation result",
         )
     return _gstr3b_row_to_response(
-        ins.data[0],
+        saved_row,
         filed_parsed=parsed,
         client_gstin_id=client_gstin_id or None,
     )
@@ -7727,33 +7790,44 @@ async def get_gstr3b_reconciliation(
     sb = get_supabase()
     run_row = assert_run_accessible(sb, rid, current_user)
 
-    try:
-        res = (
-            sb.table("gstr3b_reconciliation")
-            .select(
-                "id, run_id, client_gstin, tax_period, overall_status, "
-                "gstr3b_igst_claimed, gstr3b_cgst_claimed, gstr3b_sgst_claimed, "
-                "gstr2b_igst_available, gstr2b_cgst_available, gstr2b_sgst_available, "
-                "igst_difference, cgst_difference, sgst_difference, "
-                "igst_status, cgst_status, sgst_status, "
-                "outward_supply_total, uploaded_at, raw_gstr3b"
-            )
-            .eq("run_id", rid)
-            .order("uploaded_at", desc=True)
-            .limit(1)
-            .execute()
-        )
-    except Exception as exc:
-        detail = supabase_error_message(exc, context="gstr3b_reconciliation fetch")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=detail) from exc
+    recon_row = None
+    repo = _get_gstr3b_repo()
+    if repo:
+        try:
+            recon_row = repo.get_gstr3b_reconciliation_for_run(rid)
+        except Exception as exc:
+            _log.warning("Aurora get_gstr3b_reconciliation_for_run failed: %s", exc)
 
-    if not res.data:
+    if not recon_row and sb:
+        try:
+            res = (
+                sb.table("gstr3b_reconciliation")
+                .select(
+                    "id, run_id, client_gstin, tax_period, overall_status, "
+                    "gstr3b_igst_claimed, gstr3b_cgst_claimed, gstr3b_sgst_claimed, "
+                    "gstr2b_igst_available, gstr2b_cgst_available, gstr2b_sgst_available, "
+                    "igst_difference, cgst_difference, sgst_difference, "
+                    "igst_status, cgst_status, sgst_status, "
+                    "outward_supply_total, uploaded_at, raw_gstr3b"
+                )
+                .eq("run_id", rid)
+                .order("uploaded_at", desc=True)
+                .limit(1)
+                .execute()
+            )
+            if res.data:
+                recon_row = res.data[0]
+        except Exception as exc:
+            detail = supabase_error_message(exc, context="gstr3b_reconciliation fetch")
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=detail) from exc
+
+    if not recon_row:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="No GSTR-3B reconciliation found for this run",
         )
     return _gstr3b_row_to_response(
-        res.data[0],
+        recon_row,
         client_gstin_id=str(run_row.get("client_gstin_id") or "") or None,
     )
 
@@ -8098,11 +8172,22 @@ async def add_gstr3b_table4_adjustment(
         "is_deleted": False,
     }
 
-    res = sb.table("gstr3b_table4_adjustments").insert(insert_data).execute()
-    if not res.data:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to save adjustment")
+    repo = _get_gstr3b_repo()
+    saved_row = None
+    if repo:
+        try:
+            saved_row = repo.create_table4_adjustment(insert_data)
+        except Exception as exc:
+            _log.warning("Aurora create_table4_adjustment failed for %s, trying fallback", rid, exc_info=True)
+            if not sb:
+                raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to save adjustment") from exc
 
-    saved_row = dict(res.data[0])
+    if not saved_row and sb:
+        res = sb.table("gstr3b_table4_adjustments").insert(insert_data).execute()
+        if not res.data:
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to save adjustment")
+        saved_row = dict(res.data[0])
+
     updated_adjs = [*current_adjs, saved_row]
     saved_row["new_adjustments_digest"] = compute_table4_adjustments_digest(updated_adjs, run_id=rid)
     return saved_row
@@ -8141,18 +8226,29 @@ async def delete_gstr3b_table4_adjustment(
             detail="Finalized reconciliation runs are immutable; adjustments cannot be deleted.",
         )
 
-    # Fetch target adjustment
-    adj_row = (
-        sb.table("gstr3b_table4_adjustments")
-        .select("*")
-        .eq("id", aid)
-        .eq("run_id", rid)
-        .limit(1)
-        .execute()
-    )
-    if not adj_row.data:
+    # Fetch target adjustment (Aurora PRIMARY)
+    target_adj = None
+    repo = _get_gstr3b_repo()
+    if repo:
+        try:
+            target_adj = repo.get_table4_adjustment(aid, run_id=rid)
+        except Exception:
+            _log.warning("Aurora get_table4_adjustment failed for %s, trying fallback", aid, exc_info=True)
+
+    if not target_adj and sb:
+        adj_row = (
+            sb.table("gstr3b_table4_adjustments")
+            .select("*")
+            .eq("id", aid)
+            .eq("run_id", rid)
+            .limit(1)
+            .execute()
+        )
+        if adj_row.data:
+            target_adj = adj_row.data[0]
+
+    if not target_adj:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Adjustment not found")
-    target_adj = adj_row.data[0]
     if bool(target_adj.get("is_deleted")):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Adjustment has already been deleted.")
 
@@ -8180,7 +8276,17 @@ async def delete_gstr3b_table4_adjustment(
                 ),
             )
 
-    sb.table("gstr3b_table4_adjustments").update({"is_deleted": True}).eq("id", aid).eq("run_id", rid).execute()
+    # Soft delete adjustment (Aurora PRIMARY)
+    deleted_ok = False
+    if repo:
+        try:
+            deleted_ok = repo.soft_delete_table4_adjustment(aid, run_id=rid)
+        except Exception:
+            _log.warning("Aurora soft_delete_table4_adjustment failed for %s, trying fallback", aid, exc_info=True)
+
+    if not deleted_ok and sb:
+        sb.table("gstr3b_table4_adjustments").update({"is_deleted": True}).eq("id", aid).eq("run_id", rid).execute()
+
     remaining_adjs = [a for a in current_adjs if str(a.get("id")) != str(aid)]
     new_digest = compute_table4_adjustments_digest(remaining_adjs, run_id=rid)
     return {"deleted": True, "id": aid, "new_adjustments_digest": new_digest}
