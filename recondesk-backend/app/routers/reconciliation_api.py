@@ -1391,16 +1391,32 @@ async def get_run_table4_reversal_ledger(
     sb = get_supabase()
     run_row = assert_run_accessible(sb, rid, current_user)
 
-    q = sb.table("gstr3b_reversal_ledger").select("*").eq("source_run_id", rid)
-    if status_filter:
-        statuses = [s.strip().upper() for s in status_filter.split(",") if s.strip()]
-        if statuses:
-            q = q.in_("status", statuses)
-    if is_reclaimable is not None:
-        q = q.eq("is_reclaimable", is_reclaimable)
+    repo = _get_gstr3b_repo()
+    rows = None
+    if repo:
+        try:
+            statuses = [s.strip().upper() for s in status_filter.split(",") if s.strip()] if status_filter else None
+            rows = repo.list_reversal_ledger_entries(
+                source_run_id=rid,
+                status_filter=statuses,
+                is_reclaimable=is_reclaimable,
+            )
+        except Exception:
+            _log.warning("Aurora list_reversal_ledger_entries failed for run %s, trying fallback", rid, exc_info=True)
 
-    res = q.order("created_at", desc=False).execute()
-    rows = res.data or []
+    if rows is None and sb:
+        q = sb.table("gstr3b_reversal_ledger").select("*").eq("source_run_id", rid)
+        if status_filter:
+            statuses = [s.strip().upper() for s in status_filter.split(",") if s.strip()]
+            if statuses:
+                q = q.in_("status", statuses)
+        if is_reclaimable is not None:
+            q = q.eq("is_reclaimable", is_reclaimable)
+
+        res = q.order("created_at", desc=False).execute()
+        rows = res.data or []
+    elif rows is None:
+        rows = []
 
     rev_igst = sum(int(r.get("reversed_igst_paise") or 0) for r in rows)
     rev_cgst = sum(int(r.get("reversed_cgst_paise") or 0) for r in rows)
@@ -1475,21 +1491,40 @@ async def get_client_reversal_ledger(
     cid = _resolve_client_gstin_id(sb, client_id)
     _assert_client_accessible(sb, cid, current_user)
 
-    q = sb.table("gstr3b_reversal_ledger").select("*").eq("client_gstin_id", cid)
-    if status_filter:
-        statuses = [s.strip().upper() for s in status_filter.split(",") if s.strip()]
-        if statuses:
-            q = q.in_("status", statuses)
-    if statutory_reason:
-        q = q.eq("statutory_reason", statutory_reason.strip().upper())
-    if is_reclaimable is not None:
-        q = q.eq("is_reclaimable", is_reclaimable)
-    period_filter = (tax_period or reversal_tax_period or "").strip()
-    if period_filter:
-        q = q.eq("reversal_tax_period", period_filter)
+    repo = _get_gstr3b_repo()
+    rows = None
+    period_filter = (tax_period or reversal_tax_period or "").strip() or None
+    statuses = [s.strip().upper() for s in status_filter.split(",") if s.strip()] if status_filter else None
+    stat_reason = statutory_reason.strip().upper() if statutory_reason else None
 
-    res = q.order("reversal_tax_period", desc=False).order("created_at", desc=False).execute()
-    rows = res.data or []
+    if repo:
+        try:
+            rows = repo.list_reversal_ledger_entries(
+                client_gstin_id=cid,
+                status_filter=statuses,
+                statutory_reason=stat_reason,
+                is_reclaimable=is_reclaimable,
+                tax_period=period_filter,
+            )
+        except Exception:
+            _log.warning("Aurora list_reversal_ledger_entries failed for client %s, trying fallback", cid, exc_info=True)
+
+    if rows is None and sb:
+        q = sb.table("gstr3b_reversal_ledger").select("*").eq("client_gstin_id", cid)
+        if status_filter:
+            if statuses:
+                q = q.in_("status", statuses)
+        if stat_reason:
+            q = q.eq("statutory_reason", stat_reason)
+        if is_reclaimable is not None:
+            q = q.eq("is_reclaimable", is_reclaimable)
+        if period_filter:
+            q = q.eq("reversal_tax_period", period_filter)
+
+        res = q.order("reversal_tax_period", desc=False).order("created_at", desc=False).execute()
+        rows = res.data or []
+    elif rows is None:
+        rows = []
 
     rev_igst = sum(int(r.get("reversed_igst_paise") or 0) for r in rows)
     rev_cgst = sum(int(r.get("reversed_cgst_paise") or 0) for r in rows)
@@ -1709,7 +1744,16 @@ async def post_fulfill_reversal_condition(
         if body.supplier_filing_arn:
             r37a_updates["subsequent_filing_arn"] = str(body.supplier_filing_arn)
         if r37a_updates:
-            sb.table("gstr3b_reversal_ledger").update(r37a_updates).eq("id", lid).execute()
+            repo = _get_gstr3b_repo()
+            updated_aurora = False
+            if repo:
+                try:
+                    repo.update_reversal_ledger_entry(lid, r37a_updates)
+                    updated_aurora = True
+                except Exception:
+                    _log.warning("Aurora update_reversal_ledger_entry failed for %s, trying fallback", lid, exc_info=True)
+            if not updated_aurora and sb:
+                sb.table("gstr3b_reversal_ledger").update(r37a_updates).eq("id", lid).execute()
             updated.update(r37a_updates)
 
     uid = str(current_user.get("id", "")).strip() or None
@@ -1803,7 +1847,16 @@ async def post_authorize_reversal_reclaim(
             "authorized_by": uid,
             "authorized_at": datetime.now(timezone.utc).isoformat(),
         }
-        sb.table("gstr3b_reversal_ledger").update({"source_payload": sp}).eq("id", lid).execute()
+        repo = _get_gstr3b_repo()
+        updated_aurora = False
+        if repo:
+            try:
+                repo.update_reversal_ledger_entry(lid, {"source_payload": sp})
+                updated_aurora = True
+            except Exception:
+                _log.warning("Aurora update_reversal_ledger_entry failed for %s, trying fallback", lid, exc_info=True)
+        if not updated_aurora and sb:
+            sb.table("gstr3b_reversal_ledger").update({"source_payload": sp}).eq("id", lid).execute()
         updated["source_payload"] = sp
 
     uid_str = str(current_user.get("id", "")).strip() or None
@@ -1915,18 +1968,27 @@ async def post_execute_table4_reclaim(
 
     clean_idemp = body.idempotency_key.strip() if body.idempotency_key and body.idempotency_key.strip() else None
 
-    # Dedicated Database-Level Idempotency Query:
+    # Dedicated Database-Level Idempotency Query (Aurora PRIMARY):
     if clean_idemp:
-        ev_query = (
-            sb.table("gstr3b_reclaim_events")
-            .select("*")
-            .eq("client_gstin_id", ledger["client_gstin_id"])
-            .eq("idempotency_key", clean_idemp)
-            .limit(1)
-            .execute()
-        )
-        if ev_query.data:
-            ev = ev_query.data[0]
+        ev = None
+        repo = _get_gstr3b_repo()
+        if repo:
+            try:
+                ev = repo.get_reclaim_event_by_idempotency_key(ledger["client_gstin_id"], clean_idemp)
+            except Exception:
+                _log.warning("Aurora get_reclaim_event_by_idempotency_key failed, trying fallback", exc_info=True)
+        if not ev and sb:
+            ev_query = (
+                sb.table("gstr3b_reclaim_events")
+                .select("*")
+                .eq("client_gstin_id", ledger["client_gstin_id"])
+                .eq("idempotency_key", clean_idemp)
+                .limit(1)
+                .execute()
+            )
+            if ev_query.data:
+                ev = ev_query.data[0]
+        if ev:
             cur_bal = calculate_available_balance(sb, lid)
             return {
                 "success": True,
