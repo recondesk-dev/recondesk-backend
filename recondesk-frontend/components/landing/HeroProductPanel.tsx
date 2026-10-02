@@ -106,7 +106,7 @@ export function HeroProductPanel() {
           </aside>
 
           {/* Right Workspace Main Content */}
-          <main className="flex-1 p-3 sm:p-5 space-y-3.5 min-w-0">
+          <div role="region" aria-label="Sample reconciliation workspace" className="flex-1 p-3 sm:p-5 space-y-3.5 min-w-0">
             
             {/* 1. Top Context / Action Bar Card */}
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-[10px] border border-[#E2E8F0] bg-white p-3 px-4 shadow-xs">
@@ -546,7 +546,7 @@ export function HeroProductPanel() {
               </div>
 
             </div>
-          </main>
+          </div>
         </div>
 
         {/* Soft bottom white gradient overlay */}

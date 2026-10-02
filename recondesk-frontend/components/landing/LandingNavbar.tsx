@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
 import { Logo } from "@/components/ui/Logo";
-import { Menu, ShieldCheck, X } from "lucide-react";
+import { Menu, X } from "lucide-react";
 
 export function LandingNavbar() {
+  const menuButton = useRef<HTMLButtonElement>(null);
   const [scrolled, setScrolled] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
@@ -17,6 +18,15 @@ export function LandingNavbar() {
     handleScroll();
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
+
+  useEffect(() => {
+    if (!mobileMenuOpen) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") { setMobileMenuOpen(false); menuButton.current?.focus(); }
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [mobileMenuOpen]);
 
   const navLinks = [
     { label: "ReconDepth", href: "/depth", highlight: true },
@@ -84,6 +94,8 @@ export function LandingNavbar() {
           <button
             type="button"
             className="inline-flex h-9 w-9 items-center justify-center rounded-[8px] border border-[#E5E5E2] text-[#0A0A0A] transition-colors hover:bg-[#F5F5F3]"
+            ref={menuButton}
+            aria-controls="landing-mobile-navigation"
             aria-expanded={mobileMenuOpen}
             aria-label={mobileMenuOpen ? "Close navigation menu" : "Open navigation menu"}
             onClick={() => setMobileMenuOpen((prev) => !prev)}
@@ -95,7 +107,7 @@ export function LandingNavbar() {
 
       {/* Mobile Menu Dropdown */}
       {mobileMenuOpen && (
-        <div className="border-t border-[#E5E5E2] bg-white px-4 py-5 shadow-lg md:hidden">
+        <div id="landing-mobile-navigation" className="border-t border-[#E5E5E2] bg-white px-4 py-5 shadow-lg md:hidden">
           <div className="flex flex-col gap-3">
             {navLinks.map((link) => (
               <a

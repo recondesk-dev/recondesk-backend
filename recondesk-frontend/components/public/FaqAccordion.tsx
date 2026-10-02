@@ -101,6 +101,7 @@ export function FaqAccordion() {
             key={cat.key}
             type="button"
             onClick={() => setSelectedCategory(cat.key)}
+            aria-pressed={selectedCategory === cat.key}
             className={`rounded-full px-4 py-1.5 text-xs font-semibold transition-all ${
               selectedCategory === cat.key
                 ? "bg-[#0A0A0A] text-white shadow-xs"
@@ -124,6 +125,7 @@ export function FaqAccordion() {
                 onClick={() => toggleItem(item.id)}
                 className="flex w-full items-start justify-between gap-4 text-left group"
                 aria-expanded={isOpen}
+                aria-controls={`faq-answer-${item.id}`}
               >
                 <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 flex-1 min-w-0">
                   <span className="text-base font-bold text-[#0A0A0A] group-hover:text-[#7B5CFA] transition-colors leading-snug">
@@ -145,6 +147,8 @@ export function FaqAccordion() {
 
               {/* Smooth Inline Answer Dropdown */}
               <div
+                id={`faq-answer-${item.id}`}
+                aria-hidden={!isOpen}
                 className={`grid transition-[grid-template-rows] duration-200 ease-out ${
                   isOpen ? "grid-rows-[1fr] opacity-100 mt-3" : "grid-rows-[0fr] opacity-0"
                 }`}

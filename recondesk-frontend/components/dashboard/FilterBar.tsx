@@ -56,6 +56,7 @@ export function FilterBar({
           </svg>
           <input
             type="search"
+            aria-label="Search clients by name or GSTIN"
             value={searchInput}
             onChange={(e) => onSearchInputChange(e.target.value)}
             placeholder="Search name or GSTIN"

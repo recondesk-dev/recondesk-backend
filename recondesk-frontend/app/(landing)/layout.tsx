@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
-import { LandingNavbar } from "@/components/landing/LandingNavbar";
-import { LandingFooter } from "@/components/landing/LandingFooter";
+import { LandingFrame } from "@/components/landing/LandingFrame";
+
 
 export const metadata: Metadata = {
   title: "ReconDesk — Intelligent Solutions Powered by AI",
@@ -9,11 +9,5 @@ export const metadata: Metadata = {
 };
 
 export default function LandingLayout({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="dashboard-soft-bg min-h-screen text-[#0A0A0A] selection:bg-[#F97316]/20 selection:text-[#0A0A0A]">
-      <LandingNavbar />
-      <main className="min-w-0">{children}</main>
-      <LandingFooter />
-    </div>
-  );
+  return <LandingFrame>{children}</LandingFrame>;
 }
