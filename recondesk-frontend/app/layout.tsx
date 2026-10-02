@@ -6,6 +6,7 @@ import { KeepAlive } from "@/components/KeepAlive";
 import { RootProviders } from "@/components/providers/RootProviders";
 
 import "./globals.css";
+import "./product-system.css";
 
 const jakarta = Plus_Jakarta_Sans({
   subsets: ["latin"],
@@ -29,7 +30,7 @@ const spaceMono = Space_Mono({
 });
 
 export const viewport: Viewport = {
-  themeColor: "#DDE2EE",
+  themeColor: "#f6f5fa",
 };
 
 export const metadata: Metadata = {
@@ -44,7 +45,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className={`${jakarta.variable} ${inter.variable} ${spaceMono.variable} scroll-smooth`}>
-      <body className={`${jakarta.className} min-w-0 font-sans antialiased`}>
+      <body className={`${jakarta.className} rd-product-system min-w-0 font-sans antialiased`}>
         <RootProviders>{children}</RootProviders>
         <KeepAlive />
         <ClarityScript />

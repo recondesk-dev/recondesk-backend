@@ -497,7 +497,7 @@ export default function PortfolioDashboardPage() {
   if (tokenState === null) {
     return (
       <div className="space-y-6">
-        <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
+        <div className="rd-stat-grid">
           {Array.from({ length: 6 }).map((_, i) => (
             <div key={i} className="h-[148px] animate-pulse rounded-[1.5rem] bg-white/70" />
           ))}
@@ -540,7 +540,11 @@ export default function PortfolioDashboardPage() {
   }
 
   return (
-    <div className="space-y-7">
+    <div className="rd-dashboard-overview space-y-7">
+      <div className="rd-overview-heading">
+        <div><span className="rd-eyebrow">YOUR WORKSPACE</span><h1>Portfolio overview</h1><p>Reconciliation, review, and your next action — in one place.</p></div>
+        <Link href="/clients?add=1" className="btn-primary inline-flex items-center justify-center gap-2 px-5 text-sm font-semibold text-white"><span aria-hidden="true">+</span> Add client</Link>
+      </div>
       {!statsLoading && failedClientCount > 0 && (
         <div className="flex items-center justify-between rounded-[1.25rem] bg-red-50/90 px-5 py-4 text-sm text-red-900">
           <span>
@@ -576,14 +580,14 @@ export default function PortfolioDashboardPage() {
 
       <section>
         <div className="mb-4">
-          <h1 className="text-2xl font-semibold tracking-tight text-[var(--ink)]">
+          <h2 className="text-lg font-semibold tracking-tight text-[var(--ink)]">
             Quick Stats
-          </h1>
+          </h2>
           <p className="mt-1 text-sm text-gray-500">
             Your portfolio snapshot — act on what needs attention first.
           </p>
         </div>
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+        <div className="rd-stat-grid">
           <StatCard
             label="Total Clients"
             hint="Firm portfolio — Click to show all"
@@ -729,7 +733,7 @@ export default function PortfolioDashboardPage() {
         </div>
       )}
 
-      <section className="grid gap-4 lg:grid-cols-[1.45fr_0.85fr]">
+      <section className="rd-priority-grid">
         <div>
           <ReturnPeriodBoard
             runs={(runs ?? []) as ReconcileRunListRow[]}
@@ -739,7 +743,7 @@ export default function PortfolioDashboardPage() {
           />
         </div>
 
-        <div className="dashboard-card flex flex-col p-6">
+        <div className="rd-attention-panel dashboard-card flex flex-col p-6">
           <div className="mb-5 flex items-start justify-between gap-3">
             <div>
               <h2 className="text-lg font-semibold tracking-tight text-[var(--ink)]">
@@ -775,9 +779,9 @@ export default function PortfolioDashboardPage() {
                     key={item.client_id}
                     className="flex items-center justify-between gap-3 rounded-2xl bg-[#F7F7F8] px-3.5 py-3 transition-colors hover:bg-[#F0F0F0]"
                   >
-                    <div
-                      className="flex min-w-0 flex-1 cursor-pointer items-center gap-3"
-                      onClick={() => router.push(`/clients/${item.client_id}`)}
+                    <Link
+                      className="rd-attention-client flex min-w-0 flex-1 items-center gap-3"
+                      href={`/clients/${item.client_id}`}
                     >
                       <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white text-xs font-semibold text-[var(--ink)] shadow-sm">
                         {item.trade_name.slice(0, 2).toUpperCase()}
@@ -799,7 +803,7 @@ export default function PortfolioDashboardPage() {
                             : ""}
                         </span>
                       </div>
-                    </div>
+                    </Link>
 
                     <div className="flex shrink-0 items-center gap-2">
                       {status ? (
@@ -844,7 +848,7 @@ export default function PortfolioDashboardPage() {
         </div>
       </section>
 
-      <section className="dashboard-card space-y-5 p-6">
+      <section className="rd-client-directory dashboard-card space-y-5 p-6">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="text-lg font-semibold tracking-tight text-[var(--ink)]">

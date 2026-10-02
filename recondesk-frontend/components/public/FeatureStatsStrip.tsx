@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import {
   AlertTriangle,
   ArrowRight,
@@ -30,6 +30,8 @@ const RULE_COUNT_FALLBACK = "103+";
 export function FeatureStatsStrip() {
   const [ruleCount, setRuleCount] = useState(RULE_COUNT_FALLBACK);
   const [copiedLetter, setCopiedLetter] = useState(false);
+  const [copyError, setCopyError] = useState(false);
+  const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -50,16 +52,26 @@ export function FeatureStatsStrip() {
       });
     return () => {
       cancelled = true;
+      if (copyTimer.current) clearTimeout(copyTimer.current);
     };
   }, []);
 
-  const handleCopyNotice = () => {
-    setCopiedLetter(true);
-    setTimeout(() => setCopiedLetter(false), 2000);
+  const handleCopyNotice = async () => {
+    setCopyError(false);
+    try {
+      await navigator.clipboard.writeText("Dear Supplier, 3 invoices are missing in GSTR-2B. Please file before the statutory cut-off...");
+      setCopiedLetter(true);
+      if (copyTimer.current) clearTimeout(copyTimer.current);
+      copyTimer.current = setTimeout(() => setCopiedLetter(false), 2000);
+    } catch {
+      setCopiedLetter(false);
+      setCopyError(true);
+    }
   };
 
   return (
     <section
+      id="engine"
       className="mx-auto mt-20 mb-12 max-w-6xl px-4 sm:px-6 lg:px-8"
       aria-label="Product capabilities"
     >
@@ -349,6 +361,7 @@ export function FeatureStatsStrip() {
             <button
               type="button"
               onClick={handleCopyNotice}
+              aria-live="polite"
               className="inline-flex items-center gap-1 text-[11px] font-bold text-[#7B5CFA] hover:text-[#6C4DE6]"
             >
               {copiedLetter ? (
@@ -364,6 +377,7 @@ export function FeatureStatsStrip() {
               )}
             </button>
             <span className="text-[10px] text-[#94A3B8]">PDF &amp; Excel Export</span>
+            {copyError && <span role="status" className="text-[10px] text-red-700">Copy unavailable. Please select the sample notice above.</span>}
           </div>
         </div>
 

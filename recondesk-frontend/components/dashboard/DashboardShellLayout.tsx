@@ -225,6 +225,34 @@ export default function DashboardShellLayout({
   const toast = useToast();
   const [panelOpen, setPanelOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const sidebarRef = useRef<HTMLElement>(null);
+  const menuTriggerRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!mobileMenuOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const sidebar = sidebarRef.current;
+    sidebar?.querySelector<HTMLButtonElement>('button[aria-label="Close menu"]')?.focus();
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") { event.preventDefault(); setMobileMenuOpen(false); }
+      if (event.key === "Tab" && sidebar) {
+        const elements = Array.from(sidebar.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), [tabindex="0"]')).filter(el => el.getClientRects().length > 0);
+        const first = elements[0], last = elements[elements.length - 1];
+        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+      }
+    };
+    const desktop = window.matchMedia("(min-width: 1024px)");
+    const onResize = () => { if (desktop.matches) setMobileMenuOpen(false); };
+    document.addEventListener("keydown", onKey);
+    desktop.addEventListener("change", onResize);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener("keydown", onKey);
+      desktop.removeEventListener("change", onResize);
+      if (!desktop.matches) menuTriggerRef.current?.focus();
+    };
+  }, [mobileMenuOpen]);
   const [profileOpen, setProfileOpen] = useState(false);
   const profileRef = useRef<HTMLDivElement>(null);
   const [headerProfileOpen, setHeaderProfileOpen] = useState(false);
@@ -428,7 +456,7 @@ export default function DashboardShellLayout({
   ];
 
   return (
-    <div className="dashboard-soft-bg flex min-h-screen w-full min-w-0 text-[var(--text-primary)]">
+    <div className="rd-workspace dashboard-soft-bg flex min-h-screen w-full min-w-0 text-[var(--text-primary)]">
       {/* Mobile/Tablet Backdrop */}
       {mobileMenuOpen && (
         <div
@@ -440,7 +468,11 @@ export default function DashboardShellLayout({
 
       {/* Responsive Navigation Sidebar */}
       <aside
-        className={`fixed inset-y-3 left-3 z-50 flex w-[230px] flex-col rounded-[1.75rem] bg-white shadow-[var(--shadow-lift)] transition-transform duration-300 ease-in-out lg:w-[196px] lg:translate-x-0 lg:shadow-[var(--shadow-soft)] ${
+        ref={sidebarRef}
+        id="workspace-navigation"
+        data-open={mobileMenuOpen}
+        aria-label="Workspace navigation"
+        className={`rd-workspace-sidebar fixed inset-y-3 left-3 z-50 flex w-[230px] flex-col rounded-[1.75rem] bg-white shadow-[var(--shadow-lift)] transition-transform duration-300 ease-in-out lg:w-[196px] lg:translate-x-0 lg:shadow-[var(--shadow-soft)] ${
           mobileMenuOpen ? "translate-x-0" : "-translate-x-[120%] lg:translate-x-0"
         }`}
       >
@@ -467,6 +499,7 @@ export default function DashboardShellLayout({
               <Link
                 key={href}
                 href={href}
+                aria-current={isActive ? "page" : undefined}
                 onClick={() => setMobileMenuOpen(false)}
                 className={`flex items-center gap-2.5 rounded-full px-3 py-2 text-[13px] transition-all duration-200 ${
                   isActive
@@ -553,13 +586,20 @@ export default function DashboardShellLayout({
         </div>
       </aside>
 
-      <div className="flex min-h-screen min-w-0 w-full flex-1 flex-col overflow-x-hidden lg:ml-[216px] lg:w-[calc(100%-216px)] lg:max-w-[calc(100%-216px)]">
-        <header className="relative z-[60] flex h-16 shrink-0 items-center justify-between px-4 sm:px-6 pt-2">
+      <div className="rd-workspace-main flex min-h-screen min-w-0 w-full flex-1 flex-col overflow-x-hidden lg:ml-[216px] lg:w-[calc(100%-216px)] lg:max-w-[calc(100%-216px)]">
+        <header className="rd-workspace-header relative z-[60] flex h-16 shrink-0 items-center justify-between px-4 sm:px-6 pt-2">
           <div className="flex items-center gap-3">
+            <div className="rd-workspace-breadcrumb hidden lg:flex" aria-label="Current workspace">
+              <span>ReconDesk</span><span aria-hidden="true">/</span>
+              <strong>{nav.find(({ href }) => pathname === href || pathname.startsWith(`${href}/`))?.label ?? "Workspace"}</strong>
+            </div>
             <button
               type="button"
               className="flex items-center justify-center rounded-full bg-white p-2 text-gray-600 shadow-[var(--shadow-soft)] hover:bg-gray-50 hover:text-gray-900 lg:hidden"
               onClick={() => setMobileMenuOpen(true)}
+              ref={menuTriggerRef}
+              aria-expanded={mobileMenuOpen}
+              aria-controls="workspace-navigation"
               aria-label="Open menu"
             >
               <Menu className="h-5 w-5" />
@@ -689,7 +729,7 @@ export default function DashboardShellLayout({
           </div>
         </header>
 
-        <main className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-4 sm:px-6 pb-10 pt-2">
+        <main className="rd-workspace-content min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-4 sm:px-6 pb-10 pt-2">
           {children}
         </main>
       </div>
