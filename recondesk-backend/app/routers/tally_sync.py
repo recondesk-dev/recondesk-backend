@@ -39,6 +39,15 @@ router = APIRouter()
 _log = logging.getLogger(__name__)
 _bearer = HTTPBearer(auto_error=False)
 
+
+def _get_compliance_repo():
+    """Return Aurora compliance repo or None."""
+    try:
+        from app.repositories.compliance import get_compliance_repository
+        return get_compliance_repository()
+    except Exception:
+        return None
+
 _AGENT_PATH = (
     Path(__file__).resolve().parents[2] / "tally_bridge" / "tally_bridge_agent.py"
 )
@@ -735,19 +744,28 @@ async def tally_bridge_resolve_review(
     account_id = _account_id_for_user(current_user)
     sb = get_supabase()
 
-    res = (
-        sb.table("rule37_actions")
-        .select("*")
-        .eq("id", action_id)
-        .limit(1)
-        .execute()
-    )
-    if not res.data:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Review action not found",
+    # Aurora primary read
+    repo = _get_compliance_repo()
+    row: Optional[dict[str, Any]] = None
+    if repo is not None:
+        row = repo.get_rule37_action_by_id(action_id)
+
+    # Supabase fallback read (only when Aurora unavailable or row not in Aurora)
+    if not row:
+        res = (
+            sb.table("rule37_actions")
+            .select("*")
+            .eq("id", action_id)
+            .limit(1)
+            .execute()
         )
-    row = res.data[0]
+        if not res.data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Review action not found",
+            )
+        row = res.data[0]
+
     if str(row.get("user_id") or "") != account_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

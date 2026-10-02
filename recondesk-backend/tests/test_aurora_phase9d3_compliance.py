@@ -295,3 +295,140 @@ class TestAuroraComplianceRepository:
         assert len(rows) == 1
         assert rows[0]["resolution_note"] == "CA confirmed paid via ledger"
 
+
+class TestBatch2AFailureModeWithoutSupabase:
+    """Verifies that Batch 2A operations succeed purely on Aurora when Supabase is down/unavailable."""
+
+    def test_notes_and_rule37_operations_when_supabase_raises(self, sqlite_compliance_repo, monkeypatch):
+        repo = sqlite_compliance_repo
+        monkeypatch.setattr("app.repositories.compliance.get_compliance_repository", lambda: repo)
+        monkeypatch.setattr("app.routers.reconciliation_api._get_compliance_repo", lambda: repo)
+
+        class BrokenSupabaseClient:
+            def table(self, *args, **kwargs):
+                raise RuntimeError("CRITICAL: Supabase network failure / service unavailable")
+
+        broken_sb = BrokenSupabaseClient()
+        run_id = str(uuid.uuid4())
+        rec_id = str(uuid.uuid4())
+        user_id = str(uuid.uuid4())
+
+        # 1. Notes insert & count
+        repo.insert_mismatch_note({
+            "record_id": rec_id,
+            "run_id": run_id,
+            "user_id": user_id,
+            "note": "Aurora standalone note",
+            "record_type": "pr",
+            "status": "pending",
+        })
+
+        from app.routers.reconciliation_api import _notes_count_for_run
+        counts = _notes_count_for_run(broken_sb, run_id)
+        assert counts[rec_id] == 1, "Should read note count from Aurora without querying Supabase"
+
+        # 2. Decision status upsert & read
+        from app.routers.reconciliation_api import _upsert_decision_status, _decision_statuses_for_run
+        _upsert_decision_status(
+            broken_sb,
+            run_id=run_id,
+            record_id=rec_id,
+            status_value="acted",
+            user_id=user_id,
+        )
+        statuses = _decision_statuses_for_run(broken_sb, run_id)
+        assert statuses.get(rec_id) == "acted", "Should persist & retrieve decision status on Aurora without Supabase"
+
+        # 3. Rule 37 action upsert & history
+        from app.routers.reconciliation_api import _persist_rule37_action_row, _rule37_actions_for_run
+        record_hash = "standalone_hash_999"
+        payload = {
+            "run_id": run_id,
+            "record_hash": record_hash,
+            "status": "resolved",
+            "user_id": user_id,
+            "amount_paid": 4500.0,
+            "tds_deducted": 50.0,
+            "tds_confirmed": True,
+        }
+        _persist_rule37_action_row(broken_sb, payload)
+        actions = _rule37_actions_for_run(broken_sb, run_id)
+        assert actions.get(f"r37:{record_hash}") == "resolved"
+
+
+class TestBatch2ATenantIsolation:
+    """Verifies strict tenant and run scoping across Batch 2A tables."""
+
+    def test_tenant_scoping_invoice_tracking(self, sqlite_compliance_repo):
+        repo = sqlite_compliance_repo
+        client_a = uuid.uuid4()
+        client_b = uuid.uuid4()
+        run_id = str(uuid.uuid4())
+
+        repo.batch_upsert_invoice_tracking([
+            {
+                "client_gstin_id": str(client_a),
+                "invoice_number": "INV-A",
+                "supplier_gstin": "27AABCU9603R1ZX",
+                "taxable_amount": 1000,
+                "first_seen_run_id": run_id,
+                "last_seen_run_id": run_id,
+                "consecutive_unmatched_runs": 4,
+                "last_match_status": "unmatched",
+            },
+            {
+                "client_gstin_id": str(client_b),
+                "invoice_number": "INV-B",
+                "supplier_gstin": "27AABCU9603R1ZX",
+                "taxable_amount": 2000,
+                "first_seen_run_id": run_id,
+                "last_seen_run_id": run_id,
+                "consecutive_unmatched_runs": 4,
+                "last_match_status": "unmatched",
+            },
+        ])
+
+
+        # Client A query must never return Client B
+        rows_a = repo.bulk_fetch_invoice_tracking(client_a)
+        assert len(rows_a) == 1
+        assert ("INV-A", "27AABCU9603R1ZX") in rows_a
+        assert ("INV-B", "27AABCU9603R1ZX") not in rows_a
+
+        # Chronic risks for Client A
+        risks_a = repo.get_chronic_risks(client_a, threshold=3)
+        assert len(risks_a) == 1
+        assert risks_a[0]["invoice_number"] == "INV-A"
+
+        # Chronic risks for Client B
+        risks_b = repo.get_chronic_risks(client_b, threshold=3)
+        assert len(risks_b) == 1
+        assert risks_b[0]["invoice_number"] == "INV-B"
+
+    def test_run_scoping_rule37_and_notes(self, sqlite_compliance_repo):
+        repo = sqlite_compliance_repo
+        run_1 = str(uuid.uuid4())
+        run_2 = str(uuid.uuid4())
+
+        # Run 1 action
+        repo.upsert_rule37_action({
+            "run_id": run_1,
+            "record_hash": "hash_1",
+            "status": "pending_review",
+            "user_id": str(uuid.uuid4()),
+        })
+
+        # Run 2 action
+        repo.upsert_rule37_action({
+            "run_id": run_2,
+            "record_hash": "hash_2",
+            "status": "resolved",
+            "user_id": str(uuid.uuid4()),
+        })
+
+        actions_1 = repo.get_rule37_actions_for_run(run_1)
+        actions_2 = repo.get_rule37_actions_for_run(run_2)
+
+        assert len(actions_1) == 1 and actions_1[0]["record_hash"] == "hash_1"
+        assert len(actions_2) == 1 and actions_2[0]["record_hash"] == "hash_2"
+

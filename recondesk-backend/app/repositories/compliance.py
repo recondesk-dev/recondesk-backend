@@ -181,6 +181,25 @@ class AuroraComplianceRepository:
             _log.warning("Aurora get_mismatch_notes_by_run_id failed: %s", exc)
             return []
 
+    def get_notes_count_for_run(self, run_id: str) -> dict[str, int]:
+        """Return {record_id: count} of mismatch_notes for a run."""
+        try:
+            with self._session_factory() as session:
+                stmt = (
+                    select(MismatchNote.record_id)
+                    .where(MismatchNote.run_id == str(run_id))
+                )
+                rows = session.execute(stmt).scalars().all()
+                out: dict[str, int] = {}
+                for r in rows:
+                    if r is not None:
+                        s = str(r)
+                        out[s] = out.get(s, 0) + 1
+                return out
+        except Exception as exc:
+            _log.warning("Aurora get_notes_count_for_run failed: %s", exc)
+            return {}
+
 
     def get_mismatch_note_by_id(self, note_id: str) -> Optional[dict[str, Any]]:
         """Fetch a single mismatch_note by primary key."""
@@ -498,6 +517,16 @@ class AuroraComplianceRepository:
             _log.warning("Aurora get_rule37_action_by_hash failed: %s", exc)
             return None
 
+    def get_rule37_action_by_id(self, action_id: str) -> Optional[dict[str, Any]]:
+        """Fetch a single rule37_action by primary key ID."""
+        try:
+            with self._session_factory() as session:
+                obj = session.get(Rule37Action, str(action_id))
+                return _model_to_dict(obj) if obj else None
+        except Exception as exc:
+            _log.warning("Aurora get_rule37_action_by_id failed: %s", exc)
+            return None
+
     def upsert_rule37_action(self, payload: dict[str, Any]) -> bool:
         """Delete-then-insert rule37_actions row (idempotent per run_id + record_hash)."""
         run_id = str(payload.get("run_id", ""))
@@ -576,6 +605,44 @@ class AuroraComplianceRepository:
         except Exception as exc:
             _log.warning("Aurora get_rule37_resolutions_for_run failed: %s", exc)
             return []
+
+    def get_rule37_resolution_by_invoice_result(
+        self, invoice_result_id: str
+    ) -> Optional[dict[str, Any]]:
+        """Fetch a rule37_resolution by invoice_result_id."""
+        try:
+            with self._session_factory() as session:
+                stmt = (
+                    select(Rule37Resolution)
+                    .where(Rule37Resolution.invoice_result_id == str(invoice_result_id))
+                )
+                obj = session.execute(stmt).scalars().first()
+                return _model_to_dict(obj) if obj else None
+        except Exception as exc:
+            _log.warning("Aurora get_rule37_resolution_by_invoice_result failed: %s", exc)
+            return None
+
+    def insert_rule37_resolution(self, row: dict[str, Any]) -> Optional[dict[str, Any]]:
+        """Insert a new rule37_resolution."""
+        try:
+            with self._session_factory() as session:
+                resolved_at = _parse_datetime(row.get("resolved_at")) or datetime.now()
+                res = Rule37Resolution(
+                    run_id=str(row["run_id"]),
+                    invoice_result_id=str(row["invoice_result_id"]),
+                    resolved_by=str(row["resolved_by"]),
+                    resolved_at=resolved_at,
+                    resolution_note=row.get("resolution_note"),
+                )
+                session.add(res)
+                session.flush()
+                out = _model_to_dict(res)
+                session.commit()
+                return out
+        except Exception as exc:
+            _log.warning("Aurora insert_rule37_resolution failed: %s", exc)
+            return None
+
 
     # -----------------------------------------------------------------------
     # rule37_alert_dedup

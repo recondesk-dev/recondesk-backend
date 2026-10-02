@@ -1246,18 +1246,38 @@ async def mark_rule37_resolved(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="no rule37 concern in stored payload for this pr_id",
         )
-    exist = (
-        sb.table("rule37_resolutions")
-        .select("id")
-        .eq("invoice_result_id", inv_res_id)
-        .limit(1)
-        .execute()
-    )
-    if exist.data:
+    repo = _get_compliance_repo()
+    is_resolved = False
+
+    # Check existence — Aurora primary
+    if repo is not None:
+        try:
+            aurora_res = repo.get_rule37_resolution_by_invoice_result(inv_res_id)
+            if aurora_res:
+                is_resolved = True
+        except Exception as exc:
+            _log.warning("resolve_rule37_item: Aurora check failed for inv_res_id=%s: %s", inv_res_id, exc)
+
+    if not is_resolved:
+        try:
+            exist = (
+                sb.table("rule37_resolutions")
+                .select("id")
+                .eq("invoice_result_id", inv_res_id)
+                .limit(1)
+                .execute()
+            )
+            if exist.data:
+                is_resolved = True
+        except Exception:
+            pass
+
+    if is_resolved:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="this invoice is already marked resolved",
         )
+
     uid = str(current_user.get("id", ""))
     now = datetime.now(timezone.utc).isoformat()
     ins: dict = {
@@ -1268,7 +1288,21 @@ async def mark_rule37_resolved(
     }
     if resolution_note is not None:
         ins["resolution_note"] = resolution_note
-    sb.table("rule37_resolutions").insert(ins).execute()
+
+    # Aurora primary write
+    saved_in_aurora = False
+    if repo is not None:
+        try:
+            res_row = repo.insert_rule37_resolution(ins)
+            if res_row:
+                saved_in_aurora = True
+        except Exception as exc:
+            _log.warning("resolve_rule37_item: Aurora insert failed for inv_res_id=%s: %s; falling back", inv_res_id, exc)
+
+    # Supabase fallback write
+    if not saved_in_aurora:
+        sb.table("rule37_resolutions").insert(ins).execute()
+
     return Rule37ResolveResponse(
         invoice_result_id=inv_res_id,
         resolved_by=uid,
@@ -2086,6 +2120,17 @@ def _paise_to_rupees_exact(paise: Optional[int]) -> float:
 
 
 def _notes_count_for_run(sb, run_id: str) -> Counter[str]:
+    # Aurora primary read
+    repo = _get_compliance_repo()
+    if repo is not None:
+        try:
+            counts = repo.get_notes_count_for_run(run_id)
+            if counts:
+                return Counter(counts)
+        except Exception as exc:
+            _log.warning("_notes_count_for_run: Aurora failed for run_id=%s: %s", run_id, exc)
+
+    # Supabase fallback read
     try:
         r = (
             sb.table("mismatch_notes")
@@ -2102,6 +2147,7 @@ def _notes_count_for_run(sb, run_id: str) -> Counter[str]:
         if cid is not None and str(cid):
             c[str(cid)] += 1
     return c
+
 
 
 # API outcome-row ids are tagged as ``<kind>:<uuid>`` (e.g. ``pm:…``, ``wr:…``).
@@ -5804,6 +5850,12 @@ async def delete_reconcile_run(
                 # 2) Non-cascading FK blockers (invoice_tracking)
                 _clear_invoice_tracking_for_run(sb, rid)
                 # 3) Tables without FK to reconciliation_run
+                repo = _get_compliance_repo()
+                if repo is not None:
+                    try:
+                        repo.delete_rule37_actions_for_run(rid)
+                    except Exception as exc:
+                        _log.warning("delete_rule37_actions_for_run: Aurora failed run_id=%s: %s", rid, exc)
                 _safe_delete_by_eq(sb, "rule37_actions", "run_id", rid)
                 if import_row:
                     _safe_delete_by_eq(sb, "reconciliation_import_runs", "id", rid)
