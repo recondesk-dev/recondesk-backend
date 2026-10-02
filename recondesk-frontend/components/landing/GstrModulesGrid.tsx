@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import {
   AlertTriangle,
@@ -28,14 +28,36 @@ type ModalType = "itc" | "gstr1" | "gstr3b" | "gstr9c" | null;
 export function GstrModulesGrid() {
   const [activeModal, setActiveModal] = useState<ModalType>(null);
 
-  // Close modal on Escape key
+  const dialogRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setActiveModal(null);
+    if (!activeModal) return;
+    const trigger = document.activeElement as HTMLElement | null;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const focusable = () => Array.from(dialogRef.current?.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex="0"]'
+    ) ?? []).filter((element) => element.getClientRects().length > 0);
+    focusable()[0]?.focus();
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") { event.preventDefault(); setActiveModal(null); }
+      if (event.key !== "Tab") return;
+      const items = focusable();
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (!first) { event.preventDefault(); dialogRef.current?.focus(); return; }
+      if (event.shiftKey && (document.activeElement === first || !dialogRef.current?.contains(document.activeElement))) {
+        event.preventDefault(); last.focus();
+      } else if (!event.shiftKey && (document.activeElement === last || !dialogRef.current?.contains(document.activeElement))) {
+        event.preventDefault(); first.focus();
+      }
     };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      document.body.style.overflow = previousOverflow;
+      trigger?.focus({ preventScroll: true });
+    };
+  }, [activeModal]);
 
   return (
     <section id="modules" className="scroll-mt-20 py-20 sm:py-28 border-t border-[#CBD5E1]/60">
@@ -456,6 +478,9 @@ export function GstrModulesGrid() {
       {activeModal && (
         <div
           role="dialog"
+          ref={dialogRef}
+          tabIndex={-1}
+          aria-label={activeModal === "itc" ? "ITC matching logic" : activeModal === "gstr1" ? "GSTR-1 discrepancy codes" : activeModal === "gstr3b" ? "Notice prevention checks" : "GSTR-9C audit export format"}
           aria-modal="true"
           className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 overflow-y-auto bg-black/60 backdrop-blur-xs animate-in fade-in duration-200"
           onClick={() => setActiveModal(null)}
@@ -478,6 +503,7 @@ export function GstrModulesGrid() {
                     <button
                       type="button"
                       onClick={() => setActiveModal(null)}
+                      aria-label="Close module details"
                       className="rounded-full p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700 transition"
                     >
                       <X className="h-5 w-5" />
@@ -493,7 +519,7 @@ export function GstrModulesGrid() {
 
                 {/* Modal Body: Matching Tiers Table */}
                 <div className="max-h-[60vh] overflow-y-auto p-5 sm:p-6 space-y-4 text-xs">
-                  <div className="rounded-[10px] border border-[#E2E8F0] overflow-hidden">
+                  <div tabIndex={0} role="region" aria-label="Matching tiers comparison — scroll horizontally for more columns" className="rounded-[10px] border border-[#E2E8F0] overflow-hidden">
                     <table className="w-full text-left border-collapse">
                       <thead className="bg-[#FAFAFA] border-b border-[#E2E8F0] text-[11px] font-bold text-[#64748B] uppercase">
                         <tr>
@@ -614,6 +640,7 @@ export function GstrModulesGrid() {
                     <button
                       type="button"
                       onClick={() => setActiveModal(null)}
+                      aria-label="Close module details"
                       className="rounded-full p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700 transition"
                     >
                       <X className="h-5 w-5" />
@@ -686,6 +713,7 @@ export function GstrModulesGrid() {
                     <button
                       type="button"
                       onClick={() => setActiveModal(null)}
+                      aria-label="Close module details"
                       className="rounded-full p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700 transition"
                     >
                       <X className="h-5 w-5" />
@@ -765,6 +793,7 @@ export function GstrModulesGrid() {
                     <button
                       type="button"
                       onClick={() => setActiveModal(null)}
+                      aria-label="Close module details"
                       className="rounded-full p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700 transition"
                     >
                       <X className="h-5 w-5" />

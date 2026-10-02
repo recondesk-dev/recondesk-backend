@@ -38,6 +38,7 @@ export function StatCard({
   return (
     <div
       role={onClick ? "button" : undefined}
+      aria-pressed={onClick ? isActive : undefined}
       tabIndex={onClick ? 0 : undefined}
       onClick={onClick}
       onKeyDown={
@@ -50,7 +51,7 @@ export function StatCard({
             }
           : undefined
       }
-      className={`group relative flex min-h-[148px] flex-col justify-between rounded-[1.5rem] p-5 transition-all duration-200 ${
+      className={`rd-stat-card group relative flex min-h-[148px] flex-col justify-between rounded-[1.5rem] p-5 transition-all duration-200 ${
         onClick ? "cursor-pointer hover:shadow-md" : ""
       } ${
         isActive

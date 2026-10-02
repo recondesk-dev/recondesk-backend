@@ -1,0 +1,238 @@
+/* ReconDesk homepage visual refresh. Content and behavior live in the original components. */
+.rd-modern {
+  --ink: #171b35;
+  --shadow-card: 0 3px 6px -4px rgb(32 28 73 / 8%), 0 18px 45px -30px rgb(40 32 91 / 18%);
+  --shadow-lift: 0 10px 35px -15px rgb(43 32 91 / 13%), 0 40px 90px -55px rgb(50 35 105 / 25%);
+  color: #171b35;
+  background: #fafbff;
+  isolation: isolate;
+  font-family: var(--font-plus-jakarta), "Plus Jakarta Sans", sans-serif;
+}
+.rd-modern ::selection { background: #e4ddff; color: #302566; }
+.rd-modern :is(a,button,input):focus-visible { outline: 3px solid #8f77ed; outline-offset: 5px; }
+.rd-modern :is(section,[id]) { scroll-margin-top: 110px; }
+.rd-modern > header {
+  background: rgb(250 251 255 / 90%) !important;
+  border-color: #e9eaf3 !important;
+  box-shadow: 0 5px 25px rgb(30 25 70 / 3%) !important;
+  backdrop-filter: blur(20px);
+}
+.rd-modern > header > div:first-child { height: 82px; max-width: 1280px; padding-inline: 40px; }
+.rd-modern > header nav { gap: 30px; }
+.rd-modern > header nav a { font-size: 12px; }
+.rd-modern > header a[href="/auth/signup"] {
+  background: #22213e;
+  border-radius: 9px;
+  padding: 12px 21px;
+  box-shadow: 0 3px 6px rgb(27 22 55 / 12%);
+}
+.rd-modern > header a[href="/auth/signup"]:hover { background: #6650d7; }
+.rd-modern > header nav a > span:last-child:not(:first-child) { border-color: #e1dbff; background: #eeeaff; }
+/* Hero: expansive typography, fine grid, and an atmospheric product stage. */
+.rd-modern > main > div > section:first-child {
+  padding-top: 84px;
+  padding-bottom: 80px;
+  background:
+    radial-gradient(ellipse at 50% 53%, rgb(142 116 250 / 15%), transparent 62%),
+    linear-gradient(180deg, #fbfbff 0%, #f6f4ff 70%, #fafbff 100%);
+}
+.rd-modern > main > div > section:first-child::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: linear-gradient(#8780af08 1px,transparent 1px),linear-gradient(90deg,#8780af08 1px,transparent 1px);
+  background-size: 64px 64px;
+  mask-image: linear-gradient(transparent,black 35%,transparent 80%);
+}
+.rd-modern .hero-animate-badge a {
+  border: 1px solid #e3ddf5;
+  background: #fff;
+  box-shadow: 0 4px 18px #6652b00a;
+  padding: 5px 14px 5px 5px;
+  gap: 12px;
+  font-size: 11px;
+}
+.rd-modern .hero-animate-badge a > span:first-child { background: #ede8ff; color: #6247ce; padding: 5px 10px; }
+.rd-modern h1.hero-animate-headline {
+  margin: 28px auto 0;
+  font-size: clamp(44px, 5.3vw, 76px);
+  line-height: 1.09;
+  letter-spacing: -.06em;
+  font-weight: 700;
+  color: #191d35;
+  max-width: 1050px;
+  text-wrap: balance;
+}
+.rd-modern h1.hero-animate-headline > span {
+  color: #7958e8;
+  background: linear-gradient(120deg,#9679f6,#6c4fd6);
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.rd-modern .hero-animate-subtext { max-width: 670px; margin-top: 24px; font-size: 16px; line-height: 1.85; color: #74798e; }
+.rd-modern .hero-animate-ctas { margin-top: 32px; gap: 12px; }
+.rd-modern .hero-animate-ctas > :first-child { background: #24203e; border: 1px solid #24203e; box-shadow: 0 5px 12px #2320361c; }
+.rd-modern .hero-animate-ctas > :last-child { border: 1px solid #e0dcee; background: #fff; box-shadow: 0 2px 4px #29203805; }
+.rd-modern .hero-animate-ctas > a { border-radius: 10px; padding: 15px 24px; font-size: 12px; }
+.rd-modern .hero-animate-ctas > a:hover { transform: translateY(-2px); }
+.rd-modern .hero-animate-ctas + div { gap: 12px; font-size: 10px; color: #838397; margin-top: 22px; }
+.rd-modern .hero-animate-ctas + div svg { color: #8a79c3; width: 12px; height: 12px; }
+.rd-modern .hero-animate-panel { border-radius: 24px; padding: 9px; background: rgb(255 255 255 / 50%); border: 1px solid #ffffff; box-shadow: 0 35px 90px -45px #6854aa55; }
+.rd-modern .hero-animate-panel > div { max-width: none; padding: 0; }
+.rd-modern .hero-animate-panel > div > div {
+  mask-image: none !important;
+  -webkit-mask-image: none !important;
+  border-radius: 17px;
+  border: 1px solid #dcdcea;
+  box-shadow: 0 6px 20px #3429550a;
+}
+.rd-modern .hero-animate-panel > div > div > div:first-child { background: #fcfcff; border-color: #eaeaf2; }
+.rd-modern .hero-animate-panel > div > div > div:first-child > div:first-child > div { width: 7px; height: 7px; background: #d6d4e4; }
+.rd-modern .hero-animate-panel > div > div > div:nth-child(2) { background: #f3f4fa; }
+.rd-modern .hero-animate-panel aside { background: #fbfbfe; width: 185px; }
+.rd-modern .hero-animate-panel aside nav > div { font-weight: 500; border-radius: 8px; padding-block: 10px; }
+.rd-modern .hero-animate-panel aside nav > div:has(svg.text-\[\#7B5CFA\]) { background: #eee9fc; color: #6b50c2; }
+.rd-modern .hero-animate-panel table { min-width: 680px; }
+/* Consistent section rhythm and hierarchy; no content is hidden. */
+.rd-modern > main > div > section:not(:first-child) { padding-top: 90px; padding-bottom: 90px; margin-top: 0; margin-bottom: 0; border-color: #e9eaf3; }
+.rd-modern > main > div > section > div.text-center > h2,
+.rd-modern > main > div > section > div > div.text-center > h2,
+.rd-modern #blog h2 {
+  font-size: clamp(30px,3vw,43px);
+  line-height: 1.2;
+  font-weight: 650;
+  letter-spacing: -.045em;
+  color: #20223c;
+  text-wrap: balance;
+  margin-top: 14px;
+}
+.rd-modern > main > div > section > div.text-center > p:first-child,
+.rd-modern > main > div > section > div > div.text-center > p:first-child,
+.rd-modern #blog > div > div:first-child > div > p:first-child {
+  font-size: 10px; letter-spacing: .17em; color: #8b76c9; font-weight: 600;
+}
+.rd-modern > main > div > section > div.text-center > p:last-child,
+.rd-modern > main > div > section > div > div.text-center > p:last-child { color: #787e90; font-size: 14px; line-height: 1.85; margin-top: 17px; }
+.rd-modern #modules { background: #fff; }
+.rd-modern #modules > div > .grid { gap: 25px; margin-top: 48px; }
+.rd-modern #modules > div > .grid > div,
+.rd-modern section[aria-label="Product capabilities"] > .grid > div,
+.rd-modern #security > .grid > div {
+  border: 1px solid #e5e5f0;
+  border-radius: 20px;
+  padding: 30px;
+  box-shadow: 0 4px 8px -6px #22204b12, 0 20px 42px -34px #34306030;
+}
+.rd-modern #modules > div > .grid > div:hover,
+.rd-modern section[aria-label="Product capabilities"] > .grid > div:hover { border-color: #cbbdf4; box-shadow: 0 14px 36px -20px #7561b940; transform: translateY(-4px); }
+.rd-modern #modules > div > .grid > div > div:first-child.absolute { height: 3px; opacity: .6; left: 30px; right: 30px; border-radius: 0 0 4px 4px; }
+.rd-modern #modules > div > .grid > div > div.pointer-events-none { background: none; }
+.rd-modern #modules h3 { font-size: 22px; letter-spacing: -.035em; margin-top: 22px; color: #262740; }
+.rd-modern #modules h3 + p { font-size: 13px; line-height: 1.75; color: #797e8f; margin-top: 9px; }
+.rd-modern #modules .font-mono { background: #f8f9fc; border-color: #e7e8f0; border-radius: 12px; }
+.rd-modern #modules ul { line-height: 1.65; margin-top: 22px; }
+.rd-modern #modules ul svg { width: 15px; height: 15px; }
+.rd-modern #modules button { min-height: 30px; }
+.rd-modern section[aria-label="Product capabilities"] { background: #fafbff; }
+.rd-modern section[aria-label="Product capabilities"] > .grid { gap: 22px; }
+.rd-modern section[aria-label="Product capabilities"] h3 { letter-spacing: -.035em; }
+.rd-modern section[aria-label="Product capabilities"] .font-mono { font-family: var(--font-inter),sans-serif; }
+/* The privacy section forms a distinct, dark trust anchor with light inset cards. */
+.rd-modern #security {
+  max-width: 1200px;
+  border: 1px solid #262543;
+  border-radius: 28px;
+  background: radial-gradient(ellipse at 0 0,#38305a 0,transparent 60%), #201f35;
+  padding: 65px 40px;
+  margin: 24px auto 40px;
+  box-shadow: 0 30px 80px -60px #292443;
+}
+.rd-modern #security > div.text-center > h2 { color: #f4f2ff; max-width: 750px; margin-inline: auto; }
+.rd-modern #security > div.text-center > p:last-child { color: #aaa5c0; }
+.rd-modern #security > div.text-center > p:first-child { color: #c0b0f5; }
+.rd-modern #security > div:nth-child(2) > div { background: #302c46; border-color: #48405f; color: #e2dcf8; font-size: 10px; }
+.rd-modern #security > div:nth-child(2) svg { color: #b9a9ef; }
+.rd-modern #security > .grid { gap: 20px; }
+.rd-modern #security > .grid > div { background: #fcfcff; border-color: #fff; padding: 26px; box-shadow: none; }
+.rd-modern #how-it-works > div:first-child { margin-bottom: 50px; }
+.rd-modern #how-it-works > div:last-child > div { border-color: #e5e5ef; box-shadow: var(--shadow-card); }
+.rd-modern #how-it-works h3 { letter-spacing: -.035em; }
+.rd-modern #pricing { background: #f5f5fc; max-width: none; padding-inline: max(24px,calc((100vw - 1100px) / 2)); }
+.rd-modern #pricing > .space-y-8 { max-width: 1180px; margin-inline: auto; }
+.rd-modern #pricing .liquid-glass-card { background: #fff; border: 1px solid #e0e0ed; border-radius: 19px; box-shadow: 0 14px 35px -28px #2c265b30; transform: none; backdrop-filter: none; }
+.rd-modern #pricing .liquid-glass-card::before { background: none; }
+.rd-modern #pricing .liquid-glass-card__blob { opacity: 0; }
+.rd-modern #pricing .liquid-glass-card--featured { border: 2px solid #8970e6; box-shadow: 0 0 0 5px #ece7fc, 0 16px 40px -22px #7962ba40; background: linear-gradient(180deg,#f5f1ff,#fff 30%); --tw-ring-shadow: 0 0 transparent; }
+.rd-modern #pricing .liquid-glass-card h2 { font-size: 19px; line-height: 1.3; }
+.rd-modern #pricing .liquid-glass-card__content > div:first-child { flex-wrap: wrap; }
+.rd-modern #pricing .liquid-glass-card--featured .bg-\[var\(--ink\)\] { background: #7557d8; }
+.rd-modern #pricing .liquid-glass-card a { border-radius: 9px; }
+.rd-modern #faq { padding-top: 100px; padding-bottom: 100px; background: #fff; max-width: none; }
+.rd-modern #faq > div:last-child { max-width: 880px; }
+.rd-modern #faq .divide-y > div { padding: 23px 8px; }
+.rd-modern #faq button span.text-base { font-size: 15px; font-weight: 600; letter-spacing: -.02em; }
+.rd-modern #faq .divide-y { border-color: #e7e7ef; }
+.rd-modern #faq .divide-y > div + div { border-color: #e7e7ef; }
+.rd-modern #blog { background: #fafbff; }
+.rd-modern #blog > div > div:nth-child(2) { background: linear-gradient(120deg,#f0ebff,#ffffff 75%); border-color: #e4dcf5; box-shadow: none; padding: 40px; }
+.rd-modern #blog h3 { font-size: 30px; line-height: 1.25; font-weight: 600; max-width: 660px; }
+.rd-modern > main > div > section:last-child { background: #fafbff; padding-top: 25px; padding-bottom: 100px; }
+.rd-modern > main > div > section:last-child > div {
+  background: radial-gradient(ellipse at top right,#64528f,transparent 70%),#242039;
+  border: 1px solid #3b3158;
+  border-radius: 24px;
+  padding: 65px 48px;
+  max-width: 1100px;
+  box-shadow: 0 25px 55px -40px #433268;
+}
+.rd-modern > main > div > section:last-child h2 { color: #fff; font-size: clamp(28px,3vw,43px); letter-spacing: -.05em; font-weight: 600; }
+.rd-modern > main > div > section:last-child p { color: #cac3df; }
+.rd-modern > main > div > section:last-child a[href="/auth/signup"] { background: #f2edff; color: #352652; border-radius: 10px; }
+.rd-modern > main > div > section:last-child a[href="#modules"] { background: #ffffff0c; color: #eee8ff; border: 1px solid #ffffff30; border-radius: 10px; }
+.rd-modern > footer { background: #f0f0f8; border-color: #e4e3ee; padding-top: 60px; padding-bottom: 30px; }
+.rd-modern > footer > div { max-width: 1200px; }
+.rd-modern > footer a:hover { color: #795ad8; }
+.rd-modern > footer > div > div:last-child { border-color: #dcdae9; margin-top: 45px; }
+@media (max-width: 1100px) {
+  .rd-modern > header nav { gap: 16px; }
+  .rd-modern > header > div:first-child { padding-inline: 24px; }
+  .rd-modern #security { margin-inline: 24px; padding-inline: 28px; }
+  .rd-modern #modules > div > .grid > div { padding: 24px; }
+  .rd-modern #pricing { padding-inline: 28px; }
+}
+@media (max-width: 767px) {
+  .rd-modern > header > div:first-child { height: 70px; padding-inline: 20px; }
+  .rd-modern > main > div > section:first-child { padding-top: 52px; padding-bottom: 45px; }
+  .rd-modern h1.hero-animate-headline { font-size: clamp(36px,9vw,53px); letter-spacing: -.055em; line-height: 1.13; }
+  .rd-modern .hero-animate-badge a { font-size: 9px; gap: 7px; padding-right: 8px; }
+  .rd-modern .hero-animate-badge a > span:first-child { padding: 4px 7px; }
+  .rd-modern .hero-animate-subtext { font-size: 14px; line-height: 1.8; }
+  .rd-modern .hero-animate-ctas { max-width: 360px; margin-inline: auto; }
+  .rd-modern .hero-animate-ctas + div { font-size: 9px; gap: 9px; }
+  .rd-modern .hero-animate-panel { padding: 5px; border-radius: 18px; }
+  .rd-modern .hero-animate-panel > div > div > div:first-child { gap: 8px; padding-inline: 10px; }
+  .rd-modern .hero-animate-panel > div > div > div:first-child > div:nth-child(2) { min-width: 0; font-size: 8px; padding-inline: 8px; }
+  .rd-modern .hero-animate-panel > div > div > div:first-child > div:nth-child(2) span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rd-modern .hero-animate-panel [aria-label="Sample reconciliation workspace"] > div:first-child > div:first-child { flex-wrap: wrap; }
+  .rd-modern > main > div > section:not(:first-child) { padding-top: 60px; padding-bottom: 60px; }
+  .rd-modern #modules > div > .grid { gap: 20px; margin-top: 32px; }
+  .rd-modern #modules > div > .grid > div,
+  .rd-modern section[aria-label="Product capabilities"] > .grid > div { padding: 22px; }
+  .rd-modern #modules h3 { font-size: 20px; }
+  .rd-modern #security { margin: 12px 16px 24px; padding: 45px 18px; border-radius: 22px; }
+  .rd-modern #security > .grid > div { padding: 20px; }
+  .rd-modern #security > div:nth-child(2) { gap: 8px; }
+  .rd-modern #security > div:nth-child(2) > div { font-size: 9px; padding-inline: 8px; }
+  .rd-modern #blog > div > div:nth-child(2) { padding: 24px; }
+  .rd-modern #blog h3 { font-size: 24px; }
+  .rd-modern > main > div > section:last-child > div { padding: 44px 24px; }
+  .rd-modern #faq { padding-inline: 20px; }
+  .rd-modern #faq button span.text-base { font-size: 13px; }
+  .rd-modern #pricing { padding-inline: 20px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rd-modern *, .rd-modern *::before, .rd-modern *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+}
+/* Explicit CTA contrast overrides the shared section-heading selector. */
+.rd-modern > main > div > section:last-child > div.text-center > h2 { color: #fff; }

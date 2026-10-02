@@ -343,7 +343,7 @@ input[type='range']::-moz-range-thumb {
   .landing-dash-stagger-4,
   .landing-dash-stagger-5,
   .landing-dash-stagger-6 {
-    opacity: 0;
+    opacity: 1;
     animation: landing-dash-stagger 0.5s ease-out both;
   }
 
@@ -652,32 +652,32 @@ input[type='range']::-moz-range-thumb {
 }
 
 .hero-animate-badge {
-  opacity: 0;
+  opacity: 1;
   animation: heroFadeUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0ms forwards;
 }
 
 .hero-animate-headline {
-  opacity: 0;
+  opacity: 1;
   animation: heroFadeUp 0.7s cubic-bezier(0.16, 1, 0.3, 1) 180ms forwards;
 }
 
 .hero-animate-subtext {
-  opacity: 0;
+  opacity: 1;
   animation: heroFadeUp 0.7s cubic-bezier(0.16, 1, 0.3, 1) 360ms forwards;
 }
 
 .hero-animate-ctas {
-  opacity: 0;
+  opacity: 1;
   animation: heroFadeUp 0.7s cubic-bezier(0.16, 1, 0.3, 1) 540ms forwards;
 }
 
 .hero-animate-glow {
-  opacity: 0;
+  opacity: 1;
   animation: heroGlowFadeScale 0.9s cubic-bezier(0.16, 1, 0.3, 1) 720ms forwards;
 }
 
 .hero-animate-panel {
-  opacity: 0;
+  opacity: 1;
   animation: heroPanelSlideUp 0.9s cubic-bezier(0.16, 1, 0.3, 1) 900ms forwards;
 }
 

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { HomepageExperience } from "@/components/landing/HomepageExperience";
 import { HeroSection } from "@/components/landing/HeroSection";
 import { GstrModulesGrid } from "@/components/landing/GstrModulesGrid";
 import { FeatureStatsStrip } from "@/components/public/FeatureStatsStrip";
@@ -29,6 +30,7 @@ export default function LandingPage() {
     <div className="text-[#0A0A0A]">
       {/* 1. Hero Section with Glow Arc and Browser Chrome Panel */}
       <HeroSection />
+      <HomepageExperience />
 
       {/* 2. Supported GSTR Modules Grid (2B, 1, 3B, 9C) */}
       <GstrModulesGrid />

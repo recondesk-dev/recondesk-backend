@@ -599,7 +599,7 @@ export function ClientTable({
 
   return (
     <div className="relative bg-white">
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto" role="region" aria-label="Client portfolio table" tabIndex={0}>
         <table className="min-w-[1100px] w-full border-collapse text-left">
           <thead>
             <tr className="border-b border-[#F0F0F0] text-[11px] font-medium uppercase tracking-widest text-gray-400">
