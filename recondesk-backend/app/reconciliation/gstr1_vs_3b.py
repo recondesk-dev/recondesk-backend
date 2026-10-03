@@ -141,6 +141,73 @@ class TieOutVarianceType(str, Enum):
     SGST = "G1_3B_SGST"
     CESS = "G1_3B_CESS"
     TOTAL_TAX = "G1_3B_TOTAL_TAX"
+    ZERO_RATED = "G1_3B_ZERO_RATED"
+    NIL_EXEMPT = "G1_3B_NIL_EXEMPT"
+    NON_GST = "G1_3B_NON_GST"
+    RECLASSIFICATION = "G1_3B_STATUTORY_RECLASSIFICATION"
+
+
+@dataclass
+class CategoryReconciliation:
+    """Individual statutory table category comparison."""
+    gstr1_value_paise: int = 0
+    gstr3b_value_paise: int = 0
+    difference_paise: int = 0
+
+    @property
+    def gstr1_value(self) -> float:
+        return round(self.gstr1_value_paise / 100.0, 2)
+
+    @property
+    def gstr3b_value(self) -> float:
+        return round(self.gstr3b_value_paise / 100.0, 2)
+
+    @property
+    def difference(self) -> float:
+        return round(self.difference_paise / 100.0, 2)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "gstr1_value_paise": self.gstr1_value_paise,
+            "gstr3b_value_paise": self.gstr3b_value_paise,
+            "difference_paise": self.difference_paise,
+            "gstr1_value": self.gstr1_value,
+            "gstr3b_value": self.gstr3b_value,
+            "difference": self.difference,
+        }
+
+
+@dataclass
+class StatutoryTableReconciliation:
+    """Complete statutory category reconciliation between GSTR-1 and GSTR-3B."""
+    taxable_outward: CategoryReconciliation
+    zero_rated: CategoryReconciliation
+    nil_exempt: CategoryReconciliation
+    non_gst: CategoryReconciliation
+    tax: dict[str, CategoryReconciliation]
+    unexplained_difference_paise: int = 0
+    reclassification_difference_paise: int = 0
+
+    @property
+    def unexplained_difference(self) -> float:
+        return round(self.unexplained_difference_paise / 100.0, 2)
+
+    @property
+    def reclassification_difference(self) -> float:
+        return round(self.reclassification_difference_paise / 100.0, 2)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "taxable_outward": self.taxable_outward.to_dict(),
+            "zero_rated": self.zero_rated.to_dict(),
+            "nil_exempt": self.nil_exempt.to_dict(),
+            "non_gst": self.non_gst.to_dict(),
+            "tax": {k: v.to_dict() for k, v in self.tax.items()},
+            "unexplained_difference_paise": self.unexplained_difference_paise,
+            "unexplained_difference": self.unexplained_difference,
+            "reclassification_difference_paise": self.reclassification_difference_paise,
+            "reclassification_difference": self.reclassification_difference,
+        }
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -160,10 +227,32 @@ class GSTR1Aggregate:
     sgst_paise: int = 0
     cess_paise: int = 0
     record_count: int = 0
+    # Statutory sections
+    zero_rated_taxable_paise: int = 0
+    zero_rated_igst_paise: int = 0
+    zero_rated_cess_paise: int = 0
+    nil_exempt_taxable_paise: int = 0
+    non_gst_taxable_paise: int = 0
 
     @property
     def total_tax_paise(self) -> int:
-        return self.igst_paise + self.cgst_paise + self.sgst_paise + self.cess_paise
+        return (
+            self.igst_paise
+            + self.cgst_paise
+            + self.sgst_paise
+            + self.cess_paise
+            + self.zero_rated_igst_paise
+            + self.zero_rated_cess_paise
+        )
+
+    @property
+    def total_outward_taxable_paise(self) -> int:
+        return (
+            self.taxable_value_paise
+            + self.zero_rated_taxable_paise
+            + self.nil_exempt_taxable_paise
+            + self.non_gst_taxable_paise
+        )
 
     def to_dict(self) -> dict[str, int]:
         return {
@@ -174,12 +263,18 @@ class GSTR1Aggregate:
             "cess_paise": self.cess_paise,
             "total_tax_paise": self.total_tax_paise,
             "record_count": self.record_count,
+            "zero_rated_taxable_paise": self.zero_rated_taxable_paise,
+            "zero_rated_igst_paise": self.zero_rated_igst_paise,
+            "zero_rated_cess_paise": self.zero_rated_cess_paise,
+            "nil_exempt_taxable_paise": self.nil_exempt_taxable_paise,
+            "non_gst_taxable_paise": self.non_gst_taxable_paise,
+            "total_outward_taxable_paise": self.total_outward_taxable_paise,
         }
 
 
 @dataclass
 class GSTR3BSummary:
-    """Normalised GSTR-3B Table 3.1(a) outward-supply figures.
+    """Normalised GSTR-3B Table 3.1 outward-supply figures.
 
     All values are in **paise**. The GSTR-3B parser outputs rupees (float);
     callers must convert before constructing this.
@@ -189,10 +284,31 @@ class GSTR3BSummary:
     cgst_paise: int = 0
     sgst_paise: int = 0
     cess_paise: int = 0
+    zero_rated_taxable_paise: int = 0
+    zero_rated_igst_paise: int = 0
+    zero_rated_cess_paise: int = 0
+    nil_exempt_taxable_paise: int = 0
+    non_gst_taxable_paise: int = 0
 
     @property
     def total_tax_paise(self) -> int:
-        return self.igst_paise + self.cgst_paise + self.sgst_paise + self.cess_paise
+        return (
+            self.igst_paise
+            + self.cgst_paise
+            + self.sgst_paise
+            + self.cess_paise
+            + self.zero_rated_igst_paise
+            + self.zero_rated_cess_paise
+        )
+
+    @property
+    def total_outward_taxable_paise(self) -> int:
+        return (
+            self.taxable_value_paise
+            + self.zero_rated_taxable_paise
+            + self.nil_exempt_taxable_paise
+            + self.non_gst_taxable_paise
+        )
 
     def to_dict(self) -> dict[str, int]:
         return {
@@ -201,13 +317,69 @@ class GSTR3BSummary:
             "cgst_paise": self.cgst_paise,
             "sgst_paise": self.sgst_paise,
             "cess_paise": self.cess_paise,
+            "zero_rated_taxable_paise": self.zero_rated_taxable_paise,
+            "zero_rated_igst_paise": self.zero_rated_igst_paise,
+            "zero_rated_cess_paise": self.zero_rated_cess_paise,
+            "nil_exempt_taxable_paise": self.nil_exempt_taxable_paise,
+            "non_gst_taxable_paise": self.non_gst_taxable_paise,
             "total_tax_paise": self.total_tax_paise,
+            "total_outward_taxable_paise": self.total_outward_taxable_paise,
         }
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Aggregation
 # ══════════════════════════════════════════════════════════════════════════════
+
+def _classify_gstr1_outward_record(rec: Mapping[str, Any]) -> str:
+    """Classify GSTR-1 record into statutory category:
+    'zero_rated', 'nil_exempt', 'non_gst', or 'taxable'.
+    """
+    section = str(rec.get("section") or "").lower().strip()
+    inv_type = str(rec.get("invoice_type") or "").upper().strip()
+    doc_type = str(rec.get("doc_type") or "").upper().strip()
+
+    if (
+        section in _ZERO_RATED_SECTIONS
+        or rec.get("is_zero_rated")
+        or inv_type in ("EXPWP", "EXPWOP", "SEZWP", "SEZWOP", "DE", "EXPORT")
+    ):
+        return "zero_rated"
+
+    if section == "nil":
+        if inv_type == "NON_GST" or rec.get("is_non_gst"):
+            return "non_gst"
+        return "nil_exempt"
+
+    if rec.get("is_non_gst") or inv_type == "NON_GST":
+        return "non_gst"
+
+    if (
+        doc_type == "NIL_EXEMPT"
+        or inv_type in ("NIL_RATED", "EXEMPT", "NIL", "EXEMPTED")
+        or rec.get("is_nil_rated")
+        or rec.get("is_exempt")
+    ):
+        return "nil_exempt"
+
+    rate = rec.get("rate")
+    if rate is not None:
+        try:
+            r_val = float(rate)
+            if r_val == 0.0:
+                tot_tax = (
+                    _safe_int(rec.get("igst_paise"))
+                    + _safe_int(rec.get("cgst_paise"))
+                    + _safe_int(rec.get("sgst_paise"))
+                    + _safe_int(rec.get("cess_paise"))
+                )
+                if tot_tax == 0:
+                    return "nil_exempt"
+        except (TypeError, ValueError):
+            pass
+
+    return "taxable"
+
 
 def aggregate_gstr1(
     records: Sequence[Mapping[str, Any]],
@@ -226,8 +398,8 @@ def aggregate_gstr1(
         If True (default), credit notes (cdnr/cdnur) are subtracted and debit
         notes are added. Set to False to compare invoices only.
     include_zero_rated : bool
-        If True, export/zero-rated sections (exp/expa) are included.
-        Default False so the aggregate matches GSTR-3B Table 3.1(a)
+        If True, export/zero-rated sections (exp/expa) are included in taxable_value_paise.
+        Default False so the taxable aggregate matches GSTR-3B Table 3.1(a)
         (``osup_det``), which excludes zero-rated supplies.
     prior_records : Sequence[Mapping] | None
         Prior-period GSTR-1 records for evaluating Table 9 amendments.
@@ -261,13 +433,19 @@ def aggregate_gstr1(
     for rec in _records_preferring_amendments(records):
         section = str(rec.get("section", "")).lower().strip()
 
-        # Skip informational-only sections
+        # Handle informational sections
         if section in _EXCLUDED_SECTIONS:
+            if section == "nil":
+                cat = _classify_gstr1_outward_record(rec)
+                txval = _safe_int(rec.get("taxable_amount_paise")) or _safe_int(rec.get("invoice_value_paise"))
+                if cat == "non_gst":
+                    agg.non_gst_taxable_paise += txval
+                else:
+                    agg.nil_exempt_taxable_paise += txval
             continue
 
         if section in _AMENDMENT_SECTIONS or _is_amendment_row(rec):
             # Table 9 amendments: apply differential against prior original if verified.
-            # Never blindly add full gross turnover of an amendment to current period.
             if prior_records and prior_by_key:
                 oinum = (
                     rec.get("original_invoice_number_raw")
@@ -307,10 +485,35 @@ def aggregate_gstr1(
                     agg.record_count += 1
                 continue
             elif prior_records:
-                # Prior records were provided, but no original was verified — skip to avoid double counting
                 continue
 
-        # Determine inclusion
+        cat = _classify_gstr1_outward_record(rec)
+        txval = _safe_int(rec.get("taxable_amount_paise"))
+        iamt = _safe_int(rec.get("igst_paise"))
+        camt = _safe_int(rec.get("cgst_paise"))
+        samt = _safe_int(rec.get("sgst_paise"))
+        csamt = _safe_int(rec.get("cess_paise"))
+
+        if cat == "zero_rated":
+            agg.zero_rated_taxable_paise += txval
+            agg.zero_rated_igst_paise += iamt
+            agg.zero_rated_cess_paise += csamt
+            if include_zero_rated:
+                agg.taxable_value_paise += txval
+                agg.igst_paise += iamt
+                agg.cess_paise += csamt
+                agg.record_count += 1
+            continue
+
+        if cat == "nil_exempt":
+            agg.nil_exempt_taxable_paise += txval
+            continue
+
+        if cat == "non_gst":
+            agg.non_gst_taxable_paise += txval
+            continue
+
+        # Standard taxable outward supplies
         if section in _CDN_SECTIONS:
             if not include_cdn:
                 continue
@@ -319,10 +522,6 @@ def aggregate_gstr1(
                 or str(rec.get("ntty") or "").upper() == "C"
             )
             sign = -1 if is_cn else 1
-        elif section in _ZERO_RATED_SECTIONS:
-            if not include_zero_rated:
-                continue
-            sign = 1
         elif (
             section in _BASE_TAXABLE_SECTIONS
             or section in _TAXABLE_SUPPLY_SECTIONS
@@ -330,7 +529,6 @@ def aggregate_gstr1(
         ):
             sign = 1
         else:
-            # Unknown section — include with positive sign, log warning
             _log.debug(
                 "gstr1_vs_3b: unknown section %r in record %s, including as positive",
                 section,
@@ -338,11 +536,11 @@ def aggregate_gstr1(
             )
             sign = 1
 
-        agg.taxable_value_paise += sign * _safe_int(rec.get("taxable_amount_paise"))
-        agg.igst_paise += sign * _safe_int(rec.get("igst_paise"))
-        agg.cgst_paise += sign * _safe_int(rec.get("cgst_paise"))
-        agg.sgst_paise += sign * _safe_int(rec.get("sgst_paise"))
-        agg.cess_paise += sign * _safe_int(rec.get("cess_paise"))
+        agg.taxable_value_paise += sign * txval
+        agg.igst_paise += sign * iamt
+        agg.cgst_paise += sign * camt
+        agg.sgst_paise += sign * samt
+        agg.cess_paise += sign * csamt
         agg.record_count += 1
 
     return agg
@@ -397,20 +595,62 @@ def aggregate_gstr1_by_rate(
 # GSTR-3B extraction
 # ══════════════════════════════════════════════════════════════════════════════
 
-def gstr3b_to_summary(parsed_3b: Mapping[str, Any]) -> GSTR3BSummary:
+def gstr3b_to_summary(parsed_3b: Mapping[str, Any] | GSTR3BSummary) -> GSTR3BSummary:
     """Convert the output of ``gstr3b_parser.parse_gstr3b`` into a
-    ``GSTR3BSummary`` with paise values.
-
-    The GSTR-3B parser stores ``outward_supply`` values in **rupees**
-    (float). This function multiplies by 100 and rounds to paise.
+    ``GSTR3BSummary`` with paise values across all statutory Table 3.1 sections.
     """
-    osup = parsed_3b.get("outward_supply") or {}
+    if isinstance(parsed_3b, GSTR3BSummary):
+        return parsed_3b
+
+    sup_details = (
+        parsed_3b.get("sup_details")
+        or (parsed_3b.get("data", {}).get("sup_details") if isinstance(parsed_3b.get("data"), dict) else {})
+        or {}
+    )
+
+    # 3.1(a) Outward taxable supplies
+    osup = (
+        parsed_3b.get("outward_supply")
+        or sup_details.get("osup_det")
+        or parsed_3b.get("osup_det")
+        or (parsed_3b if ("taxable_value" in parsed_3b and "outward_supply" not in parsed_3b) else {})
+    )
+
+    # 3.1(b) Zero rated
+    osup_zero = (
+        parsed_3b.get("osup_zero")
+        or sup_details.get("osup_zero")
+        or parsed_3b.get("zero_rated")
+        or {}
+    )
+
+    # 3.1(c) Nil / exempt
+    osup_nil = (
+        parsed_3b.get("osup_nil_exmp")
+        or sup_details.get("osup_nil_exmp")
+        or parsed_3b.get("nil_exempt")
+        or {}
+    )
+
+    # 3.1(e) Non-GST
+    osup_nongst = (
+        parsed_3b.get("osup_nongst")
+        or sup_details.get("osup_nongst")
+        or parsed_3b.get("non_gst")
+        or {}
+    )
+
     return GSTR3BSummary(
-        taxable_value_paise=_rupees_to_paise(osup.get("taxable_value", 0)),
-        igst_paise=_rupees_to_paise(osup.get("igst", 0)),
-        cgst_paise=_rupees_to_paise(osup.get("cgst", 0)),
-        sgst_paise=_rupees_to_paise(osup.get("sgst", 0)),
-        cess_paise=_rupees_to_paise(osup.get("cess", 0)),
+        taxable_value_paise=_rupees_to_paise(osup.get("taxable_value") if "taxable_value" in osup else osup.get("txval", 0)),
+        igst_paise=_rupees_to_paise(osup.get("igst") if "igst" in osup else osup.get("iamt", 0)),
+        cgst_paise=_rupees_to_paise(osup.get("cgst") if "cgst" in osup else osup.get("camt", 0)),
+        sgst_paise=_rupees_to_paise(osup.get("sgst") if "sgst" in osup else osup.get("samt", 0)),
+        cess_paise=_rupees_to_paise(osup.get("cess") if "cess" in osup else osup.get("csamt", 0)),
+        zero_rated_taxable_paise=_rupees_to_paise(osup_zero.get("taxable_value") if "taxable_value" in osup_zero else osup_zero.get("txval", 0)),
+        zero_rated_igst_paise=_rupees_to_paise(osup_zero.get("igst") if "igst" in osup_zero else osup_zero.get("iamt", 0)),
+        zero_rated_cess_paise=_rupees_to_paise(osup_zero.get("cess") if "cess" in osup_zero else osup_zero.get("csamt", 0)),
+        nil_exempt_taxable_paise=_rupees_to_paise(osup_nil.get("taxable_value") if "taxable_value" in osup_nil else osup_nil.get("txval", 0)),
+        non_gst_taxable_paise=_rupees_to_paise(osup_nongst.get("taxable_value") if "taxable_value" in osup_nongst else osup_nongst.get("txval", 0)),
     )
 
 
@@ -448,22 +688,109 @@ def compute_variances(
     *,
     tolerance_paise: int = DEFAULT_TOLERANCE_PAISE,
 ) -> list[FieldVariance]:
-    """Compare GSTR-1 aggregate against GSTR-3B summary; return field-level
-    variances that exceed *tolerance_paise*.
+    """Compare GSTR-1 aggregate against GSTR-3B summary across statutory tables;
+    return field-level variances that exceed *tolerance_paise*.
 
-    Returns an empty list if everything matches within tolerance.
+    Distinguishes category reclassifications (total outward turnover matches)
+    from genuine unexplained variances.
     """
-    checks = [
-        ("taxable_value", gstr1_agg.taxable_value_paise, gstr3b_summary.taxable_value_paise, TieOutVarianceType.TAXABLE_VALUE),
+    taxable_diff = gstr1_agg.taxable_value_paise - gstr3b_summary.taxable_value_paise
+    zero_diff = gstr1_agg.zero_rated_taxable_paise - gstr3b_summary.zero_rated_taxable_paise
+    nil_diff = gstr1_agg.nil_exempt_taxable_paise - gstr3b_summary.nil_exempt_taxable_paise
+    nongst_diff = gstr1_agg.non_gst_taxable_paise - gstr3b_summary.non_gst_taxable_paise
+
+    # In-scope outward categories
+    g1_outward = gstr1_agg.taxable_value_paise
+    g3b_outward = gstr3b_summary.taxable_value_paise
+
+    include_zero = gstr3b_summary.zero_rated_taxable_paise > 0
+    if include_zero:
+        g1_outward += gstr1_agg.zero_rated_taxable_paise
+        g3b_outward += gstr3b_summary.zero_rated_taxable_paise
+
+    include_nil = gstr3b_summary.nil_exempt_taxable_paise > 0 or gstr1_agg.nil_exempt_taxable_paise > 0
+    if include_nil:
+        g1_outward += gstr1_agg.nil_exempt_taxable_paise
+        g3b_outward += gstr3b_summary.nil_exempt_taxable_paise
+
+    include_nongst = gstr3b_summary.non_gst_taxable_paise > 0 or gstr1_agg.non_gst_taxable_paise > 0
+    if include_nongst:
+        g1_outward += gstr1_agg.non_gst_taxable_paise
+        g3b_outward += gstr3b_summary.non_gst_taxable_paise
+
+    unexplained_diff = g1_outward - g3b_outward
+
+    variances: list[FieldVariance] = []
+
+    # Check if category differences represent pure reclassification
+    is_pure_reclass = (
+        abs(unexplained_diff) <= tolerance_paise
+        and (
+            abs(taxable_diff) > tolerance_paise
+            or (include_zero and abs(zero_diff) > tolerance_paise)
+            or (include_nil and abs(nil_diff) > tolerance_paise)
+            or (include_nongst and abs(nongst_diff) > tolerance_paise)
+        )
+    )
+
+    if is_pure_reclass:
+        reclass_amt = (
+            abs(taxable_diff)
+            + (abs(zero_diff) if include_zero else 0)
+            + (abs(nil_diff) if include_nil else 0)
+            + (abs(nongst_diff) if include_nongst else 0)
+        ) // 2
+        variances.append(FieldVariance(
+            field="statutory_reclassification",
+            gstr1_paise=g1_outward,
+            gstr3b_paise=g3b_outward,
+            diff_paise=reclass_amt,
+            variance_type=TieOutVarianceType.RECLASSIFICATION,
+        ))
+    else:
+        # Check individual statutory categories
+        if abs(taxable_diff) > tolerance_paise:
+            variances.append(FieldVariance(
+                field="taxable_value",
+                gstr1_paise=gstr1_agg.taxable_value_paise,
+                gstr3b_paise=gstr3b_summary.taxable_value_paise,
+                diff_paise=taxable_diff,
+                variance_type=TieOutVarianceType.TAXABLE_VALUE,
+            ))
+        if include_zero and abs(zero_diff) > tolerance_paise:
+            variances.append(FieldVariance(
+                field="zero_rated",
+                gstr1_paise=gstr1_agg.zero_rated_taxable_paise,
+                gstr3b_paise=gstr3b_summary.zero_rated_taxable_paise,
+                diff_paise=zero_diff,
+                variance_type=TieOutVarianceType.ZERO_RATED,
+            ))
+        if include_nil and abs(nil_diff) > tolerance_paise:
+            variances.append(FieldVariance(
+                field="nil_exempt",
+                gstr1_paise=gstr1_agg.nil_exempt_taxable_paise,
+                gstr3b_paise=gstr3b_summary.nil_exempt_taxable_paise,
+                diff_paise=nil_diff,
+                variance_type=TieOutVarianceType.NIL_EXEMPT,
+            ))
+        if include_nongst and abs(nongst_diff) > tolerance_paise:
+            variances.append(FieldVariance(
+                field="non_gst",
+                gstr1_paise=gstr1_agg.non_gst_taxable_paise,
+                gstr3b_paise=gstr3b_summary.non_gst_taxable_paise,
+                diff_paise=nongst_diff,
+                variance_type=TieOutVarianceType.NON_GST,
+            ))
+
+    # Taxes
+    tax_checks = [
         ("igst", gstr1_agg.igst_paise, gstr3b_summary.igst_paise, TieOutVarianceType.IGST),
         ("cgst", gstr1_agg.cgst_paise, gstr3b_summary.cgst_paise, TieOutVarianceType.CGST),
         ("sgst", gstr1_agg.sgst_paise, gstr3b_summary.sgst_paise, TieOutVarianceType.SGST),
         ("cess", gstr1_agg.cess_paise, gstr3b_summary.cess_paise, TieOutVarianceType.CESS),
         ("total_tax", gstr1_agg.total_tax_paise, gstr3b_summary.total_tax_paise, TieOutVarianceType.TOTAL_TAX),
     ]
-
-    variances: list[FieldVariance] = []
-    for field_name, g1_val, g3b_val, vtype in checks:
+    for field_name, g1_val, g3b_val, vtype in tax_checks:
         diff = g1_val - g3b_val
         if abs(diff) > tolerance_paise:
             variances.append(FieldVariance(
@@ -489,8 +816,35 @@ def _variance_to_mismatch(
     """Convert a single FieldVariance into a Decision Layer MismatchResult."""
     direction = "over-reported" if v.diff_paise > 0 else "under-reported"
     abs_diff = abs(v.diff_paise)
-
     field_label = v.field.replace("_", " ").title()
+
+    if v.variance_type == TieOutVarianceType.RECLASSIFICATION:
+        return MismatchResult(
+            mismatch_type=MismatchType.WRONG_CLASSIFICATION,
+            severity=MismatchSeverity.INFO,
+            decision_what=(
+                f"GSTR-1 vs GSTR-3B statutory table allocation / category reclassification: "
+                f"{_rs(abs_diff)}"
+            ),
+            decision_why=(
+                "Turnover was reported under different statutory tables between GSTR-1 "
+                "and GSTR-3B (e.g. Table 3.1(a) vs Table 3.1(c)). Total outward turnover "
+                "is fully accounted for across tables with zero unexplained financial variance."
+            ),
+            decision_next=(
+                "Verify return table mapping. Because total turnover and tax liability match, "
+                "no monetary tax demand arises under Section 73/74."
+            ),
+            rule_id="G1_3B_STATUTORY_RECLASSIFICATION",
+            gst_ref="Section 37/Section 39 CGST Act",
+            details={
+                "field": v.field,
+                "reclassification_paise": abs_diff,
+                "ret_period": ret_period,
+                "matched_fields": ["ret_period", "total_outward_turnover"],
+                "differed_fields": ["statutory_table_allocation"],
+            },
+        )
 
     diff_rupees = abs_diff / 100
     if diff_rupees <= 50:
@@ -544,6 +898,10 @@ _VARIANCE_TO_MISMATCH = {
     TieOutVarianceType.SGST:         _MT.AMOUNT_MISMATCH,
     TieOutVarianceType.CESS:         _MT.AMOUNT_MISMATCH,
     TieOutVarianceType.TOTAL_TAX:    _MT.AMOUNT_MISMATCH,
+    TieOutVarianceType.ZERO_RATED:   _MT.AMOUNT_MISMATCH,
+    TieOutVarianceType.NIL_EXEMPT:   _MT.AMOUNT_MISMATCH,
+    TieOutVarianceType.NON_GST:      _MT.AMOUNT_MISMATCH,
+    TieOutVarianceType.RECLASSIFICATION: _MT.WRONG_CLASSIFICATION,
 }
 
 def _variance_type_to_mismatch_type(vt: TieOutVarianceType) -> _MT:
@@ -573,7 +931,13 @@ class TieOutResult:
     mismatches : list[MismatchResult]
         Decision-layer-compatible mismatch results.
     is_clean : bool
-        True if all fields match within tolerance.
+        True if all fields match within tolerance (or pure reclassification with 0 unexplained diff).
+    statutory_reconciliation : StatutoryTableReconciliation | None
+        Breakdown across Table 3.1(a), 3.1(b), 3.1(c), 3.1(e), and tax heads.
+    unexplained_difference_paise : int
+        Genuine unexplained financial variance in paise.
+    reclassification_difference_paise : int
+        Turnover reclassified across statutory tables in paise.
     """
     ret_period: str
     gstr1_aggregate: GSTR1Aggregate
@@ -582,9 +946,17 @@ class TieOutResult:
     variances: list[FieldVariance]
     mismatches: list[MismatchResult]
     is_clean: bool
+    statutory_reconciliation: StatutoryTableReconciliation | None = None
+    unexplained_difference_paise: int = 0
+    reclassification_difference_paise: int = 0
 
     def summary_dict(self) -> dict[str, Any]:
         """Flat summary for logging / API response."""
+        stat_dict = (
+            self.statutory_reconciliation.to_dict()
+            if self.statutory_reconciliation
+            else {}
+        )
         return {
             "ret_period": self.ret_period,
             "is_clean": self.is_clean,
@@ -592,6 +964,16 @@ class TieOutResult:
             "gstr1_record_count": self.gstr1_aggregate.record_count,
             "gstr1": self.gstr1_aggregate.to_dict(),
             "gstr3b": self.gstr3b_summary.to_dict(),
+            "unexplained_difference_paise": self.unexplained_difference_paise,
+            "unexplained_difference": round(self.unexplained_difference_paise / 100.0, 2),
+            "reclassification_difference_paise": self.reclassification_difference_paise,
+            "reclassification_difference": round(self.reclassification_difference_paise / 100.0, 2),
+            "taxable_outward": stat_dict.get("taxable_outward", {}),
+            "zero_rated": stat_dict.get("zero_rated", {}),
+            "nil_exempt": stat_dict.get("nil_exempt", {}),
+            "non_gst": stat_dict.get("non_gst", {}),
+            "tax": stat_dict.get("tax", {}),
+            "statutory_reconciliation": stat_dict,
             "gstr1_by_rate": {
                 str(rate): agg.to_dict()
                 for rate, agg in sorted(
@@ -670,7 +1052,11 @@ def reconcile_gstr1_vs_3b(
         Complete comparison result with aggregates, variances, and
         decision-layer-compatible mismatches.
     """
-    ret_period = str(parsed_gstr3b.get("ret_period", "?"))
+    ret_period = str(
+        parsed_gstr3b.ret_period
+        if isinstance(parsed_gstr3b, GSTR3BSummary) and hasattr(parsed_gstr3b, "ret_period")
+        else (parsed_gstr3b.get("ret_period", "?") if isinstance(parsed_gstr3b, Mapping) else "?")
+    )
     ff = (filing_frequency or "monthly").lower().strip()
 
     # QRMP tie-out timing gate: In non-quarter-end months (months other than 03, 06, 09, 12),
@@ -719,6 +1105,93 @@ def reconcile_gstr1_vs_3b(
     # Extract GSTR-3B summary
     gstr3b_summary = gstr3b_to_summary(parsed_gstr3b)
 
+    # Compute statutory reconciliation
+    taxable_diff = gstr1_agg.taxable_value_paise - gstr3b_summary.taxable_value_paise
+    zero_diff = gstr1_agg.zero_rated_taxable_paise - gstr3b_summary.zero_rated_taxable_paise
+    nil_diff = gstr1_agg.nil_exempt_taxable_paise - gstr3b_summary.nil_exempt_taxable_paise
+    nongst_diff = gstr1_agg.non_gst_taxable_paise - gstr3b_summary.non_gst_taxable_paise
+
+    total_gstr1_outward = (
+        gstr1_agg.taxable_value_paise
+        + gstr1_agg.zero_rated_taxable_paise
+        + gstr1_agg.nil_exempt_taxable_paise
+        + gstr1_agg.non_gst_taxable_paise
+    )
+    total_gstr3b_outward = (
+        gstr3b_summary.taxable_value_paise
+        + gstr3b_summary.zero_rated_taxable_paise
+        + gstr3b_summary.nil_exempt_taxable_paise
+        + gstr3b_summary.non_gst_taxable_paise
+    )
+    unexplained_diff = total_gstr1_outward - total_gstr3b_outward
+
+    if abs(unexplained_diff) <= tolerance_paise and (
+        abs(taxable_diff) > tolerance_paise
+        or abs(zero_diff) > tolerance_paise
+        or abs(nil_diff) > tolerance_paise
+        or abs(nongst_diff) > tolerance_paise
+    ):
+        reclassification_diff = (
+            abs(taxable_diff)
+            + abs(zero_diff)
+            + abs(nil_diff)
+            + abs(nongst_diff)
+        ) // 2
+    else:
+        reclassification_diff = 0
+
+    stat_recon = StatutoryTableReconciliation(
+        taxable_outward=CategoryReconciliation(
+            gstr1_value_paise=gstr1_agg.taxable_value_paise,
+            gstr3b_value_paise=gstr3b_summary.taxable_value_paise,
+            difference_paise=taxable_diff,
+        ),
+        zero_rated=CategoryReconciliation(
+            gstr1_value_paise=gstr1_agg.zero_rated_taxable_paise,
+            gstr3b_value_paise=gstr3b_summary.zero_rated_taxable_paise,
+            difference_paise=zero_diff,
+        ),
+        nil_exempt=CategoryReconciliation(
+            gstr1_value_paise=gstr1_agg.nil_exempt_taxable_paise,
+            gstr3b_value_paise=gstr3b_summary.nil_exempt_taxable_paise,
+            difference_paise=nil_diff,
+        ),
+        non_gst=CategoryReconciliation(
+            gstr1_value_paise=gstr1_agg.non_gst_taxable_paise,
+            gstr3b_value_paise=gstr3b_summary.non_gst_taxable_paise,
+            difference_paise=nongst_diff,
+        ),
+        tax={
+            "igst": CategoryReconciliation(
+                gstr1_value_paise=gstr1_agg.igst_paise,
+                gstr3b_value_paise=gstr3b_summary.igst_paise,
+                difference_paise=gstr1_agg.igst_paise - gstr3b_summary.igst_paise,
+            ),
+            "cgst": CategoryReconciliation(
+                gstr1_value_paise=gstr1_agg.cgst_paise,
+                gstr3b_value_paise=gstr3b_summary.cgst_paise,
+                difference_paise=gstr1_agg.cgst_paise - gstr3b_summary.cgst_paise,
+            ),
+            "sgst": CategoryReconciliation(
+                gstr1_value_paise=gstr1_agg.sgst_paise,
+                gstr3b_value_paise=gstr3b_summary.sgst_paise,
+                difference_paise=gstr1_agg.sgst_paise - gstr3b_summary.sgst_paise,
+            ),
+            "cess": CategoryReconciliation(
+                gstr1_value_paise=gstr1_agg.cess_paise,
+                gstr3b_value_paise=gstr3b_summary.cess_paise,
+                difference_paise=gstr1_agg.cess_paise - gstr3b_summary.cess_paise,
+            ),
+            "total": CategoryReconciliation(
+                gstr1_value_paise=gstr1_agg.total_tax_paise,
+                gstr3b_value_paise=gstr3b_summary.total_tax_paise,
+                difference_paise=gstr1_agg.total_tax_paise - gstr3b_summary.total_tax_paise,
+            ),
+        },
+        unexplained_difference_paise=unexplained_diff,
+        reclassification_difference_paise=reclassification_diff,
+    )
+
     # Compute variances
     variances = compute_variances(
         gstr1_agg, gstr3b_summary, tolerance_paise=tolerance_paise,
@@ -730,11 +1203,15 @@ def reconcile_gstr1_vs_3b(
         for v in variances
     ]
 
-    is_clean = len(variances) == 0
+    has_financial_variance = any(
+        v.variance_type != TieOutVarianceType.RECLASSIFICATION
+        for v in variances
+    )
+    is_clean = not has_financial_variance
 
     _log.info(
-        "gstr1_vs_3b: period=%s, gstr1_records=%d, variances=%d, clean=%s",
-        ret_period, gstr1_agg.record_count, len(variances), is_clean,
+        "gstr1_vs_3b: period=%s, gstr1_records=%d, variances=%d, clean=%s, unexplained_diff=%s",
+        ret_period, gstr1_agg.record_count, len(variances), is_clean, _rs(unexplained_diff),
     )
 
     return TieOutResult(
@@ -745,6 +1222,9 @@ def reconcile_gstr1_vs_3b(
         variances=variances,
         mismatches=mismatches,
         is_clean=is_clean,
+        statutory_reconciliation=stat_recon,
+        unexplained_difference_paise=unexplained_diff,
+        reclassification_difference_paise=reclassification_diff,
     )
 
 
@@ -755,6 +1235,8 @@ def reconcile_gstr1_vs_3b(
 __all__ = [
     "GSTR1Aggregate",
     "GSTR3BSummary",
+    "CategoryReconciliation",
+    "StatutoryTableReconciliation",
     "TieOutResult",
     "TieOutVarianceType",
     "FieldVariance",

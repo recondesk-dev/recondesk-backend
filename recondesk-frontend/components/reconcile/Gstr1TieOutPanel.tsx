@@ -127,14 +127,31 @@ export function Gstr1TieOutPanel({
   const g1 = tieOut.gstr1 || {};
   const g3 = tieOut.gstr3b || {};
 
-  const taxableDiff =
-    parseRupeeLabel(
-      variances.find((v) => v.field === "taxable_value")?.diff
-    ) ?? Math.abs((g1.taxable_value_paise || 0) - (g3.taxable_value_paise || 0)) / 100;
+  const unexplainedDiff =
+    typeof tieOut.unexplained_difference === "number"
+      ? tieOut.unexplained_difference
+      : typeof tieOut.unexplained_difference_paise === "number"
+        ? tieOut.unexplained_difference_paise / 100
+        : parseRupeeLabel(
+            variances.find((v) => v.field === "taxable_value")?.diff
+          ) ?? Math.abs((g1.taxable_value_paise || 0) - (g3.taxable_value_paise || 0)) / 100;
+
+  const reclassificationDiff =
+    typeof tieOut.reclassification_difference === "number"
+      ? tieOut.reclassification_difference
+      : typeof tieOut.reclassification_difference_paise === "number"
+        ? tieOut.reclassification_difference_paise / 100
+        : 0;
 
   const totalTaxDiff =
     parseRupeeLabel(variances.find((v) => v.field === "total_tax")?.diff) ??
     Math.abs((g1.total_tax_paise || 0) - (g3.total_tax_paise || 0)) / 100;
+
+  const stat = tieOut.statutory_reconciliation || {};
+  const taxableOutward = tieOut.taxable_outward || stat.taxable_outward;
+  const zeroRated = tieOut.zero_rated || stat.zero_rated;
+  const nilExempt = tieOut.nil_exempt || stat.nil_exempt;
+  const nonGst = tieOut.non_gst || stat.non_gst;
 
   return (
     <section className={sectionContainerClass} aria-label="GSTR-1 vs GSTR-3B tie-out">
@@ -157,7 +174,7 @@ export function Gstr1TieOutPanel({
         }
       />
       <p className="mt-1 text-[13px] text-gray-500">
-        Table 3.1(a) outward taxable supplies — period{" "}
+        Table 3.1 outward supplies & tax tie-out — period{" "}
         <span className="font-medium text-[var(--ink)]">
           {tieOut.ret_period || "—"}
         </span>
@@ -169,6 +186,17 @@ export function Gstr1TieOutPanel({
           </>
         ) : null}
       </p>
+
+      {reclassificationDiff > 0.01 ? (
+        <div className="mt-3 flex items-start gap-2.5 rounded-xl border border-blue-100 bg-blue-50/60 px-4 py-3 text-[12px] text-blue-900">
+          <div className="mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-blue-600" />
+          <div className="min-w-0">
+            <span className="font-semibold text-blue-950">Statutory Allocation Accounted For:</span>{" "}
+            {formatINR(reclassificationDiff)} belongs to nil-rated/exempt supplies reported in Table 8 / 3.1(c) rather than 3.1(a).
+            {unexplainedDiff < 0.01 ? " Genuine unexplained financial variance is ₹0 (Clean)." : ` Unexplained variance: ${formatINR(unexplainedDiff)}.`}
+          </div>
+        </div>
+      ) : null}
 
       <div className={statCardsGridClass}>
         <StatCard
@@ -183,17 +211,17 @@ export function Gstr1TieOutPanel({
           }
         />
         <StatCard
-          label="Taxable variance"
-          accent={taxableDiff > 0.01 ? "risk" : "neutral"}
-          emphasis={taxableDiff > 0.01 ? "danger" : "secondary"}
+          label="Unexplained variance"
+          accent={unexplainedDiff > 0.01 ? "risk" : "neutral"}
+          emphasis={unexplainedDiff > 0.01 ? "danger" : "secondary"}
           value={
             <CompactStatAmount
-              amount={taxableDiff}
-              emphasize={taxableDiff > 0.01}
-              className={taxableDiff > 0.01 ? "text-amber-800" : undefined}
+              amount={unexplainedDiff}
+              emphasize={unexplainedDiff > 0.01}
+              className={unexplainedDiff > 0.01 ? "text-amber-800" : undefined}
             />
           }
-          subtext="Absolute difference"
+          subtext="Net financial difference"
         />
         <StatCard
           label="Total tax variance"
@@ -213,14 +241,14 @@ export function Gstr1TieOutPanel({
       <div className="mt-5 overflow-x-auto rounded-xl border border-[#F0F0F0]">
         <table className="w-full table-fixed border-collapse text-left text-[13px]">
           <colgroup>
-            <col style={{ width: "22%" }} />
-            <col style={{ width: "26%" }} />
-            <col style={{ width: "26%" }} />
-            <col style={{ width: "26%" }} />
+            <col style={{ width: "28%" }} />
+            <col style={{ width: "24%" }} />
+            <col style={{ width: "24%" }} />
+            <col style={{ width: "24%" }} />
           </colgroup>
           <thead>
             <tr className="border-b border-[#F0F0F0] bg-[#FAFAFB] text-[11px] font-medium uppercase tracking-widest text-gray-400">
-              <th className="px-4 py-3">Head</th>
+              <th className="px-4 py-3">Statutory Supply Section</th>
               <th className="px-4 py-3 text-right">GSTR-1</th>
               <th className="px-4 py-3 text-right">GSTR-3B</th>
               <th className="px-4 py-3 text-right">Difference</th>
@@ -228,10 +256,31 @@ export function Gstr1TieOutPanel({
           </thead>
           <tbody>
             <AggregateCompare
-              label="Taxable value"
-              g1Paise={g1.taxable_value_paise || 0}
-              g3Paise={g3.taxable_value_paise || 0}
+              label="3.1(a) Taxable Outward"
+              g1Paise={taxableOutward?.gstr1_value_paise ?? g1.taxable_value_paise ?? 0}
+              g3Paise={taxableOutward?.gstr3b_value_paise ?? g3.taxable_value_paise ?? 0}
             />
+            {zeroRated && (zeroRated.gstr1_value_paise > 0 || zeroRated.gstr3b_value_paise > 0) ? (
+              <AggregateCompare
+                label="3.1(b) Zero-Rated (Exports/SEZ)"
+                g1Paise={zeroRated.gstr1_value_paise}
+                g3Paise={zeroRated.gstr3b_value_paise}
+              />
+            ) : null}
+            {nilExempt && (nilExempt.gstr1_value_paise > 0 || nilExempt.gstr3b_value_paise > 0) ? (
+              <AggregateCompare
+                label="3.1(c) Nil / Exempt / Table 8"
+                g1Paise={nilExempt.gstr1_value_paise}
+                g3Paise={nilExempt.gstr3b_value_paise}
+              />
+            ) : null}
+            {nonGst && (nonGst.gstr1_value_paise > 0 || nonGst.gstr3b_value_paise > 0) ? (
+              <AggregateCompare
+                label="3.1(e) Non-GST Outward"
+                g1Paise={nonGst.gstr1_value_paise}
+                g3Paise={nonGst.gstr3b_value_paise}
+              />
+            ) : null}
             <AggregateCompare
               label="IGST"
               g1Paise={g1.igst_paise || 0}

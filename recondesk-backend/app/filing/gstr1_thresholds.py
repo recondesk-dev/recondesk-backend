@@ -31,11 +31,9 @@ def b2cl_invoice_value_threshold_paise(filing_period: str) -> int:
     Periods before ``B2CL_CUTOVER_PERIOD`` use ₹2.5L; from that month onward
     use ₹1L. ``filing_period`` must be ``YYYY-MM`` (or longer ISO prefix).
     """
-    period = (filing_period or "").strip()[:7]
-    if len(period) != 7 or period[4] != "-":
-        raise ValueError(
-            f"filing_period must be YYYY-MM, got {filing_period!r}"
-        )
-    if period < B2CL_CUTOVER_PERIOD:
-        return B2CL_INVOICE_VALUE_BEFORE_PAISE
-    return B2CL_INVOICE_VALUE_FROM_PAISE
+    from app.rules.gstr1_rules import get_gstr1_rules
+    return get_gstr1_rules(filing_period).b2cl_threshold_paise
+
+
+from app.rules.gstr1_rules import GSTR1Rules, get_gstr1_rules  # noqa: E402
+

@@ -366,8 +366,14 @@ async def test_july_2025_benchmark_reconciliation():
 
     summary = res["summary"]
 
-    # 1. Matched count must be 10 (8 standard + 1 credit note + 1 B2CS aggregate)
-    assert summary["matched_count"] == 10
+    # 1. Invoice-level matches: 9 (8 standard + 1 credit note); accounted: 10 (incl 1 B2CS)
+    assert summary["invoice_level_match_count"] == 9
+    assert summary["matched_count"] == 9
+    assert summary["aggregate_source_invoice_count"] == 1
+    assert summary["accounted_source_invoice_count"] == 10
+    assert summary["unaccounted_source_invoice_count"] == 0
+    assert summary["coverage_percentage"] == 100.0
+    assert summary["b2cs_reconciliation_status"] == "MATCHED"
     assert summary["unmatched_sr_count"] == 0
     assert summary["unmatched_gstr1_count"] == 0
 
@@ -392,12 +398,10 @@ async def test_july_2025_benchmark_reconciliation():
     )
     assert cn_match["discrepancies"] == []
 
-    # 5. B2CS aggregate match exists
-    b2cs_match = next(
-        m for m in res["matched"]
-        if (m.get("sr_record") or {}).get("invoice_number") == "B2CS-AGGREGATE"
-    )
-    assert b2cs_match is not None
+    # 5. B2CS aggregate reconciliation is MATCHED
+    assert res["b2cs_reconciliation"]["status"] == "MATCHED"
+    assert res["b2cs_reconciliation"]["accounted_invoice_count"] == 1
+    assert len(res["b2cs_reconciliation"]["matches"]) == 1
 
 
 def test_missing_credit_note_explanation_text():

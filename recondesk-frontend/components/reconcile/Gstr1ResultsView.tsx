@@ -232,10 +232,21 @@ export function Gstr1ResultsView({
    * Rate/GSTIN/series/HSN (G1M5–G1M9) stay on their own rule pills.
    */
   const fieldMismatchCount = g1m3Count;
+  const invoiceLevelMatchCount =
+    summary.invoice_level_match_count ?? summary.matched_count;
+  const aggregateSourceCount = summary.aggregate_source_invoice_count ?? 0;
+  const accountedSourceCount =
+    summary.accounted_source_invoice_count ?? summary.matched_count;
+  const coverageRate =
+    typeof summary.coverage_percentage === "number"
+      ? summary.coverage_percentage
+      : summary.sr_total_records > 0
+        ? Math.round((accountedSourceCount / summary.sr_total_records) * 1000) / 10
+        : 100;
   const matchRate =
     summary.gstr1_total_records > 0
       ? Math.round(
-          (summary.matched_count / summary.gstr1_total_records) * 1000
+          (invoiceLevelMatchCount / summary.gstr1_total_records) * 1000
         ) / 10
       : 0;
 
@@ -320,6 +331,15 @@ export function Gstr1ResultsView({
                   No amendments vs prior GSTR-1
                 </span>
               )}
+              {summary.b2cs_reconciliation_status === "MATCHED" ? (
+                <span className="inline-flex rounded-full bg-green-50 px-2.5 py-0.5 text-[11px] font-medium text-green-700 ring-1 ring-green-200">
+                  B2CS aggregate matched ({aggregateSourceCount.toLocaleString("en-IN")} invoices)
+                </span>
+              ) : summary.b2cs_reconciliation_status === "MISMATCH" ? (
+                <span className="inline-flex rounded-full bg-amber-50 px-2.5 py-0.5 text-[11px] font-medium text-amber-800 ring-1 ring-amber-200">
+                  B2CS aggregate mismatch
+                </span>
+              ) : null}
               {gstr1aEligible.length > 0 ? (
                 <Link
                   href={gstr1aSummaryHref}
@@ -371,8 +391,12 @@ export function Gstr1ResultsView({
           <StatCard
             label="Matched"
             accent="matched"
-            value={summary.matched_count.toLocaleString("en-IN")}
-            subtext={`${matchRate}% of GSTR-1`}
+            value={invoiceLevelMatchCount.toLocaleString("en-IN")}
+            subtext={
+              aggregateSourceCount > 0
+                ? `${aggregateSourceCount.toLocaleString("en-IN")} B2CS aggregate-covered`
+                : `${matchRate}% of GSTR-1`
+            }
           />
           <StatCard
             label="Review Required"
@@ -429,15 +453,15 @@ export function Gstr1ResultsView({
             <div className="h-1.5 w-full overflow-hidden rounded-full bg-white">
               <div
                 className="h-1.5 max-w-full rounded-full bg-[var(--ink)] transition-all duration-150"
-                style={{ width: `${Math.min(100, Math.max(0, matchRate))}%` }}
+                style={{ width: `${Math.min(100, Math.max(0, coverageRate))}%` }}
               />
             </div>
           </div>
           <p className="shrink-0 whitespace-nowrap text-[11px] text-gray-400">
-            Match rate
+            Accounted: {accountedSourceCount.toLocaleString("en-IN")} / {summary.sr_total_records.toLocaleString("en-IN")} ({coverageRate}%)
           </p>
           <span className="inline-flex items-center rounded-full bg-[var(--ink)] px-2.5 py-0.5 text-[11px] font-medium text-white">
-            {matchRate}%
+            {coverageRate}%
           </span>
         </div>
       </div>
