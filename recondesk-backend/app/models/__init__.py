@@ -28,6 +28,14 @@ from app.models.gstr3b import (
     Gstr3bTable4Adjustment,
     Gstr3bTable4Summary,
 )
+from app.models.vendor_compliance import (
+    ITCWorkItem,
+    ITCWorkItemEvent,
+    SupplierComplianceByClient,
+    SupplierComplianceSummary,
+    SupplierFollowupAudit,
+    VendorFollowupLog,
+)
 
 __all__ = [
     "Base",
@@ -53,4 +61,11 @@ __all__ = [
     "Gstr3bReclaimEvent",
     "Gstr3bTable4Adjustment",
     "Gstr3bReconciliation",
+    "SupplierComplianceSummary",
+    "SupplierComplianceByClient",
+    "SupplierFollowupAudit",
+    "ITCWorkItem",
+    "ITCWorkItemEvent",
+    "VendorFollowupLog",
 ]
+
