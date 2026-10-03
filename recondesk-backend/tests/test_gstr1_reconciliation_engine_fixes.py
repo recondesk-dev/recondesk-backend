@@ -258,6 +258,152 @@ def test_b2cs_aggregate_mismatch_dimensional_variance():
     # Crucially, individual invoices are NOT created as missing rows
     assert res.source_invoice_count == 10
     assert res.accounted_invoice_count == 0
+    # Unaccounted count is the 10 actual source invoices, NOT 1 (the mismatched dimension count)
+    assert res.unaccounted_invoice_count == 10
+
+
+def test_b2cs_cess_not_added_to_gst_rate_and_explicit_rt_grouping():
+    """Verify B2CS GST rate is NEVER derived from total tax when cess is present.
+
+    Cess must remain a separate dimension/value and must not be added to CGST/SGST/IGST rate.
+    """
+    # 28% GST + 12% Cess (e.g. motor vehicles/tobacco)
+    # Total tax in books is ₹40,000 (28% GST = 28,000 + 12% Cess = 12,000) on ₹1,00,000 taxable.
+    # Total tax / taxable = 40.0%, but statutory GST rate is 28.0%!
+    sr_records = [
+        {
+            "invoice_number": f"B2C-CESS-{i}",
+            "place_of_supply": "27",
+            "rate": 28.0,  # Explicit GST rate (rt)
+            "supply_type": "INTRA",
+            "taxable_amount_paise": 10000000,  # ₹1,00,000
+            "cgst_paise": 1400000,             # ₹14,000
+            "sgst_paise": 1400000,             # ₹14,000
+            "cess_paise": 1200000,             # ₹12,000
+            "total_tax_paise": 4000000,        # ₹40,000
+        }
+        for i in range(5)
+    ]
+
+    # GSTR-1 Table 7 reports under explicit rate 28% with separate csamt
+    gstr1_records = [
+        {
+            "section": "b2cs",
+            "pos": "27",
+            "rt": 28.0,  # Explicit statutory GST rate
+            "sply_tp": "INTRA",
+            "txval": 500000.0,
+            "camt": 70000.0,
+            "samt": 70000.0,
+            "csamt": 60000.0,
+            "taxable_amount_paise": 50000000,
+            "cgst_paise": 7000000,
+            "sgst_paise": 7000000,
+            "cess_paise": 6000000,
+            "total_tax_paise": 20000000,
+        }
+    ]
+
+    res = reconcile_b2cs_aggregate(sr_records, gstr1_records, supplier_gstin="27ISKPK1273H1ZF")
+    assert res.status == "MATCHED"
+    assert res.matched_group_count == 1
+    assert len(res.groups) == 1
+    group = res.groups[0]
+    # Group dimension must strictly be 28.0%, NOT 40.0%!
+    assert group["dimension"]["rate"] == 28.0
+    # Cess must remain separate
+    assert group["sr_gst_tax_paise"] == 14000000  # 14,000 + 14,000 per invoice * 5 = 1,40,000
+    assert group["sr_cess_paise"] == 6000000      # 12,000 per invoice * 5 = 60,000
+    assert group["gstr1_gst_tax_paise"] == 14000000
+    assert group["gstr1_cess_paise"] == 6000000
+    assert group["cess_diff_paise"] == 0
+    assert group["gst_tax_diff_paise"] == 0
+
+    # If GSTR-1 cess is mismatched by ₹10,000 (csamt = 50,000 instead of 60,000):
+    gstr1_cess_mismatch = [dict(gstr1_records[0], cess_paise=5000000, csamt=50000.0)]
+    res_mismatch = reconcile_b2cs_aggregate(sr_records, gstr1_cess_mismatch, supplier_gstin="27ISKPK1273H1ZF")
+    assert res_mismatch.status == "MISMATCH"
+    assert len(res_mismatch.mismatches) == 1
+    m = res_mismatch.mismatches[0]
+    assert m.details["cess_diff"] == 1000000  # ₹10,000 cess difference flagged separately
+    assert m.details["gst_tax_diff"] == 0    # GST tax itself is exactly matched
+
+
+def test_unaccounted_source_invoice_count_counts_actual_source_invoices_not_dimensions():
+    """Verify unaccounted_source_invoice_count counts actual source invoices, not mismatched aggregate dimensions."""
+    # Group 1: POS 27, 18% -> 15 source invoices
+    sr_group1 = [
+        {
+            "invoice_number": f"INV-G1-{i}",
+            "place_of_supply": "27",
+            "rate": 18.0,
+            "supply_type": "INTRA",
+            "taxable_amount_paise": 1000000,
+            "cgst_paise": 90000,
+            "sgst_paise": 90000,
+            "total_tax_paise": 180000,
+        }
+        for i in range(15)
+    ]
+    # Group 2: POS 24, 18% -> 25 source invoices
+    sr_group2 = [
+        {
+            "invoice_number": f"INV-G2-{i}",
+            "place_of_supply": "24",
+            "rate": 18.0,
+            "supply_type": "INTER",
+            "taxable_amount_paise": 1000000,
+            "igst_paise": 180000,
+            "total_tax_paise": 180000,
+        }
+        for i in range(25)
+    ]
+    sr_all = sr_group1 + sr_group2  # Total 40 source invoices
+
+    # GSTR-1:
+    # Group 1 matches exactly (15 * 10,000 = 1,50,000)
+    # Group 2 has variance (taxable diff) -> MISMATCH
+    # Group 3 is an extra dimension in GSTR-1 with 0 source invoices in books -> MISMATCH
+    gstr1_records = [
+        {
+            "section": "b2cs",
+            "pos": "27",
+            "rate": 18.0,
+            "supply_type": "INTRA",
+            "taxable_amount_paise": 15000000,
+            "cgst_paise": 1350000,
+            "sgst_paise": 1350000,
+            "total_tax_paise": 2700000,
+        },
+        {
+            "section": "b2cs",
+            "pos": "24",
+            "rate": 18.0,
+            "supply_type": "INTER",
+            "taxable_amount_paise": 20000000,  # Diff of ₹50,000 vs 25,000,000 in books
+            "igst_paise": 3600000,
+            "total_tax_paise": 3600000,
+        },
+        {
+            "section": "b2cs",
+            "pos": "29",
+            "rate": 18.0,
+            "supply_type": "INTER",
+            "taxable_amount_paise": 3000000,  # Extra in GSTR-1, 0 SR invoices
+            "igst_paise": 540000,
+            "total_tax_paise": 540000,
+        },
+    ]
+
+    res = reconcile_b2cs_aggregate(sr_all, gstr1_records, supplier_gstin="27ISKPK1273H1ZF")
+    assert res.status == "MISMATCH"
+    assert res.source_invoice_count == 40
+    # Group 1 matched: 15 actual source invoices accounted for
+    assert res.accounted_invoice_count == 15
+    # Group 2 mismatched: exactly 25 actual source invoices unaccounted for
+    # CRITICAL: It must be 25 (the source invoices), NOT 2 (the number of mismatched dimensions)!
+    assert res.unaccounted_invoice_count == 25
+    assert res.accounted_invoice_count + res.unaccounted_invoice_count == 40
 
 
 # ══════════════════════════════════════════════════════════════════════════════
