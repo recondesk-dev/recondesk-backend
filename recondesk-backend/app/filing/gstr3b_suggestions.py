@@ -115,6 +115,23 @@ def _latest_gstr1_run(sb, *, client_gstin_id: str, period: str) -> dict[str, Any
     want = normalize_period_yyyy_mm(period)
     if not want:
         return None
+
+    # ── Aurora Primary ────────────────────────────────────────────────────────
+    try:
+        from app.repositories.return_reconciliation import get_return_reconciliation_repository
+        repo = get_return_reconciliation_repository()
+        runs = repo.list_gstr1_runs(client_gstin_id=client_gstin_id, limit=50)
+        for r in runs:
+            if normalize_period_yyyy_mm(r.get("period")) == want:
+                matching = repo.get_gstr1_run(run_id=r["id"], include_payload=True)
+                if matching:
+                    return matching
+    except Exception as exc:
+        _log.warning("Aurora query failed for gstr1_reconciliation_run in gstr3b_suggestions: %s", exc)
+
+    if sb is None:
+        return None
+
     try:
         res = (
             sb.table("gstr1_reconciliation_run")

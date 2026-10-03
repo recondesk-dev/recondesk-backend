@@ -270,15 +270,25 @@ async def list_multi_period_batches(
     cid = client_id.strip()
     _assert_client(sb, cid, user_id)
 
-    res = (
-        sb.table("multi_period_recon_batches")
-        .select("*")
-        .eq("client_gstin_id", cid)
-        .order("created_at", desc=True)
-        .execute()
-    )
+    # ── Aurora Primary ────────────────────────────────────────────────────────
+    batches = None
+    try:
+        from app.repositories.return_reconciliation import get_return_reconciliation_repository
+        repo = get_return_reconciliation_repository()
+        batches = repo.list_batches(client_gstin_id=cid)
+    except Exception as exc:
+        logger.warning("Aurora list_batches failed, falling back to Supabase: %s", exc)
 
-    batches = res.data or []
+    if batches is None:
+        res = (
+            sb.table("multi_period_recon_batches")
+            .select("*")
+            .eq("client_gstin_id", cid)
+            .order("created_at", desc=True)
+            .execute()
+        )
+        batches = res.data or []
+
     return {"batches": batches}
 
 

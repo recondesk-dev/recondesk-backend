@@ -382,7 +382,7 @@ async def run_gstr2a_delta(
     )
     now_iso = datetime.now(timezone.utc).isoformat()
 
-    # 5. Persist results in Supabase
+    # 5. Persist results in Aurora (Primary) with Supabase Fallback
     save_payload = {
         "client_gstin_id": body.client_gstin_id,
         "period": body.period,
@@ -392,13 +392,30 @@ async def run_gstr2a_delta(
         "results": results,
         "updated_at": now_iso,
     }
+    saved_to_aurora = False
     try:
-        sb.table("gstr2a_delta_results").upsert(
-            save_payload,
-            on_conflict="client_gstin_id,period",
-        ).execute()
+        from app.repositories.return_reconciliation import get_return_reconciliation_repository
+        repo = get_return_reconciliation_repository()
+        repo.save_gstr2a_delta(
+            client_gstin_id=body.client_gstin_id,
+            period=body.period,
+            summary=summary,
+            results=results,
+            reconciled_at=now_iso,
+            cutoff_date=cutoff_date_str,
+        )
+        saved_to_aurora = True
     except Exception as exc:
-        logger.exception("Failed to save gstr2a_delta_results to database: %s", exc)
+        logger.warning("Aurora save_gstr2a_delta failed, falling back to Supabase: %s", exc)
+
+    if not saved_to_aurora:
+        try:
+            sb.table("gstr2a_delta_results").upsert(
+                save_payload,
+                on_conflict="client_gstin_id,period",
+            ).execute()
+        except Exception as exc:
+            logger.exception("Failed to save gstr2a_delta_results to database: %s", exc)
 
     return {
         "client_gstin_id": body.client_gstin_id,
@@ -424,28 +441,39 @@ async def get_gstr2a_delta_results(
     sb = get_supabase()
     _assert_client_access(sb, current_user, client_gstin_id)
 
-    # Query saved delta results
-    year, month = _split_period_year_month(period)
-    p_iso = f"{year}-{month}"
-    p_mmyyyy = f"{month}{year}"
-    periods_to_check = list({period, p_iso, p_mmyyyy})
+    # ── Aurora Primary ────────────────────────────────────────────────────────
+    row = None
+    try:
+        from app.repositories.return_reconciliation import get_return_reconciliation_repository
+        repo = get_return_reconciliation_repository()
+        row = repo.get_gstr2a_delta(client_gstin_id=client_gstin_id, period=period)
+    except Exception as exc:
+        logger.warning("Aurora get_gstr2a_delta failed, falling back to Supabase: %s", exc)
 
-    res = (
-        sb.table("gstr2a_delta_results")
-        .select("*")
-        .eq("client_gstin_id", client_gstin_id)
-        .in_("period", periods_to_check)
-        .limit(1)
-        .execute()
-    )
+    if not row:
+        # Query saved delta results from Supabase fallback
+        year, month = _split_period_year_month(period)
+        p_iso = f"{year}-{month}"
+        p_mmyyyy = f"{month}{year}"
+        periods_to_check = list({period, p_iso, p_mmyyyy})
 
-    if not res.data:
+        res = (
+            sb.table("gstr2a_delta_results")
+            .select("*")
+            .eq("client_gstin_id", client_gstin_id)
+            .in_("period", periods_to_check)
+            .limit(1)
+            .execute()
+        )
+        if res.data:
+            row = res.data[0]
+
+    if not row:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"No GSTR-2A delta results found for client {client_gstin_id} and period {period}",
         )
 
-    row = res.data[0]
     all_results: list[dict[str, Any]] = row.get("results") or []
 
     # Category filter
@@ -492,27 +520,38 @@ async def get_gstr2a_delta_summary(
     sb = get_supabase()
     _assert_client_access(sb, current_user, client_gstin_id)
 
-    year, month = _split_period_year_month(period)
-    p_iso = f"{year}-{month}"
-    p_mmyyyy = f"{month}{year}"
-    periods_to_check = list({period, p_iso, p_mmyyyy})
+    # ── Aurora Primary ────────────────────────────────────────────────────────
+    row = None
+    try:
+        from app.repositories.return_reconciliation import get_return_reconciliation_repository
+        repo = get_return_reconciliation_repository()
+        row = repo.get_gstr2a_delta(client_gstin_id=client_gstin_id, period=period)
+    except Exception as exc:
+        logger.warning("Aurora get_gstr2a_delta_summary failed, falling back to Supabase: %s", exc)
 
-    res = (
-        sb.table("gstr2a_delta_results")
-        .select("id, client_gstin_id, period, cutoff_date, reconciled_at, summary")
-        .eq("client_gstin_id", client_gstin_id)
-        .in_("period", periods_to_check)
-        .limit(1)
-        .execute()
-    )
+    if not row:
+        year, month = _split_period_year_month(period)
+        p_iso = f"{year}-{month}"
+        p_mmyyyy = f"{month}{year}"
+        periods_to_check = list({period, p_iso, p_mmyyyy})
 
-    if not res.data:
+        res = (
+            sb.table("gstr2a_delta_results")
+            .select("id, client_gstin_id, period, cutoff_date, reconciled_at, summary")
+            .eq("client_gstin_id", client_gstin_id)
+            .in_("period", periods_to_check)
+            .limit(1)
+            .execute()
+        )
+        if res.data:
+            row = res.data[0]
+
+    if not row:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"No GSTR-2A delta summary found for client {client_gstin_id} and period {period}",
         )
 
-    row = res.data[0]
     return {
         "client_gstin_id": client_gstin_id,
         "period": row.get("period"),

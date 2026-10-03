@@ -64,8 +64,21 @@ def _ensure_table_exists(conn: Any) -> None:
     conn.commit()
 
 
-def load_gstr9_overrides(sb: Client, client_gstin_id: str, fy: str) -> dict[str, float]:
+def load_gstr9_overrides(sb: Client | None, client_gstin_id: str, fy: str) -> dict[str, float]:
     """Load existing CA audit overrides for a client and FY as key-value pairs."""
+    # ── Aurora Primary ────────────────────────────────────────────────────────
+    try:
+        from app.repositories.return_reconciliation import get_return_reconciliation_repository
+        repo = get_return_reconciliation_repository()
+        overrides = repo.load_gstr9_overrides(client_gstin_id=client_gstin_id, financial_year=fy)
+        if overrides:
+            return overrides
+    except Exception as exc:
+        logger.warning("Aurora load_gstr9_overrides failed, falling back to Supabase: %s", exc)
+
+    if sb is None:
+        return {}
+
     try:
         res = (
             sb.table("gstr9_audit_overrides")

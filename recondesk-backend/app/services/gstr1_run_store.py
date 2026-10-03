@@ -62,7 +62,7 @@ def _normalise_filed_date(raw: date | datetime | str | None) -> str | None:
 
 
 def save_gstr1_run(
-    sb: Client,
+    sb: Client | None = None,
     *,
     client_gstin_id: str,
     result: dict[str, Any],
@@ -90,6 +90,38 @@ def save_gstr1_run(
         or result.get("gstr3b_filed_date")
     )
     now = datetime.now(timezone.utc).isoformat()
+
+    # ── Aurora Primary ────────────────────────────────────────────────────────
+    try:
+        from app.repositories.return_reconciliation import get_return_reconciliation_repository
+        repo = get_return_reconciliation_repository()
+        data = repo.create_gstr1_run(
+            client_gstin_id=client_gstin_id,
+            status=STATUS_COMPLETED,
+            result_payload=result,
+            run_summary=summary,
+            period=period_norm,
+            gstr1_filed_date=g1_filed,
+            gstr3b_filed_date=g3_filed,
+            created_by=created_by,
+            created_at=now,
+            completed_at=now,
+        )
+        if data and data.get("id"):
+            _log.info(
+                "save_gstr1_run (Aurora): id=%s client=%s period=%s",
+                data["id"],
+                client_gstin_id,
+                period_norm,
+            )
+            return data
+    except Exception as exc:
+        _log.warning("Aurora save_gstr1_run failed, falling back to Supabase: %s", exc)
+
+    if sb is None:
+        from app.database import get_supabase
+        sb = get_supabase()
+
     row = {
         "client_gstin_id": str(client_gstin_id).strip(),
         "period": period_norm,
@@ -107,7 +139,7 @@ def save_gstr1_run(
     if not data or not data.get("id"):
         raise RuntimeError("gstr1_reconciliation_run insert returned no id")
     _log.info(
-        "save_gstr1_run: id=%s client=%s period=%s g1_filed=%s g3_filed=%s",
+        "save_gstr1_run (Supabase fallback): id=%s client=%s period=%s g1_filed=%s g3_filed=%s",
         data["id"],
         client_gstin_id,
         period_norm,
@@ -118,13 +150,32 @@ def save_gstr1_run(
 
 
 def list_gstr1_runs(
-    sb: Client,
+    sb: Client | None = None,
     *,
     client_gstin_id: str,
     limit: int = 20,
     status: str | None = None,
 ) -> list[dict[str, Any]]:
     """List runs for a client (newest first). Omits heavy result_payload."""
+    # ── Aurora Primary ────────────────────────────────────────────────────────
+    try:
+        from app.repositories.return_reconciliation import get_return_reconciliation_repository
+        repo = get_return_reconciliation_repository()
+        aurora_runs = repo.list_gstr1_runs(
+            client_gstin_id=client_gstin_id,
+            limit=limit,
+            status=status,
+            include_payload=False,
+        )
+        if aurora_runs:
+            return aurora_runs
+    except Exception as exc:
+        _log.warning("Aurora list_gstr1_runs failed, falling back to Supabase: %s", exc)
+
+    if sb is None:
+        from app.database import get_supabase
+        sb = get_supabase()
+
     q = (
         sb.table(TABLE)
         .select(_RUN_LIST_COLS)
@@ -138,8 +189,22 @@ def list_gstr1_runs(
     return list(res.data or [])
 
 
-def get_gstr1_run(sb: Client, run_id: str) -> dict[str, Any] | None:
+def get_gstr1_run(sb: Client | None, run_id: str) -> dict[str, Any] | None:
     """Fetch a single run including ``result_payload``."""
+    # ── Aurora Primary ────────────────────────────────────────────────────────
+    try:
+        from app.repositories.return_reconciliation import get_return_reconciliation_repository
+        repo = get_return_reconciliation_repository()
+        aurora_run = repo.get_gstr1_run(run_id=run_id, include_payload=True)
+        if aurora_run is not None:
+            return aurora_run
+    except Exception as exc:
+        _log.warning("Aurora get_gstr1_run failed, falling back to Supabase: %s", exc)
+
+    if sb is None:
+        from app.database import get_supabase
+        sb = get_supabase()
+
     res = (
         sb.table(TABLE)
         .select(_RUN_DETAIL_COLS)
@@ -152,7 +217,7 @@ def get_gstr1_run(sb: Client, run_id: str) -> dict[str, Any] | None:
 
 
 def latest_completed_gstr1_run(
-    sb: Client, *, client_gstin_id: str
+    sb: Client | None, *, client_gstin_id: str
 ) -> dict[str, Any] | None:
     """Newest COMPLETED run for banner / deep-link (no payload)."""
     rows = list_gstr1_runs(

@@ -30,8 +30,110 @@ from app.services.gstr9c_itc_fy_rollup import assemble_fy_rollup, parse_fy_label
 from app.services.r2_service import upload_file_to_r2
 from app.worker.reconciliation_task import execute_reconciliation
 from app.worker.tasks import run_import_job
+from app.repositories.return_reconciliation import AuroraReturnReconciliationRepository
 
 logger = logging.getLogger(__name__)
+
+_return_recon_repo = AuroraReturnReconciliationRepository()
+
+
+def _db_insert_batch(sb: Optional[Client], batch_row: dict[str, Any]) -> None:
+    try:
+        _return_recon_repo.create_batch(
+            client_gstin_id=batch_row["client_gstin_id"],
+            financial_year=batch_row["financial_year"],
+            status=batch_row.get("status", "pending"),
+            created_by=batch_row.get("created_by"),
+            batch_id=batch_row.get("id"),
+        )
+        return
+    except Exception as exc:
+        logger.warning("Aurora create_batch failed, falling back to Supabase: %s", exc)
+        if sb:
+            sb.table("multi_period_recon_batches").insert(batch_row).execute()
+        else:
+            raise
+
+
+def _db_insert_batch_items(sb: Optional[Client], batch_id: str, items: list[dict[str, Any]]) -> None:
+    try:
+        _return_recon_repo.create_batch_items(batch_id=batch_id, items=items)
+        return
+    except Exception as exc:
+        logger.warning("Aurora create_batch_items failed, falling back to Supabase: %s", exc)
+        if sb:
+            sb.table("multi_period_recon_batch_items").insert(items).execute()
+        else:
+            raise
+
+
+def _db_get_batch(sb: Optional[Client], batch_id: str) -> Optional[dict[str, Any]]:
+    try:
+        batch = _return_recon_repo.get_batch(batch_id)
+        if batch:
+            return batch
+    except Exception as exc:
+        logger.warning("Aurora get_batch failed, falling back to Supabase: %s", exc)
+    if sb:
+        res = sb.table("multi_period_recon_batches").select("*").eq("id", batch_id).limit(1).execute()
+        return res.data[0] if res.data else None
+    return None
+
+
+def _db_get_batch_items(sb: Optional[Client], batch_id: str) -> list[dict[str, Any]]:
+    try:
+        items = _return_recon_repo.list_batch_items(batch_id)
+        if items:
+            return items
+    except Exception as exc:
+        logger.warning("Aurora list_batch_items failed, falling back to Supabase: %s", exc)
+    if sb:
+        res = (
+            sb.table("multi_period_recon_batch_items")
+            .select("*")
+            .eq("batch_id", batch_id)
+            .order("period", desc=False)
+            .execute()
+        )
+        return res.data or []
+    return []
+
+
+def _db_update_batch(sb: Optional[Client], batch_id: str, updates: dict[str, Any]) -> None:
+    updated = False
+    try:
+        res = _return_recon_repo.update_batch(batch_id, updates)
+        if res:
+            updated = True
+    except Exception as exc:
+        logger.warning("Aurora update_batch failed, falling back to Supabase: %s", exc)
+    if not updated and sb:
+        sb.table("multi_period_recon_batches").update(updates).eq("id", batch_id).execute()
+
+
+def _db_update_batch_item(sb: Optional[Client], item_id: str, updates: dict[str, Any]) -> None:
+    updated = False
+    try:
+        res = _return_recon_repo.update_batch_item(item_id, updates)
+        if res:
+            updated = True
+    except Exception as exc:
+        logger.warning("Aurora update_batch_item failed, falling back to Supabase: %s", exc)
+    if not updated and sb:
+        sb.table("multi_period_recon_batch_items").update(updates).eq("id", item_id).execute()
+
+
+def _db_update_batch_item_by_period(sb: Optional[Client], batch_id: str, period: str, updates: dict[str, Any]) -> None:
+    updated = False
+    try:
+        res = _return_recon_repo.update_batch_item_by_period(batch_id, period, updates)
+        if res:
+            updated = True
+    except Exception as exc:
+        logger.warning("Aurora update_batch_item_by_period failed, falling back to Supabase: %s", exc)
+    if not updated and sb:
+        sb.table("multi_period_recon_batch_items").update(updates).eq("batch_id", batch_id).eq("period", period).execute()
+
 
 
 def is_gstr1_due_in_period(period: str, filing_frequency: str) -> bool:
@@ -104,7 +206,7 @@ def create_batch(
         "updated_at": now,
     }
 
-    sb.table("multi_period_recon_batches").insert(batch_row).execute()
+    _db_insert_batch(sb, batch_row)
 
     items_to_insert = []
     for period in periods:
@@ -133,7 +235,7 @@ def create_batch(
             "updated_at": now,
         })
 
-    sb.table("multi_period_recon_batch_items").insert(items_to_insert).execute()
+    _db_insert_batch_items(sb, batch_id, items_to_insert)
 
     return get_batch_with_items(sb, batch_id)
 
@@ -184,17 +286,10 @@ def check_pr_availability(sb: Client, client_id: str, period: str) -> dict[str, 
 
 def get_batch_with_items(sb: Client, batch_id: str) -> dict[str, Any]:
     """Fetch batch details and all 12 items sorted by period."""
-    batch_res = (
-        sb.table("multi_period_recon_batches")
-        .select("*")
-        .eq("id", batch_id)
-        .limit(1)
-        .execute()
-    )
-    if not batch_res.data:
+    batch = _db_get_batch(sb, batch_id)
+    if not batch:
         raise ValueError(f"Batch {batch_id} not found")
 
-    batch = batch_res.data[0]
     client_id = batch.get("client_gstin_id")
     filing_freq = "monthly"
     if client_id:
@@ -205,14 +300,7 @@ def get_batch_with_items(sb: Client, batch_id: str) -> dict[str, Any]:
         except Exception:
             pass
 
-    items_res = (
-        sb.table("multi_period_recon_batch_items")
-        .select("*")
-        .eq("batch_id", batch_id)
-        .order("period", desc=False)
-        .execute()
-    )
-    raw_items = items_res.data or []
+    raw_items = _db_get_batch_items(sb, batch_id)
     enriched_items = []
     for item in raw_items:
         p = str(item.get("period") or "")
@@ -245,10 +333,10 @@ def fetch_gstr2b_for_batch(batch_id: str, user_id: str | None = None) -> None:
     client_id = batch["client_gstin_id"]
     filing_freq = str(batch.get("filing_frequency") or "monthly").lower().strip()
 
-    sb.table("multi_period_recon_batches").update({
+    _db_update_batch(sb, batch_id, {
         "status": "fetching",
         "updated_at": datetime.now(timezone.utc).isoformat(),
-    }).eq("id", batch_id).execute()
+    })
 
     client_row = _load_client_gstin(sb, client_id)
     access_token = client_row.get("gstn_access_token")
@@ -279,24 +367,24 @@ def fetch_gstr2b_for_batch(batch_id: str, user_id: str | None = None) -> None:
 
         if not has_token or not access_token or not gstin:
             if is_qrmp and not is_q_end:
-                sb.table("multi_period_recon_batch_items").update({
+                _db_update_batch_item(sb, item_id, {
                     "status": "not_available",
                     "error_message": "GSTR-2B not generated by GSTN for QRMP months 1-2 (combined quarterly statement in month 3)",
                     "updated_at": datetime.now(timezone.utc).isoformat(),
-                }).eq("id", item_id).execute()
+                })
             else:
-                sb.table("multi_period_recon_batch_items").update({
+                _db_update_batch_item(sb, item_id, {
                     "status": "failed",
                     "error_message": "GSTN not connected or OTP session expired for this client",
                     "updated_at": datetime.now(timezone.utc).isoformat(),
-                }).eq("id", item_id).execute()
+                })
                 failed_count += 1
             continue
 
-        sb.table("multi_period_recon_batch_items").update({
+        _db_update_batch_item(sb, item_id, {
             "status": "fetching",
             "updated_at": datetime.now(timezone.utc).isoformat(),
-        }).eq("id", item_id).execute()
+        })
 
         try:
             raw_data = get_gstr2b(access_token, gstin, year, month)
@@ -312,13 +400,13 @@ def fetch_gstr2b_for_batch(batch_id: str, user_id: str | None = None) -> None:
             r2_key = f"multi-period/{client_id}/{batch_id}/gstr2b_{period}.json"
             upload_file_to_r2(payload_bytes, r2_key, content_type="application/json")
 
-            sb.table("multi_period_recon_batch_items").update({
+            _db_update_batch_item(sb, item_id, {
                 "gstr2b_source": "auto_fetch",
                 "gstr2b_file_path": r2_key,
                 "status": "uploaded",
                 "error_message": None,
                 "updated_at": datetime.now(timezone.utc).isoformat(),
-            }).eq("id", item_id).execute()
+            })
             completed_count += 1
 
         except (SandboxGstnError, ValueError, Exception) as exc:
@@ -327,28 +415,28 @@ def fetch_gstr2b_for_batch(batch_id: str, user_id: str | None = None) -> None:
             )
             err_msg = exc.message if hasattr(exc, "message") else str(exc)
             if is_qrmp and not is_q_end:
-                sb.table("multi_period_recon_batch_items").update({
+                _db_update_batch_item(sb, item_id, {
                     "gstr2b_source": "not_available",
                     "status": "not_available",
                     "error_message": "GSTR-2B not generated by GSTN for QRMP months 1-2 (combined quarterly statement in month 3)",
                     "updated_at": datetime.now(timezone.utc).isoformat(),
-                }).eq("id", item_id).execute()
+                })
             else:
-                sb.table("multi_period_recon_batch_items").update({
+                _db_update_batch_item(sb, item_id, {
                     "status": "failed",
                     "error_message": err_msg[:500],
                     "updated_at": datetime.now(timezone.utc).isoformat(),
-                }).eq("id", item_id).execute()
+                })
                 failed_count += 1
 
     final_status = (
         "queued" if failed_count == 0
         else ("partially_failed" if completed_count > 0 else "failed")
     )
-    sb.table("multi_period_recon_batches").update({
+    _db_update_batch(sb, batch_id, {
         "status": final_status,
         "updated_at": datetime.now(timezone.utc).isoformat(),
-    }).eq("id", batch_id).execute()
+    })
 
 
 def attach_manual_pr(
@@ -368,17 +456,11 @@ def attach_manual_pr(
     r2_key = f"multi-period/{client_id}/{batch_id}/manual_pr_{period}.{ext}"
     upload_file_to_r2(file_bytes, r2_key)
 
-    res = (
-        sb.table("multi_period_recon_batch_items")
-        .update({
-            "pr_source": "manual_upload",
-            "pr_file_path": r2_key,
-            "updated_at": datetime.now(timezone.utc).isoformat(),
-        })
-        .eq("batch_id", batch_id)
-        .eq("period", period)
-        .execute()
-    )
+    _db_update_batch_item_by_period(sb, batch_id, period, {
+        "pr_source": "manual_upload",
+        "pr_file_path": r2_key,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    })
 
     return get_batch_with_items(sb, batch_id)
 
@@ -392,10 +474,10 @@ def run_batch(batch_id: str, user_id: str | None = None) -> None:
     batch = get_batch_with_items(sb, batch_id)
     client_id = batch["client_gstin_id"]
 
-    sb.table("multi_period_recon_batches").update({
+    _db_update_batch(sb, batch_id, {
         "status": "running",
         "updated_at": datetime.now(timezone.utc).isoformat(),
-    }).eq("id", batch_id).execute()
+    })
 
     items = batch["items"]
     # Sort items chronologically by period
@@ -411,18 +493,18 @@ def run_batch(batch_id: str, user_id: str | None = None) -> None:
         pr_key = item.get("pr_file_path")
 
         if not gstr2b_key or not pr_key or item.get("pr_source") == "missing":
-            sb.table("multi_period_recon_batch_items").update({
+            _db_update_batch_item(sb, item_id, {
                 "status": "failed",
                 "error_message": "Missing GSTR-2B or Purchase Register file",
                 "updated_at": datetime.now(timezone.utc).isoformat(),
-            }).eq("id", item_id).execute()
+            })
             failed_count += 1
             continue
 
-        sb.table("multi_period_recon_batch_items").update({
+        _db_update_batch_item(sb, item_id, {
             "status": "running",
             "updated_at": datetime.now(timezone.utc).isoformat(),
-        }).eq("id", item_id).execute()
+        })
 
         run_id = item.get("reconciliation_run_id") or str(uuid4())
         now = datetime.now(timezone.utc).isoformat()
@@ -460,32 +542,32 @@ def run_batch(batch_id: str, user_id: str | None = None) -> None:
             run_import_job.apply(args=[run_id, "purchase_register", pr_key])
             execute_reconciliation.apply(args=[run_id])
 
-            sb.table("multi_period_recon_batch_items").update({
+            _db_update_batch_item(sb, item_id, {
                 "reconciliation_run_id": run_id,
                 "status": "completed",
                 "error_message": None,
                 "updated_at": datetime.now(timezone.utc).isoformat(),
-            }).eq("id", item_id).execute()
+            })
             completed_count += 1
 
         except Exception as exc:
             logger.exception("Batch reconciliation failed for period %s: %s", period, exc)
-            sb.table("multi_period_recon_batch_items").update({
+            _db_update_batch_item(sb, item_id, {
                 "reconciliation_run_id": run_id,
                 "status": "failed",
                 "error_message": str(exc)[:500],
                 "updated_at": datetime.now(timezone.utc).isoformat(),
-            }).eq("id", item_id).execute()
+            })
             failed_count += 1
 
     final_status = (
         "completed" if failed_count == 0
         else ("partially_failed" if completed_count > 0 else "failed")
     )
-    sb.table("multi_period_recon_batches").update({
+    _db_update_batch(sb, batch_id, {
         "status": final_status,
         "updated_at": datetime.now(timezone.utc).isoformat(),
-    }).eq("id", batch_id).execute()
+    })
 
 
 def get_batch_summary(sb: Client, batch_id: str) -> dict[str, Any]:

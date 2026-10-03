@@ -14,6 +14,11 @@ from app.repositories.vendor_compliance import (
     get_vendor_compliance_repository,
     set_vendor_compliance_repository,
 )
+from app.repositories.return_reconciliation import (
+    AuroraReturnReconciliationRepository,
+    get_return_reconciliation_repository,
+    set_return_reconciliation_repository,
+)
 
 __all__ = [
     "AuroraComplianceRepository",
@@ -24,4 +29,7 @@ __all__ = [
     "AuroraVendorComplianceRepository",
     "get_vendor_compliance_repository",
     "set_vendor_compliance_repository",
+    "AuroraReturnReconciliationRepository",
+    "get_return_reconciliation_repository",
+    "set_return_reconciliation_repository",
 ]
