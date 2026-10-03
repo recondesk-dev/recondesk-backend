@@ -245,8 +245,16 @@ class Batch2CVendorComplianceBackfillOrchestrator:
             db_target = self._sqlite_path or "sqlite:///:memory:"
             if not db_target.startswith("sqlite:"):
                 db_target = f"sqlite:///{db_target}"
-            _log.warning("AURORA_DATABASE_URL not configured; using local engine: %s", db_target)
-            engine = sa.create_engine(db_target, echo=False)
+            if db_target == "sqlite:///:memory:":
+                from sqlalchemy.pool import StaticPool
+                engine = sa.create_engine(
+                    db_target,
+                    echo=False,
+                    poolclass=StaticPool,
+                    connect_args={"check_same_thread": False},
+                )
+            else:
+                engine = sa.create_engine(db_target, echo=False)
             Base.metadata.create_all(engine)
             self._engine = engine
             return engine
@@ -743,6 +751,7 @@ class Batch2CVendorComplianceBackfillOrchestrator:
                 session.commit()
                 summary.commit_status = "COMMITTED"
                 _log.info("REAL migration committed successfully.")
+                print("\nCOMMIT: SUCCESS\n")
             else:
                 session.rollback()
                 summary.commit_status = "ROLLED_BACK"
@@ -772,6 +781,19 @@ class Batch2CVendorComplianceBackfillOrchestrator:
             else:
                 total_verified = sum(residual_counts.values())
                 if total_verified == summary.total_supabase_rows:
+                    # Re-verify sample primary keys on fresh connection
+                    for r in source_data["supplier_compliance_summary"][:10]:
+                        obj = fresh_session.get(SupplierComplianceSummary, UUID(str(r["id"])))
+                        assert obj is not None, f"SupplierComplianceSummary {r['id']} missing on fresh connection"
+                    for r in source_data["supplier_compliance_by_client"][:10]:
+                        obj = fresh_session.get(SupplierComplianceByClient, UUID(str(r["id"])))
+                        assert obj is not None, f"SupplierComplianceByClient {r['id']} missing on fresh connection"
+                    for r in source_data["supplier_followup_audit"]:
+                        obj = fresh_session.get(SupplierFollowupAudit, UUID(str(r["id"])))
+                        assert obj is not None, f"SupplierFollowupAudit {r['id']} missing on fresh connection"
+                    for r in source_data["vendor_followup_logs"]:
+                        obj = fresh_session.get(VendorFollowupLog, UUID(str(r["id"])))
+                        assert obj is not None, f"VendorFollowupLog {r['id']} missing on fresh connection"
                     summary.post_commit_verification = f"PASS: all {total_verified} rows verified on fresh connection"
                 else:
                     summary.post_commit_verification = f"FAIL: expected {summary.total_supabase_rows}, found {total_verified}"
@@ -787,13 +809,17 @@ def main() -> None:
     parser.add_argument("--commit", action="store_true", help="Execute real backfill and commit transaction")
     parser.add_argument("--dry-run", action="store_true", help="Execute dry-run backfill with rollback (default)")
     parser.add_argument("--batch-size", type=int, default=500, help="Batch size for chunked inserts")
+    parser.add_argument("--sqlite-path", type=str, default=None, help="Path to local database file if running outside AWS Aurora cluster")
     parser.add_argument("--json", action="store_true", help="Output summary in JSON format")
 
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 
     should_commit = bool(args.commit and not args.dry_run)
-    orchestrator = Batch2CVendorComplianceBackfillOrchestrator(batch_size=args.batch_size)
+    orchestrator = Batch2CVendorComplianceBackfillOrchestrator(
+        batch_size=args.batch_size,
+        sqlite_path=args.sqlite_path,
+    )
 
     _log.info("Starting Batch 2C Migration (mode: %s)...", "REAL (COMMIT)" if should_commit else "DRY-RUN (ROLLBACK)")
     summary = orchestrator.execute_migration(commit=should_commit)
