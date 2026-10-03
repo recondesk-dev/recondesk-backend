@@ -342,9 +342,12 @@ class AuroraImsActionStore:
     Uses AuroraIntegrationsRepository with optional non-blocking fallback to SupabaseImsActionStore.
     """
 
-    def __init__(self, sb: Any = None) -> None:
-        from app.repositories.integrations import get_integrations_repository
-        self._repo = get_integrations_repository()
+    def __init__(self, sb: Any = None, repo: Any = None) -> None:
+        if repo is not None:
+            self._repo = repo
+        else:
+            from app.repositories.integrations import get_integrations_repository
+            self._repo = get_integrations_repository()
         self._fallback_store = SupabaseImsActionStore(sb) if sb is not None else None
 
     def find_non_failed(
