@@ -476,9 +476,9 @@ export default function DashboardShellLayout({
           mobileMenuOpen ? "translate-x-0" : "-translate-x-[120%] lg:translate-x-0"
         }`}
       >
-        <div className="flex items-center justify-between px-4 pb-3 pt-5">
+        <div className="rd-sidebar-brand flex items-center justify-between px-4 pb-3 pt-5">
           <Link href="/dashboard" className="flex items-center" onClick={() => setMobileMenuOpen(false)}>
-            <Logo width={140} height={26} />
+            <Logo height={40} />
           </Link>
           <button
             type="button"
@@ -490,6 +490,7 @@ export default function DashboardShellLayout({
           </button>
         </div>
         <nav className="flex-1 space-y-0.5 px-2 overflow-y-auto">
+          <span className="rd-nav-caption">WORKSPACE</span>
           {nav.map(({ href, label, Icon }) => {
             const isActive =
               href === "/dashboard"

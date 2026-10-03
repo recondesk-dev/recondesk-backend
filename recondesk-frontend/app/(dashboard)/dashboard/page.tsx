@@ -224,15 +224,6 @@ function IconFail() {
   );
 }
 
-function IconTeam() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <rect x="3" y="4" width="18" height="16" rx="2" stroke="currentColor" strokeWidth="1.5" />
-      <path d="M8 10h8M8 14h5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-    </svg>
-  );
-}
-
 export default function PortfolioDashboardPage() {
   const router = useRouter();
   const toast = useToast();
@@ -498,7 +489,7 @@ export default function PortfolioDashboardPage() {
     return (
       <div className="space-y-6">
         <div className="rd-stat-grid">
-          {Array.from({ length: 6 }).map((_, i) => (
+          {Array.from({ length: 4 }).map((_, i) => (
             <div key={i} className="h-[148px] animate-pulse rounded-[1.5rem] bg-white/70" />
           ))}
         </div>
@@ -540,9 +531,9 @@ export default function PortfolioDashboardPage() {
   }
 
   return (
-    <div className="rd-dashboard-overview space-y-7">
+    <div className="rd-dashboard-overview space-y-5">
       <div className="rd-overview-heading">
-        <div><span className="rd-eyebrow">YOUR WORKSPACE</span><h1>Portfolio overview</h1><p>Reconciliation, review, and your next action — in one place.</p></div>
+        <div><span className="rd-eyebrow">PORTFOLIO OVERVIEW</span><h1>{me?.full_name ? `Welcome back, ${me.full_name.split(" ")[0]}` : "Your workspace, at a glance"}<span className="rd-heading-dot">.</span></h1><p>A clear view of your clients. A confident next step.</p></div>
         <Link href="/clients?add=1" className="btn-primary inline-flex items-center justify-center gap-2 px-5 text-sm font-semibold text-white"><span aria-hidden="true">+</span> Add client</Link>
       </div>
       {!statsLoading && failedClientCount > 0 && (
@@ -563,13 +554,15 @@ export default function PortfolioDashboardPage() {
         </div>
       )}
       {!statsLoading && failedClientCount === 0 && readyForReview > 0 && (
-          <div className="rounded-[1.25rem] bg-white px-5 py-4 text-sm text-gray-700 shadow-[var(--shadow-soft)]">
-            <strong className="font-semibold text-[var(--ink)]">
+          <div className="rd-review-notice">
+            <span className="rd-notice-icon" aria-hidden="true"><IconReview /></span>
+            <span><strong className="font-semibold text-[var(--ink)]">
               {readyForReview}
             </strong>{" "}
             {readyForReview === 1
               ? "reconciliation is ready for your review."
-              : "reconciliations are ready for your review."}
+              : "reconciliations are ready for your review."}</span>
+            <button type="button" onClick={() => { setFilters({ ...DEFAULT_FILTERS, status: "COMPLETE" }); setSearchInput(""); document.getElementById("client-directory")?.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" }); }}>Review now <span aria-hidden="true">→</span></button>
           </div>
         )}
       {!statsLoading && showAllFinalizedBanner && (
@@ -578,13 +571,13 @@ export default function PortfolioDashboardPage() {
         </div>
       )}
 
-      <section>
-        <div className="mb-4">
+      <section className="rd-metrics-section" aria-label="Portfolio snapshot">
+        <div className="rd-section-heading">
           <h2 className="text-lg font-semibold tracking-tight text-[var(--ink)]">
-            Quick Stats
+            Portfolio snapshot
           </h2>
           <p className="mt-1 text-sm text-gray-500">
-            Your portfolio snapshot — act on what needs attention first.
+            The essentials, all in one place.
           </p>
         </div>
         <div className="rd-stat-grid">
@@ -592,7 +585,7 @@ export default function PortfolioDashboardPage() {
             label="Total Clients"
             hint="Firm portfolio — Click to show all"
             icon={<IconUsers />}
-            onClick={() => setFilters((f) => ({ ...f, status: "ALL" }))}
+            onClick={onResetFilters}
             isActive={filters.status === "ALL" && !showReset}
             value={
               statsLoading ? (
@@ -671,54 +664,22 @@ export default function PortfolioDashboardPage() {
             fullValue={formatInrFull(totalItcProtected)}
             subtitle="Finalized & audit-ready"
           />
-          <StatCard
-            label="Missed ITC at Risk"
-            hint="Unclaimed ITC — Click to sort table by missed ITC"
-            icon={<IconFail />}
-            onClick={() => setSort({ key: "missedItc", dir: "desc" })}
-            isActive={sort.key === "missedItc"}
-            value={
-              statsLoading ? (
-                <span className="inline-block h-8 w-20 animate-pulse rounded bg-gray-100" />
-              ) : (
-                formatInrCompact(itcAtRiskTotal)
-              )
-            }
-            fullValue={formatInrFull(itcAtRiskTotal)}
-            subtitle="Sort by highest stakes"
-          />
-          <StatCard
-            label="Failed Runs"
-            hint="Reconciliation errors — Click to filter"
-            icon={<IconFail />}
-            empty={!statsLoading && failedClientCount === 0}
-            emptyIcon="check"
-            emptyCaption="None failed"
-            onClick={() =>
-              setFilters((f) => ({
-                ...f,
-                status: f.status === "FAILED" ? "ALL" : "FAILED",
-              }))
-            }
-            isActive={filters.status === "FAILED"}
-            badge={
-              !statsLoading && failedClientCount > 0 ? (
-                <span className="rounded-full bg-red-100 text-red-800 px-2 py-0.5 text-[10px] font-semibold">
-                  Fix
-                </span>
-              ) : undefined
-            }
-            value={
-              statsLoading ? (
-                <span className="inline-block h-8 w-10 animate-pulse rounded bg-gray-100" />
-              ) : (
-                String(failedClientCount)
-              )
-            }
-            subtitle={failedClientCount > 0 ? "Requires retry" : "All engines healthy"}
-          />
         </div>
       </section>
+
+      <div className="rd-workspace-pulse">
+        <button type="button" onClick={() => setSort({ key: "missedItc", dir: "desc" })} aria-pressed={sort.key === "missedItc"}>
+          <span className="rd-pulse-icon"><IconShield /></span>
+          <span><span className="rd-pulse-label">Missed ITC at risk</span><strong title={formatInrFull(itcAtRiskTotal)}>{statsLoading ? "Loading…" : formatInrCompact(itcAtRiskTotal)}</strong></span>
+          <span className="rd-pulse-arrow" aria-hidden="true">↗</span>
+        </button>
+        <button type="button" onClick={() => setFilters((f) => ({ ...f, status: f.status === "FAILED" ? "ALL" : "FAILED" }))} aria-pressed={filters.status === "FAILED"}>
+          <span className="rd-pulse-icon"><IconFail /></span>
+          <span><span className="rd-pulse-label">Reconciliation health</span><strong>{statsLoading ? "Loading…" : failedClientCount > 0 ? `${failedClientCount} failed · retry needed` : "All runs healthy"}</strong></span>
+          <span className="rd-health-dot" data-failed={failedClientCount > 0} aria-hidden="true" />
+        </button>
+        <Link href="/reconciliations" className="rd-pulse-link">Open reconciliations <span aria-hidden="true">↗</span></Link>
+      </div>
 
       {loadError && (
         <div className="rounded-[1.25rem] bg-red-50 px-5 py-4 text-sm text-red-800">
@@ -734,22 +695,14 @@ export default function PortfolioDashboardPage() {
       )}
 
       <section className="rd-priority-grid">
-        <div>
-          <ReturnPeriodBoard
-            runs={(runs ?? []) as ReconcileRunListRow[]}
-            loading={portfolioLoading}
-            selectedPeriod={filters.period}
-            onSelectPeriod={(p) => setFilters((f) => ({ ...f, period: p }))}
-          />
-        </div>
 
         <div className="rd-attention-panel dashboard-card flex flex-col p-6">
           <div className="mb-5 flex items-start justify-between gap-3">
             <div>
               <h2 className="text-lg font-semibold tracking-tight text-[var(--ink)]">
-                Needs attention
+                Your next actions
               </h2>
-              <p className="mt-1 text-sm text-gray-500">Priority clients to act on next</p>
+              <p className="mt-1 text-sm text-gray-500">A little attention. A lot of progress.</p>
             </div>
             <Link
               href="/clients"
@@ -846,27 +799,28 @@ export default function PortfolioDashboardPage() {
             </ul>
           )}
         </div>
+        <div>
+          <ReturnPeriodBoard
+            runs={(runs ?? []) as ReconcileRunListRow[]}
+            loading={portfolioLoading}
+            selectedPeriod={filters.period}
+            onSelectPeriod={(p) => setFilters((f) => ({ ...f, period: p }))}
+          />
+        </div>
+
       </section>
 
-      <section className="rd-client-directory dashboard-card space-y-5 p-6">
+      <section id="client-directory" className="rd-client-directory dashboard-card space-y-5 p-6">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="text-lg font-semibold tracking-tight text-[var(--ink)]">
-              Manage clients
+              Client workspace
             </h2>
             <p className="mt-1 text-sm text-gray-500">
               Filter, review, and take action across your portfolio
             </p>
           </div>
-          <Link
-            href="/clients?add=1"
-            className="inline-flex items-center justify-center gap-2 rounded-full bg-[var(--ink)] px-5 py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90"
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
-              <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-            </svg>
-            Add client
-          </Link>
+          <Link href="/clients" className="rd-text-link">View all clients <span aria-hidden="true">↗</span></Link>
         </div>
 
         {directoryLoading ? (

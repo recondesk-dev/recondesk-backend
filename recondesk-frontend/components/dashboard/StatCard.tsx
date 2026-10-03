@@ -1,22 +1,8 @@
-import { Fragment, type ReactNode } from "react";
-
-type StatTone = "default" | "emphasis";
+import type { ReactNode } from "react";
 
 export function StatCard({
-  label,
-  value,
-  hint,
-  icon,
-  empty = false,
-  emptyCaption,
-  emptyIcon = "dash",
-  tone = "default",
-  trend,
-  onClick,
-  isActive = false,
-  subtitle,
-  badge,
-  fullValue,
+  label, value, hint, icon, empty = false, emptyCaption, emptyIcon = "dash",
+  tone = "default", onClick, isActive = false, subtitle, badge, fullValue,
 }: {
   label: string;
   value: ReactNode;
@@ -25,7 +11,7 @@ export function StatCard({
   empty?: boolean;
   emptyCaption?: string;
   emptyIcon?: "dash" | "check";
-  tone?: StatTone;
+  tone?: "default" | "emphasis";
   trend?: "up" | "none";
   onClick?: () => void;
   isActive?: boolean;
@@ -33,172 +19,29 @@ export function StatCard({
   badge?: ReactNode;
   fullValue?: string;
 }) {
-  const emphasized = tone === "emphasis";
+  const content = (
+    <>
+      <span className="rd-stat-topline">
+        <span className="rd-stat-label">{label}</span>
+        <span className="rd-stat-symbol" aria-hidden="true">{icon}</span>
+      </span>
+      <span className={`rd-stat-value${empty ? " rd-stat-empty" : ""}`}>
+        {empty ? emptyIcon === "check" ? <><span aria-hidden="true">✓</span> {emptyCaption ?? "All caught up"}</> : "—" : value}
+      </span>
+      <span className="rd-stat-bottomline">
+        <span>{empty && emptyIcon === "dash" ? emptyCaption : subtitle}</span>
+        {badge ?? (onClick ? <span className="rd-stat-arrow" aria-hidden="true">↗</span> : <span className="rd-stat-seal" aria-hidden="true">✓</span>)}
+      </span>
+    </>
+  );
+  const className = `rd-stat-card${tone === "emphasis" ? " rd-stat-emphasis" : ""}`;
+  const title = fullValue ? `${hint ? `${hint} — ` : ""}${fullValue}` : hint;
 
-  return (
-    <div
-      role={onClick ? "button" : undefined}
-      aria-pressed={onClick ? isActive : undefined}
-      tabIndex={onClick ? 0 : undefined}
-      onClick={onClick}
-      onKeyDown={
-        onClick
-          ? (e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                onClick();
-              }
-            }
-          : undefined
-      }
-      className={`rd-stat-card group relative flex min-h-[148px] flex-col justify-between rounded-[1.5rem] p-5 transition-all duration-200 ${
-        onClick ? "cursor-pointer hover:shadow-md" : ""
-      } ${
-        isActive
-          ? "ring-2 ring-[var(--ink)] shadow-md"
-          : "hover:-translate-y-0.5"
-      } ${
-        emphasized
-          ? "bg-[var(--ink)] text-white shadow-[var(--shadow-lift)]"
-          : "dashboard-card bg-white"
-      }`}
-      title={fullValue ? `${hint ? `${hint} — ` : ""}${fullValue}` : hint}
-    >
-      <div className="flex items-start justify-between gap-3">
-        <span
-          className={`inline-flex h-11 w-11 items-center justify-center rounded-full ${
-            emphasized ? "bg-white/15 text-white" : "bg-[#F3F4F6] text-gray-700"
-          }`}
-          aria-hidden
-        >
-          {icon ?? (
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-              <path
-                d="M4 19V5M4 19h16M8 15v4M12 10v9M16 7v12"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-              />
-            </svg>
-          )}
-        </span>
-        <div className="flex items-center gap-1.5">
-          {badge}
-          {trend === "up" ? (
-            <span
-              className={`inline-flex h-8 w-8 items-center justify-center rounded-full ${
-                emphasized ? "bg-white/15 text-white" : "bg-gray-100 text-gray-600"
-              }`}
-              aria-hidden
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-                <path
-                  d="M7 17L17 7M10 7h7v7"
-                  stroke="currentColor"
-                  strokeWidth="1.75"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-            </span>
-          ) : null}
-        </div>
-      </div>
-
-      <div className="mt-6">
-        {empty ? (
-          emptyIcon === "check" ? (
-            <div className="flex items-start gap-2.5">
-              <span
-                className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${
-                  emphasized ? "bg-white/15 text-white" : "bg-emerald-50 text-emerald-600"
-                }`}
-                aria-hidden
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-                  <path
-                    d="M9.5 12l1.8 1.8L14.8 10"
-                    stroke="currentColor"
-                    strokeWidth="1.75"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-              </span>
-              <p
-                className={`text-sm font-medium leading-snug ${
-                  emphasized ? "text-white/85" : "text-gray-700"
-                }`}
-              >
-                {emptyCaption ?? "All caught up"}
-              </p>
-            </div>
-          ) : (
-            <>
-              <p
-                className={`font-sans text-[1.75rem] font-semibold tracking-tight ${
-                  emphasized ? "text-white/40" : "text-gray-300"
-                }`}
-              >
-                —
-              </p>
-              {emptyCaption ? (
-                <p
-                  className={`mt-1 text-xs ${
-                    emphasized ? "text-white/55" : "text-gray-400"
-                  }`}
-                >
-                  {emptyCaption}
-                </p>
-              ) : null}
-            </>
-          )
-        ) : (
-          <p
-            className={`font-sans text-[1.85rem] font-semibold tracking-tight ${
-              emphasized ? "text-white" : "text-[var(--ink)]"
-            }`}
-          >
-            {typeof value === "string" && value.includes("₹") ? (
-              <>
-                {value.split("₹").map((part, idx) => (
-                  <Fragment key={idx}>
-                    {idx > 0 && (
-                      <span
-                        style={{
-                          fontFamily: "Arial, system-ui, -apple-system, sans-serif",
-                          fontWeight: "inherit",
-                        }}
-                      >
-                        ₹
-                      </span>
-                    )}
-                    {part}
-                  </Fragment>
-                ))}
-              </>
-            ) : (
-              value
-            )}
-          </p>
-        )}
-        <p
-          className={`mt-1.5 text-[13px] font-medium ${
-            emphasized ? "text-white/65" : "text-gray-500"
-          }`}
-        >
-          {label}
-        </p>
-        {subtitle && (
-          <p
-            className={`mt-0.5 text-[11px] leading-tight ${
-              emphasized ? "text-white/50" : "text-gray-400"
-            }`}
-          >
-            {subtitle}
-          </p>
-        )}
-      </div>
-    </div>
+  return onClick ? (
+    <button type="button" className={className} aria-pressed={isActive} onClick={onClick} title={title}>
+      {content}
+    </button>
+  ) : (
+    <div className={className} title={title}>{content}</div>
   );
 }

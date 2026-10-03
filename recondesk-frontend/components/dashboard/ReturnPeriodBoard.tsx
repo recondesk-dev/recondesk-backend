@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import type { ReconcileRunListRow } from "@/lib/api";
 import {
   formatPeriodLabel,
@@ -16,8 +16,6 @@ type PeriodRow = {
   open: number;
   ready: number;
   finalized: number;
-  clients: number;
-  openDays: number;
 };
 
 function parsePeriod(period: string): { y: number; m: number } | null {
@@ -52,7 +50,7 @@ function bucketForStatus(raw: string): Bucket {
   return "open";
 }
 
-function buildPeriodRows(runs: ReconcileRunListRow[], now: Date): PeriodRow[] {
+function buildPeriodRows(runs: ReconcileRunListRow[]): PeriodRow[] {
   const latest = new Map<string, ReconcileRunListRow>();
   for (const run of runs) {
     const period = (run.period || "").trim();
@@ -80,18 +78,11 @@ function buildPeriodRows(runs: ReconcileRunListRow[], now: Date): PeriodRow[] {
   for (const [periodKey, counts] of Array.from(byPeriod.entries())) {
     const due = gstr3bDueDate(periodKey);
     if (!due) continue;
-    const clients = counts.open + counts.ready + counts.finalized;
-    const periodEnd = (() => {
-      const p = parsePeriod(periodKey)!;
-      return new Date(p.y, p.m, 0);
-    })();
     rows.push({
       periodKey,
       label: formatPeriodLabel(periodKey),
       dueDate: due,
       ...counts,
-      clients,
-      openDays: counts.open > 0 ? Math.max(0, daysBetween(periodEnd, now)) : 0,
     });
   }
 
@@ -135,24 +126,8 @@ function formatShortDate(d: Date): string {
   return d.toLocaleDateString("en-IN", { day: "numeric", month: "short" });
 }
 
-function chipClass(tone: "urgent" | "soon" | "ok" | "muted"): string {
-  switch (tone) {
-    case "urgent":
-      return "bg-[#111111] text-white";
-    case "soon":
-      return "bg-[#F5F5F6] text-[var(--ink)] ring-1 ring-black/10";
-    case "ok":
-      return "bg-[#F5F5F6] text-gray-600";
-    default:
-      return "bg-[#F7F7F8] text-gray-400";
-  }
-}
-
 export function ReturnPeriodBoard({
-  runs,
-  loading,
-  selectedPeriod,
-  onSelectPeriod,
+  runs, loading, selectedPeriod, onSelectPeriod,
 }: {
   runs: ReconcileRunListRow[];
   loading?: boolean;
@@ -160,266 +135,62 @@ export function ReturnPeriodBoard({
   onSelectPeriod?: (period: string) => void;
 }) {
   const now = useMemo(() => new Date(), []);
-  const rows = useMemo(() => buildPeriodRows(runs, now), [runs, now]);
+  const rows = useMemo(() => buildPeriodRows(runs), [runs]);
+  const [expanded, setExpanded] = useState(false);
   const openPeriods = rows.filter((r) => r.open + r.ready > 0).length;
-  const urgent = rows.find((r) => {
-    if (r.open + r.ready === 0) return false;
-    return daysBetween(now, r.dueDate) <= 7;
-  });
-
-  if (loading) {
-    return <div className="h-[280px] animate-pulse rounded-[1.5rem] bg-gray-100" />;
-  }
+  const visibleRows = expanded ? rows : rows.slice(0, 3);
 
   return (
-    <div className="dashboard-card relative overflow-hidden p-6">
-      <div className="mb-5 flex items-start justify-between gap-4">
+    <div className="rd-period-panel dashboard-card">
+      <div className="rd-period-heading">
         <div>
-          <h2 className="text-lg font-semibold tracking-tight text-[var(--ink)]">
-            Return periods
-          </h2>
-          <p className="mt-1 text-sm text-gray-500">
-            Open filing months vs GSTR-3B statutory deadlines (20th)
-          </p>
+          <h2>Return periods</h2>
+          <p>Each month, one step closer to sign-off.</p>
         </div>
-        {openPeriods > 0 ? (
-          <span className="rounded-full bg-[var(--ink)] px-3 py-1 text-xs font-semibold text-white">
-            {openPeriods} open
-          </span>
-        ) : rows.length > 0 ? (
-          <span className="rounded-full bg-[#F5F5F6] px-3 py-1 text-xs font-semibold text-gray-500">
-            Clear
-          </span>
-        ) : null}
+        {!loading && rows.length > 0 && <span className="rd-period-count">{openPeriods > 0 ? `${openPeriods} open` : "All clear"}</span>}
       </div>
-
-      {rows.length === 0 ? (
-        <div className="flex h-[220px] flex-col items-center justify-center rounded-2xl bg-[#F7F7F8] px-6 text-center">
-          <p className="text-sm font-medium text-gray-700">No return periods yet</p>
-          <p className="mt-1 max-w-xs text-xs text-gray-400">
-            Once you post reconciliations, each tax month shows here with how close
-            you are to the 3B due date.
-          </p>
+      {loading ? (
+        <div className="space-y-3" aria-label="Loading return periods">
+          {[0, 1].map((i) => <div key={i} className="h-20 animate-pulse rounded-xl bg-gray-100" />)}
+        </div>
+      ) : rows.length === 0 ? (
+        <div className="rd-period-empty">
+          <p>No return periods yet</p>
+          <span>Your filing months will appear after your first reconciliation.</span>
         </div>
       ) : (
-        <div className="space-y-2.5">
-          {urgent ? (
-            <div className="mb-4 flex flex-wrap items-center justify-between gap-2.5 rounded-2xl bg-[#111111] px-4 py-3 text-white">
-              <div className="flex items-center gap-3">
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/15 text-white">
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
-                    <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.75" />
-                    <path d="M12 7v5l3 2" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
-                  </svg>
+        <>
+          <ul className="rd-period-list">
+            {visibleRows.map((row) => {
+              const due = formatDueChip(row.dueDate, now, row.open + row.ready > 0);
+              const selected = selectedPeriod === row.label;
+              const content = <>
+                <span className="rd-period-row-heading">
+                  <span className="rd-period-month">{row.label}</span>
+                  <span className="rd-period-due" data-tone={due.tone}>{due.text}</span>
                 </span>
-                <div>
-                  <p className="text-xs font-semibold">
-                    GSTR-3B Statutory Deadline: {urgent.label} (Due {formatShortDate(urgent.dueDate)})
-                  </p>
-                  <p className="text-[11px] text-white/70">
-                    {formatDueChip(urgent.dueDate, now, true).text} · {urgent.open + urgent.ready} client(s) pending reconciliation
-                  </p>
-                </div>
-              </div>
-              {onSelectPeriod ? (
-                <button
-                  type="button"
-                  onClick={() => onSelectPeriod(selectedPeriod === urgent.periodKey ? "ALL" : urgent.periodKey)}
-                  className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-[var(--ink)] hover:bg-gray-100 transition-colors"
-                >
-                  {selectedPeriod === urgent.periodKey ? "Filtered" : "Filter Clients"}
-                </button>
-              ) : null}
-            </div>
-          ) : null}
-
-          <ul className="space-y-2">
-            {rows.map((row) => {
-              const hasWork = row.open + row.ready > 0;
-              const due = formatDueChip(row.dueDate, now, hasWork);
-              const total = Math.max(row.clients, 1);
-              const finalizedPct = (row.finalized / total) * 100;
-              const readyPct = (row.ready / total) * 100;
-              const openPct = (row.open / total) * 100;
-
-              const isSelected = selectedPeriod === row.periodKey;
-
-              return (
-                <li
-                  key={row.periodKey}
-                  role={onSelectPeriod ? "button" : undefined}
-                  tabIndex={onSelectPeriod ? 0 : undefined}
-                  onClick={
-                    onSelectPeriod
-                      ? () =>
-                          onSelectPeriod(
-                            isSelected ? "ALL" : row.periodKey
-                          )
-                      : undefined
-                  }
-                  onKeyDown={
-                    onSelectPeriod
-                      ? (e) => {
-                          if (e.key === "Enter" || e.key === " ") {
-                            e.preventDefault();
-                            onSelectPeriod(
-                              isSelected ? "ALL" : row.periodKey
-                            );
-                          }
-                        }
-                      : undefined
-                  }
-                  className={`group relative rounded-2xl px-4 py-3.5 transition-all ${
-                    onSelectPeriod ? "cursor-pointer hover:shadow-sm" : ""
-                  } ${
-                    isSelected
-                      ? "ring-2 ring-[var(--ink)] shadow-sm"
-                      : ""
-                  } ${
-                    hasWork && due.tone === "urgent"
-                      ? "bg-[#111111] text-white"
-                      : "bg-[#F7F7F8]"
-                  }`}
-                  title={
-                    onSelectPeriod
-                      ? `Click to ${isSelected ? "clear filter" : `filter table by ${row.label}`}`
-                      : undefined
-                  }
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <p
-                          className={`text-sm font-semibold tracking-tight ${
-                            hasWork && due.tone === "urgent"
-                              ? "text-white"
-                              : "text-[var(--ink)]"
-                          }`}
-                        >
-                          {row.label}
-                        </p>
-                        {isSelected && (
-                          <span
-                            className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                              hasWork && due.tone === "urgent"
-                                ? "bg-white text-[var(--ink)]"
-                                : "bg-[var(--ink)] text-white"
-                            }`}
-                          >
-                            Selected
-                          </span>
-                        )}
-                      </div>
-                      <p
-                        className={`mt-0.5 text-xs ${
-                          hasWork && due.tone === "urgent"
-                            ? "text-white/65"
-                            : "text-gray-400"
-                        }`}
-                      >
-                        {row.clients}{" "}
-                        {row.clients === 1 ? "client" : "clients"}
-                        {row.open > 0
-                          ? ` · open ${row.openDays}d past period end`
-                          : row.ready > 0
-                            ? " · review before filing"
-                            : " · ready to file"}
-                      </p>
-                    </div>
-                    <span
-                      className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${
-                        hasWork && due.tone === "urgent"
-                          ? "bg-white/15 text-white"
-                          : chipClass(due.tone)
-                      }`}
-                    >
-                      {due.text}
-                    </span>
-                  </div>
-
-                  <div
-                    className={`mt-3 flex h-2 overflow-hidden rounded-full ${
-                      hasWork && due.tone === "urgent"
-                        ? "bg-white/15"
-                        : "bg-white"
-                    }`}
-                  >
-                    {finalizedPct > 0 ? (
-                      <span
-                        className={
-                          hasWork && due.tone === "urgent"
-                            ? "bg-white"
-                            : "bg-[var(--ink)]"
-                        }
-                        style={{ width: `${finalizedPct}%` }}
-                      />
-                    ) : null}
-                    {readyPct > 0 ? (
-                      <span
-                        className={
-                          hasWork && due.tone === "urgent"
-                            ? "bg-white/55"
-                            : "bg-gray-400"
-                        }
-                        style={{ width: `${readyPct}%` }}
-                      />
-                    ) : null}
-                    {openPct > 0 ? (
-                      <span
-                        className={
-                          hasWork && due.tone === "urgent"
-                            ? "bg-white/25"
-                            : "bg-gray-200"
-                        }
-                        style={{ width: `${openPct}%` }}
-                      />
-                    ) : null}
-                  </div>
-
-                  <div
-                    className={`mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px] ${
-                      hasWork && due.tone === "urgent"
-                        ? "text-white/70"
-                        : "text-gray-500"
-                    }`}
-                  >
-                    <span>{row.finalized} filed</span>
-                    <span>{row.ready} ready</span>
-                    <span>{row.open} still open</span>
-                  </div>
-                </li>
-              );
+                <span className="rd-period-counts">
+                  <span><i className="rd-period-dot rd-period-dot-finalized" /> <strong>{row.finalized}</strong> finalized</span>
+                  <span><i className="rd-period-dot rd-period-dot-ready" /> <strong>{row.ready}</strong> ready</span>
+                  <span><i className="rd-period-dot rd-period-dot-open" /> <strong>{row.open}</strong> open</span>
+                </span>
+              </>;
+              return <li key={row.periodKey}>
+                {onSelectPeriod ? (
+                  <button type="button" className="rd-period-row" aria-pressed={selected}
+                    onClick={() => onSelectPeriod(selected ? "ALL" : row.label)}
+                    title={`Filter clients by ${row.label}`}>{content}</button>
+                ) : <div className="rd-period-row">{content}</div>}
+              </li>;
             })}
           </ul>
-
-          {selectedPeriod && selectedPeriod !== "ALL" && onSelectPeriod && (
-            <div className="mt-3 flex items-center justify-between rounded-xl bg-[#F5F5F6] px-3.5 py-2 text-xs">
-              <span className="text-gray-600">
-                Table filtered to <strong className="text-[var(--ink)]">{formatPeriodLabel(selectedPeriod)}</strong>
-              </span>
-              <button
-                type="button"
-                onClick={() => onSelectPeriod("ALL")}
-                className="font-medium text-[var(--ink)] underline hover:text-black"
-              >
-                Clear filter
-              </button>
-            </div>
-          )}
-
-          <div className="mt-3 flex flex-wrap items-center gap-4 text-[11px] text-gray-400">
-            <span className="inline-flex items-center gap-1.5">
-              <span className="h-1.5 w-1.5 rounded-full bg-[var(--ink)]" /> Filed
-            </span>
-            <span className="inline-flex items-center gap-1.5">
-              <span className="h-1.5 w-1.5 rounded-full bg-gray-400" /> Ready for review
-            </span>
-            <span className="inline-flex items-center gap-1.5">
-              <span className="h-1.5 w-1.5 rounded-full bg-gray-200 ring-1 ring-gray-300" />{" "}
-              Still open
-            </span>
+          <div className="rd-period-footer">
+            {selectedPeriod && selectedPeriod !== "ALL" && onSelectPeriod ? (
+              <button type="button" onClick={() => onSelectPeriod("ALL")}>Clear {formatPeriodLabel(selectedPeriod)} filter ×</button>
+            ) : <span>Select a month to filter your clients</span>}
+            {rows.length > 3 && <button type="button" aria-expanded={expanded} onClick={() => setExpanded((v) => !v)}>{expanded ? "Show less" : `View all ${rows.length}`}</button>}
           </div>
-        </div>
+        </>
       )}
     </div>
   );

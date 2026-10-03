@@ -6,10 +6,8 @@ import { createPortal } from "react-dom";
 import { Pie, PieChart, ResponsiveContainer, Cell } from "recharts";
 import { useRouter } from "next/navigation";
 import type { ClientPortfolioRow, PortfolioSortKey, SortDirection } from "@/lib/types";
-import type { ComplianceRisk, ReconciliationStatus } from "@/lib/types";
+import type { ComplianceRisk } from "@/lib/types";
 import { formatInrFull } from "@/lib/format";
-import { formatInrCompact } from "@/lib/format";
-import { truncateGstin } from "@/lib/format";
 import { StatusBadge } from "./StatusBadge";
 import { Avatar } from "@/components/ui/Avatar";
 import { Modal } from "@/components/ui/Modal";
@@ -35,12 +33,6 @@ function MatchRateBar({ rate }: { rate: number | null }) {
   );
 }
 
-function formatMissedSnippet(n: number): string {
-  if (n >= 100000) return `${formatInrCompact(n)} missed`;
-  return `${formatInrFull(n)} missed`;
-}
-
-
 function complianceRiskWords(r: ComplianceRisk | null | undefined): string {
   const level = r ?? "LOW";
   const map: Record<ComplianceRisk, string> = {
@@ -50,55 +42,6 @@ function complianceRiskWords(r: ComplianceRisk | null | undefined): string {
     CRITICAL: "Critical risk",
   };
   return map[level];
-}
-
-/** Display labels only — COMPLETE means processed (ready for review), not signed-off. */
-function statusWord(status: ReconciliationStatus): string {
-  const map: Record<ReconciliationStatus, string> = {
-    PENDING: "Pending",
-    IMPORTING: "Importing",
-    MATCHING: "Matching",
-    COMPLETE: "Ready for Review",
-    FINALIZED: "Complete",
-    FAILED: "Failed",
-  };
-  return map[status];
-}
-
-function WhyItMattersCell({ row }: { row: ClientPortfolioRow }) {
-  const latest = row.latestRun;
-  if (!latest) {
-    return <span className="text-xs text-[var(--text-secondary)]">No runs yet</span>;
-  }
-  if (latest.status === "FINALIZED") {
-    return <span className="text-xs text-[var(--text-secondary)]">Complete</span>;
-  }
-  if (latest.status === "FAILED") {
-    return <span className="text-xs text-[var(--text-secondary)]">Failed — needs retry</span>;
-  }
-
-  const pipeline = latest.status === "PENDING" || latest.status === "IMPORTING" || latest.status === "MATCHING";
-  if (pipeline && latest.missedItc == null && latest.complianceRisk == null) {
-    if (latest.status === "PENDING") {
-      return <span className="text-xs text-[var(--text-secondary)]">Pending</span>;
-    }
-    return (
-      <span className="text-xs text-[var(--text-secondary)]">In progress — no data yet</span>
-    );
-  }
-
-  const parts: string[] = [];
-  if (latest.missedItc != null) {
-    parts.push(formatMissedSnippet(latest.missedItc));
-  }
-  if (latest.complianceRisk != null) {
-    parts.push(complianceRiskWords(latest.complianceRisk));
-  }
-  parts.push(statusWord(latest.status));
-
-  return (
-    <span className="text-xs leading-snug text-[var(--text-secondary)]">{parts.join(" • ")}</span>
-  );
 }
 
 function riskParenClass(risk: ComplianceRisk | null | undefined): string {
@@ -144,9 +87,7 @@ function TableLoadingRows({ density = "comfortable" }: { density?: "comfortable"
       {Array.from({ length: 5 }).map((_, i) => (
         <tr key={i} className="border-b border-gray-100">
           <td className={pad}>{bar("w-4")}</td>
-          <td className={pad}>{bar("w-44")}</td>
           <td className={pad}>{bar("w-36")}</td>
-          <td className={pad}>{bar("w-28")}</td>
           <td className={pad}>{bar("w-20")}</td>
           <td className={pad}>{bar("w-16")}</td>
           <td className={pad}>{bar("w-24")}</td>
@@ -236,24 +177,11 @@ const PortfolioRowInner = memo(function PortfolioRowInner({
           aria-label={`Select ${row.client.tradeName}`}
         />
       </td>
-      <td className={`max-w-[220px] ${cellPad}`}>
-        <WhyItMattersCell row={row} />
-      </td>
-      <td className={cellPad}>
-        <Link
-          href={`/clients/${row.client.id}`}
-          className={`font-medium text-[var(--ink)] hover:underline cursor-pointer ${
-            isCompact ? "text-xs" : "text-sm"
-          }`}
-        >
+      <td className={`${cellPad} rd-table-client`}>
+        <Link href={`/clients/${row.client.id}`} className="font-medium text-[var(--ink)] hover:underline">
           {row.client.tradeName}
         </Link>
-      </td>
-      <td className={`hidden ${cellPad} font-mono text-[11px] text-gray-400 xl:table-cell`}>
-        {row.client.gstin}
-      </td>
-      <td className={`${cellPad} font-mono text-[11px] text-gray-400 xl:hidden`}>
-        {truncateGstin(row.client.gstin)}
+        <span className="rd-table-gstin">{row.client.gstin}</span>
       </td>
       <td className={cellPad}>
         {!latest ? (
@@ -600,7 +528,7 @@ export function ClientTable({
   return (
     <div className="relative bg-white">
       <div className="overflow-x-auto" role="region" aria-label="Client portfolio table" tabIndex={0}>
-        <table className="min-w-[1100px] w-full border-collapse text-left">
+        <table className="min-w-[940px] w-full border-collapse text-left">
           <thead>
             <tr className="border-b border-[#F0F0F0] text-[11px] font-medium uppercase tracking-widest text-gray-400">
               <th className={`w-10 ${thEdgePad}`}>
@@ -618,13 +546,12 @@ export function ClientTable({
                   type="button"
                   className="inline-flex items-center font-medium"
                   onClick={() => onSortToggle("priority")}
+                  aria-label="Sort clients by priority"
                 >
-                  Why it matters
+                  Client priority
                   <SortArrow active={sort.key === "priority"} dir={sort.dir} />
                 </button>
               </th>
-              <th className={thPad}>Client Name</th>
-              <th className={thPad}>GSTIN</th>
               <th className={thPad}>Status</th>
               <th className={thPad}>Period</th>
               <th className={thPad}>
