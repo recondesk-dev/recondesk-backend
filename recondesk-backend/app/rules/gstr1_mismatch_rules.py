@@ -42,6 +42,7 @@ from app.data.hsn_rate_reference import (
     required_hsn_digits,
 )
 from app.rules.base import REGISTRY, RuleCategory, RuleDefinition, RuleSeverity
+from app.rules.gstr1_rules import GSTR1_INVOICE_DATE_TOLERANCE_DAYS
 from app.rules.gstr1a_eligibility import get_gstr1a_eligibility
 from app.services.decision_templates import DecisionOutput
 from app.services.matcher import _is_credit_note, _is_debit_note
@@ -212,6 +213,20 @@ REGISTRY.register(RuleDefinition(
     tags=["gstr1", "amendment", "9a", "9b", "9c", "b2ba", "cdnra", "expa"],
 ))
 
+REGISTRY.register(RuleDefinition(
+    id="G1M_012",
+    name="GSTR-1 Invoice Date Outside Tolerance",
+    category=RuleCategory.REPORTING,
+    severity=RuleSeverity.MEDIUM,
+    description=(
+        "Invoice date differs between Sales Register and GSTR-1 beyond the "
+        "allowed tolerance window (2 days). Requires review before filing."
+    ),
+    gst_ref="Section 37 CGST Act / Rule 46 CGST Rules",
+    applies_to=["sales_register", "gstr1"],
+    tags=["gstr1", "date", "tolerance", "mismatch"],
+))
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Result types
@@ -230,6 +245,7 @@ class MismatchType(str, Enum):
     HSN_RATE_ISSUE = "G1M9_HSN_RATE_ISSUE"
     DOCUMENTS_ISSUED_SUMMARY = "G1M10_DOCUMENTS_ISSUED_SUMMARY"
     AMENDMENT_REQUIRED = "G1M11_AMENDMENT_REQUIRED"
+    DATE_OUTSIDE_TOLERANCE = "G1M12_DATE_OUTSIDE_TOLERANCE"
 
 
 class MismatchSeverity(str, Enum):
@@ -1143,6 +1159,72 @@ def _parse_filing_period(raw: str) -> date | None:
         return None
 
 
+def classify_date_mismatch(
+    sr_rec: Mapping[str, Any],
+    gstr1_rec: Mapping[str, Any],
+    *,
+    tolerance_days: int = GSTR1_INVOICE_DATE_TOLERANCE_DAYS,
+) -> MismatchResult | None:
+    """G1M12 — Invoice date difference exceeds tolerance within the same return period.
+
+    Returns ``None`` if date difference is within *tolerance_days*, or if dates
+    cross return period (which is covered by ``classify_period_mismatch``).
+    """
+    da = _parse_date(_get_field(sr_rec, "invoice_date"))
+    db = _parse_date(_get_field(gstr1_rec, "invoice_date"))
+    if da is None or db is None:
+        return None
+
+    delta = (db - da).days
+    abs_delta = abs(delta)
+    if abs_delta <= tolerance_days:
+        return None
+
+    # Crossing return periods is handled by G1M6 (classify_period_mismatch)
+    if da.year != db.year or da.month != db.month:
+        return None
+
+    delta_str = (
+        f"+{delta} day" if delta == 1
+        else f"+{delta} days" if delta > 0
+        else f"{delta} day" if delta == -1
+        else f"{delta} days"
+    )
+    inv = str(
+        _get_field(sr_rec, "invoice_number", "invoice_number_normalized")
+        or _get_field(gstr1_rec, "invoice_number", "invoice_number_normalized")
+        or "?"
+    )
+    da_str = da.isoformat()
+    db_str = db.isoformat()
+
+    return MismatchResult(
+        mismatch_type=MismatchType.DATE_OUTSIDE_TOLERANCE,
+        severity=MismatchSeverity.MEDIUM,
+        decision_what=f"Invoice {inv}: date difference outside tolerance ({delta_str})",
+        decision_why=(
+            f"Sales Register date is {da_str} but GSTR-1 date is {db_str} ({delta_str}, "
+            f"exceeds {tolerance_days}-day tolerance). While within the same return period, "
+            f"date discrepancy should be reviewed before final filing."
+        ),
+        decision_next="Verify correct invoice date between books and return, and amend if needed.",
+        rule_id="G1M_012",
+        details={
+            "invoice_number": inv,
+            "sr_date": da_str,
+            "gstr1_date": db_str,
+            "date_diff_days": abs_delta,
+            "delta_str": delta_str,
+            "requires_review": True,
+            "source": "matched_pair",
+            "reason": "date_outside_tolerance",
+            "matched_fields": ["invoice_number"],
+            "differed_fields": ["invoice_date"],
+        },
+    )
+
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # G1M7 — Invalid / inactive buyer GSTIN
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1516,6 +1598,14 @@ def classify_all_mismatches(
         )
         if period is not None:
             results.append(period)
+
+        # G1M12 — Date outside tolerance (when not crossing filing period)
+        if period is None:
+            date_mm = classify_date_mismatch(
+                sr_rec, g1_rec, tolerance_days=GSTR1_INVOICE_DATE_TOLERANCE_DAYS,
+            )
+            if date_mm is not None:
+                results.append(date_mm)
 
     # Sort: critical → high → medium → low
     _sev_order = {

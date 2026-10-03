@@ -385,27 +385,31 @@ export function recordAmountRupees(
 }
 
 /**
- * Matched rows with G1M3 field mismatches (taxable value / tax / PoS /
- * tax-structure) → Review Required headline + tab.
- *
- * Driven by rule-engine mismatch output — not soft matcher heuristics
- * (confidence / any discrepancy), which over-count GSTIN/rate noise.
+ * Matched rows with field mismatches or outside tolerance
+ * (taxable value / tax / PoS / tax-structure / date outside tolerance)
+ * → Review Required headline + tab.
  */
 export function filterReviewRequired(
   matched: Gstr1MatchedRow[],
   mismatches: Gstr1DecisionFields[] = []
 ): Gstr1MatchedRow[] {
+  const reviewCodes = new Set(["G1M3", "G1M12"]);
   const invs = new Set(
     mismatches
-      .filter((m) => mismatchTypeShort(m.mismatch_type) === "G1M3")
+      .filter(
+        (m) =>
+          reviewCodes.has(mismatchTypeShort(m.mismatch_type)) ||
+          Boolean((m as { requires_review?: boolean }).requires_review)
+      )
       .map((m) => normaliseInvNo(m.invoice_number))
       .filter(Boolean)
   );
-  if (invs.size === 0) return [];
   return matched.filter((row) => {
+    if (row.requires_human_review) return true;
+    if (invs.size === 0) return false;
     const srInv = normaliseInvNo(recordInvoiceNumber(row.sr_record));
     const g1Inv = normaliseInvNo(recordInvoiceNumber(row.gstr1_record));
-    return (srInv && invs.has(srInv)) || (g1Inv && invs.has(g1Inv));
+    return Boolean((srInv && invs.has(srInv)) || (g1Inv && invs.has(g1Inv)));
   });
 }
 

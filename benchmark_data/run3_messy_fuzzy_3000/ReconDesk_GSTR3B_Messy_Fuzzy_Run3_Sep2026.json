@@ -1,0 +1,73 @@
+{
+  "gstin": "27ISKPK1273H1ZF",
+  "ret_period": "092026",
+  "sup_details": {
+    "osup_det": {
+      "txval": 363093508.28,
+      "iamt": 51328391.67,
+      "camt": 2183590.58,
+      "samt": 2183590.58,
+      "csamt": 37119.26
+    },
+    "osup_zero": {
+      "txval": 0.0,
+      "iamt": 0.0,
+      "camt": 0.0,
+      "samt": 0.0,
+      "csamt": 0.0
+    },
+    "osup_nil_exmp": {
+      "txval": 0.0,
+      "iamt": 0.0,
+      "camt": 0.0,
+      "samt": 0.0,
+      "csamt": 0.0
+    },
+    "isup_rev": {
+      "txval": 0.0,
+      "iamt": 0.0,
+      "camt": 0.0,
+      "samt": 0.0,
+      "csamt": 0.0
+    },
+    "osup_nongst": {
+      "txval": 0.0,
+      "iamt": 0.0,
+      "camt": 0.0,
+      "samt": 0.0,
+      "csamt": 0.0
+    }
+  },
+  "inter_sup": {
+    "unreg_details": [],
+    "comp_details": [],
+    "uin_details": []
+  },
+  "itc_elg": {
+    "itc_avl": [],
+    "itc_rev": [],
+    "itc_net": {
+      "iamt": 0.0,
+      "camt": 0.0,
+      "samt": 0.0,
+      "csamt": 0.0
+    },
+    "itc_inelg": []
+  },
+  "inward_sup": {
+    "isup_details": []
+  },
+  "intr_ltfee": {
+    "intr_details": {
+      "iamt": 0.0,
+      "camt": 0.0,
+      "samt": 0.0,
+      "csamt": 0.0
+    }
+  },
+  "_test_metadata": {
+    "synthetic": true,
+    "deliberate_3_1_a_taxable_variance": 25000.0,
+    "not_for_filing": true
+  }
+}
