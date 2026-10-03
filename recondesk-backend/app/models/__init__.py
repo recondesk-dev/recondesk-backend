@@ -36,6 +36,14 @@ from app.models.vendor_compliance import (
     SupplierFollowupAudit,
     VendorFollowupLog,
 )
+from app.models.return_reconciliation import (
+    MultiPeriodReconBatch,
+    MultiPeriodReconBatchItem,
+    Gstr1ReconciliationRun,
+    Gstr1aPeriodAction,
+    Gstr2aDeltaResult,
+    Gstr9AuditOverride,
+)
 
 __all__ = [
     "Base",
@@ -67,5 +75,11 @@ __all__ = [
     "ITCWorkItem",
     "ITCWorkItemEvent",
     "VendorFollowupLog",
+    "MultiPeriodReconBatch",
+    "MultiPeriodReconBatchItem",
+    "Gstr1ReconciliationRun",
+    "Gstr1aPeriodAction",
+    "Gstr2aDeltaResult",
+    "Gstr9AuditOverride",
 ]
 
