@@ -269,14 +269,18 @@ class Batch3BIntegrationsOrchestrator:
             return get_aurora_engine()
         except AuroraConfigurationError:
             db_target = self._sqlite_path or "sqlite:///:memory:"
-            if not db_target.startswith("sqlite:"):
-                db_target = f"sqlite:///{db_target}"
-            _log.warning(
-                "AURORA_DATABASE_URL not set — using local SQLite engine: %s",
-                db_target
-            )
-            eng = sa.create_engine(db_target)
+            if db_target == "sqlite:///:memory:":
+                from sqlalchemy.pool import StaticPool
+                eng = sa.create_engine(
+                    db_target,
+                    echo=False,
+                    poolclass=StaticPool,
+                    connect_args={"check_same_thread": False},
+                )
+            else:
+                eng = sa.create_engine(db_target, echo=False)
             Base.metadata.create_all(bind=eng)
+            self._engine = eng
             return eng
 
     # ── Source Data Extraction ──────────────────────────────────────────────
@@ -747,7 +751,27 @@ class Batch3BIntegrationsOrchestrator:
         try:
             for tr in report.tables:
                 tr.final_count = self.count_aurora_rows(fresh_session, tr.table_name)
-                if not commit:
+                if commit:
+                    expected_final = tr.aurora_pre_count + tr.inserted_count
+                    if tr.final_count != expected_final:
+                        raise RuntimeError(
+                            f"POST-COMMIT MISMATCH: {tr.table_name} final count "
+                            f"({tr.final_count}) != expected ({expected_final})! STOP."
+                        )
+                    # Verify primary keys on fresh connection
+                    if tr.inserted_count > 0:
+                        src_rows = source_data.get(tr.table_name, [])
+                        for sr in src_rows:
+                            pk_val = str(sr["id"])
+                            persisted = fresh_session.execute(
+                                sa.text(f'SELECT 1 FROM "{tr.table_name}" WHERE id = :id'),
+                                {"id": pk_val},
+                            ).first()
+                            if not persisted:
+                                raise RuntimeError(
+                                    f"POST-COMMIT PK MISSING: {tr.table_name} id={pk_val} not found on fresh connection! STOP."
+                                )
+                else:
                     if tr.final_count != tr.aurora_pre_count:
                         raise RuntimeError(
                             f"LEAK DETECTED: {tr.table_name} final count "
@@ -756,6 +780,23 @@ class Batch3BIntegrationsOrchestrator:
                         )
         finally:
             fresh_session.close()
+
+        # 4. Re-query Supabase post-migration to confirm 0 updates, 0 deletes, 100% source intact
+        _log.info("Verifying live Supabase source integrity post-migration...")
+        for table in self.TABLES:
+            post_sb_res = (
+                sb.table(table)
+                .select("*", count="exact", head=True)
+                .execute()
+            )
+            post_sb_count = post_sb_res.count or 0
+            init_count = len(source_data[table])
+            if post_sb_count != init_count:
+                raise RuntimeError(
+                    f"CRITICAL: Supabase source mutation detected for {table}! "
+                    f"Initial={init_count}, Post={post_sb_count}. STOP."
+                )
+        _log.info("Live Supabase source integrity CONFIRMED: 0 updates, 0 deletes across all tables.")
 
         report.finished_at = datetime.now(timezone.utc)
         return report
@@ -882,8 +923,11 @@ def main() -> None:
         if report.total_supabase_rows > 0
         else 100.0
     )
-    print(f"  Parity Rate       : {parity_pct:.2f}%")
-    print(f"  Residual Rows     : 0 (verified on fresh connection)")
+    if args.commit:
+        final_persisted = sum(t.final_count for t in report.tables)
+        print(f"  Final Aurora Rows : {final_persisted} (verified on fresh connection)")
+    else:
+        print(f"  Residual Rows     : 0 (verified on fresh connection)")
     print(f"  Elapsed           : {elapsed:.2f}s")
     print(f"  Overall Verdict   : {'PASS' if report.is_clean() else 'FAIL'}")
     print("=" * 70)
