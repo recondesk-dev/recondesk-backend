@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 import threading
 import time
@@ -12,6 +13,8 @@ from datetime import date, datetime
 from typing import Any, List, Optional, Tuple, TypeVar
 
 from supabase import Client
+
+_log = logging.getLogger(__name__)
 
 from app.constants import ChangeReason, DecisionNext, DecisionWhat, DecisionWhy
 from app.services import reconciliation_record_adapter as rec_adapt
@@ -1622,18 +1625,21 @@ def load_payload(sb: Client, run_id: str) -> dict[str, Any]:
         _log.warning("Aurora load_payload failed: %s", type(exc).__name__)
 
     # 2. Supabase fallback
-    r = (
-        sb.table("reconciliation_results")
-        .select("record_data, payload")
-        .eq("run_id", run_id)
-        .limit(1)
-        .execute()
-    )
-    if not r.data:
-        out: dict[str, Any] = {}
-    else:
-        row = r.data[0]
-        out = _merge_payload_blobs(row.get("record_data"), row.get("payload"))
+    out = {}
+    if sb is not None:
+        try:
+            r = (
+                sb.table("reconciliation_results")
+                .select("record_data, payload")
+                .eq("run_id", run_id)
+                .limit(1)
+                .execute()
+            )
+            if r.data:
+                row = r.data[0]
+                out = _merge_payload_blobs(row.get("record_data"), row.get("payload"))
+        except Exception as exc:
+            _log.warning("Supabase fallback load_payload failed: %s", exc)
     cache[ck] = out
     return out
 

@@ -77,6 +77,9 @@ def _serialize_summary(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+from app.repositories.vendor_compliance import get_vendor_compliance_repository
+
+
 @router.get("/scorecard")
 async def list_vendor_scorecard(
     current_user: dict = Depends(get_current_active_user),
@@ -90,14 +93,51 @@ async def list_vendor_scorecard(
     firm_id = _firm_owner_id(sb, current_user)
     sort_col = sort if sort in _SORT_COLS else "risk_score"
     desc = str(order or "desc").lower() != "asc"
+    prefix = str(q).strip().upper() if q and str(q).strip() else None
 
+    # Aurora PRIMARY
+    repo = get_vendor_compliance_repository()
+    if repo is not None:
+        try:
+            client_filter = None
+            if not _is_admin(current_user):
+                allowed = list_accessible_client_gstin_ids(sb, current_user)
+                if not allowed:
+                    return {
+                        "items": [],
+                        "total": 0,
+                        "limit": limit,
+                        "offset": offset,
+                        "signal_notes": SIGNAL_NOTES,
+                    }
+                client_filter = {str(x) for x in allowed}
+
+            rows, total = repo.list_supplier_compliance_summary(
+                firm_owner_id=firm_id,
+                limit=limit,
+                offset=offset,
+                sort_by=sort_col,
+                desc=desc,
+                prefix=prefix,
+                client_ids_filter=client_filter,
+            )
+            return {
+                "items": [_serialize_summary(x) for x in rows],
+                "total": total,
+                "limit": limit,
+                "offset": offset,
+                "signal_notes": SIGNAL_NOTES,
+            }
+        except Exception as exc:
+            _log.warning("Aurora list_supplier_compliance_summary failed, falling back to Supabase: %s", exc)
+
+    # Supabase FALLBACK
     query = (
         sb.table("supplier_compliance_summary")
         .select("*", count="exact")
         .eq("firm_owner_id", firm_id)
     )
-    if q and str(q).strip():
-        prefix = str(q).strip().upper()
+    if prefix:
         query = query.ilike("supplier_gstin_normalized", f"{prefix}%")
 
     if not _is_admin(current_user):
@@ -110,7 +150,6 @@ async def list_vendor_scorecard(
                 "offset": offset,
                 "signal_notes": SIGNAL_NOTES,
             }
-        # Fetch then filter by client overlap (PostgREST overlaps is awkward).
         raw = query.order(sort_col, desc=desc).limit(2000).execute()
         items = []
         for row in raw.data or []:
@@ -158,19 +197,30 @@ async def get_vendor_scorecard_detail(
             detail=f"invalid supplier GSTIN: {exc.reason}",
         ) from exc
 
-    r = (
-        sb.table("supplier_compliance_summary")
-        .select("*")
-        .eq("firm_owner_id", firm_id)
-        .eq("supplier_gstin_normalized", gstin)
-        .limit(1)
-        .execute()
-    )
-    if not r.data:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="supplier not found"
+    row = None
+    repo = get_vendor_compliance_repository()
+    if repo is not None:
+        try:
+            row = repo.get_supplier_compliance_summary(
+                firm_owner_id=firm_id, supplier_gstin_normalized=gstin
+            )
+        except Exception as exc:
+            _log.warning("Aurora get_supplier_compliance_summary failed, falling back to Supabase: %s", exc)
+
+    if row is None:
+        r = (
+            sb.table("supplier_compliance_summary")
+            .select("*")
+            .eq("firm_owner_id", firm_id)
+            .eq("supplier_gstin_normalized", gstin)
+            .limit(1)
+            .execute()
         )
-    row = r.data[0]
+        if not r.data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="supplier not found"
+            )
+        row = r.data[0]
     client_ids = [str(x) for x in (row.get("client_gstin_ids") or [])]
 
     if not _is_admin(current_user):

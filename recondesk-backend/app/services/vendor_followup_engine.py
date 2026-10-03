@@ -28,6 +28,15 @@ def _get_compliance_repo():
         return None
 
 
+def _get_vc_repo():
+    """Return Aurora vendor compliance repo or None."""
+    try:
+        from app.repositories.vendor_compliance import get_vendor_compliance_repository
+        return get_vendor_compliance_repository()
+    except Exception:
+        return None
+
+
 # Standard sanitization fallbacks for missing vendor master tokens
 DEFAULT_CONTACT_FALLBACK = "Accounts Payable Team"
 DEFAULT_SUPPLIER_NAME_FALLBACK = "Valued Supplier"
@@ -294,14 +303,26 @@ def get_vendor_risk_summaries(sb: Client, client_gstin_id: str) -> list[dict[str
     """Fetch high-risk vendor summary list for a client with total at-risk ITC."""
     vendor_map: dict[str, dict[str, Any]] = {}
 
-    # 1. Fetch supplier compliance summary for this client's firm
+    # 1. Fetch supplier compliance summary for this client's firm (Aurora primary with Supabase fallback)
     try:
-        res = (
-            sb.table("supplier_compliance_summary")
-            .select("*")
-            .execute()
-        )
-        for row in res.data or []:
+        vc_repo = _get_vc_repo()
+        summary_rows = []
+        if vc_repo is not None:
+            try:
+                summary_rows = vc_repo.list_all_supplier_compliance_summaries()
+            except Exception as vc_exc:
+                logger.warning("Aurora list_all_supplier_compliance_summaries failed, falling back to Supabase: %s", vc_exc)
+                summary_rows = []
+
+        if not summary_rows:
+            res = (
+                sb.table("supplier_compliance_summary")
+                .select("*")
+                .execute()
+            )
+            summary_rows = res.data or []
+
+        for row in summary_rows:
             c_ids = row.get("client_gstin_ids") or []
             if client_gstin_id in c_ids or not c_ids:
                 gstin = str(row.get("supplier_gstin_normalized") or "").strip().upper()
@@ -642,18 +663,35 @@ def fetch_vendor_invoices(sb: Client, client_gstin_id: str, supplier_gstin: str)
     invoices: list[dict[str, Any]] = []
     seen = set()
 
-    # 1. Query itc_work_items
+    # 1. Query itc_work_items (Aurora primary with Supabase fallback)
     try:
-        q = (
-            sb.table("itc_work_items")
-            .select("invoice_number, invoice_date, taxable_value, total_tax, itc_amount_at_stake, exception_type, status")
-            .eq("client_gstin_id", client_gstin_id)
-            .eq("vendor_gstin", supplier_gstin)
-        )
-        if hasattr(q, "neq"):
-            q = q.neq("status", "RESOLVED")
-        wi_res = q.limit(50).execute()
-        for r in wi_res.data or []:
+        vc_repo = _get_vc_repo()
+        wi_rows = None
+        if vc_repo is not None:
+            try:
+                page, _ = vc_repo.list_work_items(client_gstin_id, limit=100)
+                wi_rows = [
+                    r for r in page
+                    if (r.get("vendor_gstin") or "").upper() == supplier_gstin.upper()
+                    and r.get("status") != "RESOLVED"
+                ]
+            except Exception as vc_exc:
+                logger.warning("Aurora list_work_items failed, falling back to Supabase: %s", vc_exc)
+                wi_rows = None
+
+        if wi_rows is None:
+            q = (
+                sb.table("itc_work_items")
+                .select("invoice_number, invoice_date, taxable_value, total_tax, itc_amount_at_stake, exception_type, status")
+                .eq("client_gstin_id", client_gstin_id)
+                .eq("vendor_gstin", supplier_gstin)
+            )
+            if hasattr(q, "neq"):
+                q = q.neq("status", "RESOLVED")
+            wi_res = q.limit(50).execute()
+            wi_rows = wi_res.data or []
+
+        for r in wi_rows:
             if r.get("status") == "RESOLVED":
                 continue
             inv_no = str(r.get("invoice_number") or "").strip()
@@ -760,52 +798,61 @@ def log_followup_action(
         payload["message_body"] = message_body
 
     created_record = None
-    try:
-        res = sb.table("vendor_followup_logs").insert(payload).execute()
-        if res.data:
-            created_record = res.data[0]
-    except Exception as exc:
-        logger.warning("Supabase insert failed for vendor_followup_logs, using direct SQL fallback: %s", exc)
+    vc_repo = _get_vc_repo()
+    if vc_repo is not None:
         try:
-            from app.config import get_settings
-            import json
-            import sqlalchemy as sa
-            s = get_settings()
-            db_url = s.SUPABASE_DATABASE_URL or s.DATABASE_URL
-            if db_url:
-                eng = sa.create_engine(db_url)
-                with eng.connect() as conn:
-                    _ensure_table_exists(conn)
-                    conn.execute(
-                        sa.text(
-                            """
-                            INSERT INTO public.vendor_followup_logs
-                            (client_gstin_id, supplier_gstin, supplier_name, vendor_phone, vendor_email, channel, template_type, at_risk_itc_rupees, status, work_item_id, message_body, token, expires_at, invoices_snapshot)
-                            VALUES (:cid, :sgstin, :sname, :phone, :email, :chan, :ttype, :amt, :stat, :wid, :mbody, :tok, :exp, :inv_snap)
-                            """
-                        ),
-                        {
-                            "cid": client_gstin_id,
-                            "sgstin": supplier_gstin,
-                            "sname": supplier_name,
-                            "phone": vendor_phone,
-                            "email": vendor_email,
-                            "chan": channel,
-                            "ttype": template_type,
-                            "amt": at_risk_itc_rupees,
-                            "stat": status_label,
-                            "wid": work_item_id,
-                            "mbody": message_body,
-                            "tok": actual_token,
-                            "exp": actual_expires_at,
-                            "inv_snap": json.dumps(invoices_snapshot) if invoices_snapshot else None,
-                        },
-                    )
-                    conn.commit()
-                    eng.dispose()
-                    created_record = dict(payload)
-        except Exception as sql_exc:
-            logger.error("Direct SQL fallback failed for log_followup_action: %s", sql_exc)
+            created_record = vc_repo.insert_vendor_followup_log(payload)
+        except Exception as vc_exc:
+            logger.warning("Aurora insert_vendor_followup_log failed, falling back to Supabase: %s", vc_exc)
+            created_record = None
+
+    if not created_record:
+        try:
+            res = sb.table("vendor_followup_logs").insert(payload).execute()
+            if res.data:
+                created_record = res.data[0]
+        except Exception as exc:
+            logger.warning("Supabase insert failed for vendor_followup_logs, using direct SQL fallback: %s", exc)
+            try:
+                from app.config import get_settings
+                import json
+                import sqlalchemy as sa
+                s = get_settings()
+                db_url = s.SUPABASE_DATABASE_URL or s.DATABASE_URL
+                if db_url:
+                    eng = sa.create_engine(db_url)
+                    with eng.connect() as conn:
+                        _ensure_table_exists(conn)
+                        conn.execute(
+                            sa.text(
+                                """
+                                INSERT INTO public.vendor_followup_logs
+                                (client_gstin_id, supplier_gstin, supplier_name, vendor_phone, vendor_email, channel, template_type, at_risk_itc_rupees, status, work_item_id, message_body, token, expires_at, invoices_snapshot)
+                                VALUES (:cid, :sgstin, :sname, :phone, :email, :chan, :ttype, :amt, :stat, :wid, :mbody, :tok, :exp, :inv_snap)
+                                """
+                            ),
+                            {
+                                "cid": client_gstin_id,
+                                "sgstin": supplier_gstin,
+                                "sname": supplier_name,
+                                "phone": vendor_phone,
+                                "email": vendor_email,
+                                "chan": channel,
+                                "ttype": template_type,
+                                "amt": at_risk_itc_rupees,
+                                "stat": status_label,
+                                "wid": work_item_id,
+                                "mbody": message_body,
+                                "tok": actual_token,
+                                "exp": actual_expires_at,
+                                "inv_snap": json.dumps(invoices_snapshot) if invoices_snapshot else None,
+                            },
+                        )
+                        conn.commit()
+                        eng.dispose()
+                        created_record = dict(payload)
+            except Exception as sql_exc:
+                logger.error("Direct SQL fallback failed for log_followup_action: %s", sql_exc)
 
     # Only record COMMUNICATION_DISPATCHED if vendor_followup_logs was successfully persisted
     if work_item_id and created_record is not None:
@@ -824,7 +871,15 @@ def log_followup_action(
                 },
                 "created_at": datetime.now(timezone.utc).isoformat(),
             }
-            sb.table("itc_work_item_events").insert(ev_payload).execute()
+            recorded = False
+            if vc_repo is not None:
+                try:
+                    vc_repo.insert_work_item_event(ev_payload)
+                    recorded = True
+                except Exception as ev_vc_exc:
+                    logger.warning("Aurora insert_work_item_event failed, falling back to Supabase: %s", ev_vc_exc)
+            if not recorded:
+                sb.table("itc_work_item_events").insert(ev_payload).execute()
         except Exception as ev_exc:
             logger.warning("Failed to record COMMUNICATION_DISPATCHED event for work item %s: %s", work_item_id, ev_exc)
 
@@ -853,18 +908,36 @@ def create_or_get_followup_token(
     existing_token = None
     existing_invoices_count = 0
     try:
-        res = (
-            sb.table("vendor_followup_logs")
-            .select("id, token, expires_at, status, invoices_snapshot")
-            .eq("client_gstin_id", client_gstin_id)
-            .eq("supplier_gstin", norm_gstin)
-            .not_.is_("token", "null")
-            .order("dispatched_at", desc=True)
-            .limit(1)
-            .execute()
-        )
-        if res.data:
-            row = res.data[0]
+        vc_repo = _get_vc_repo()
+        row = None
+        if vc_repo is not None:
+            try:
+                logs = vc_repo.list_vendor_followup_logs_for_client(
+                    client_gstin_id,
+                    supplier_gstin=norm_gstin,
+                    limit=1,
+                )
+                if logs and logs[0].get("token"):
+                    row = logs[0]
+            except Exception as vc_exc:
+                logger.warning("Aurora list_vendor_followup_logs_for_client failed: %s", vc_exc)
+                row = None
+
+        if not row:
+            res = (
+                sb.table("vendor_followup_logs")
+                .select("id, token, expires_at, status, invoices_snapshot")
+                .eq("client_gstin_id", client_gstin_id)
+                .eq("supplier_gstin", norm_gstin)
+                .not_.is_("token", "null")
+                .order("dispatched_at", desc=True)
+                .limit(1)
+                .execute()
+            )
+            if res.data:
+                row = res.data[0]
+
+        if row:
             exp_raw = row.get("expires_at")
             if exp_raw:
                 exp_dt = datetime.fromisoformat(str(exp_raw).replace("Z", "+00:00"))
@@ -928,33 +1001,42 @@ def get_vendor_portal_data(sb: Client, token: str) -> dict[str, Any]:
             detail="Vendor portal token is required",
         )
 
-    # 1. Lookup followup log by token
+    # 1. Lookup followup log by token (Aurora primary with Supabase fallback)
     log_row = None
-    try:
-        res = sb.table("vendor_followup_logs").select("*").eq("token", clean_token).limit(1).execute()
-        if res.data:
-            log_row = res.data[0]
-    except Exception as exc:
-        logger.warning("PostgREST query by token failed, attempting SQL fallback: %s", exc)
+    vc_repo = _get_vc_repo()
+    if vc_repo is not None:
         try:
-            from app.config import get_settings
-            import sqlalchemy as sa
-            s = get_settings()
-            db_url = s.SUPABASE_DATABASE_URL or s.DATABASE_URL
-            if db_url:
-                eng = sa.create_engine(db_url)
-                with eng.connect() as conn:
-                    _ensure_table_exists(conn)
-                    q = conn.execute(
-                        sa.text("SELECT * FROM public.vendor_followup_logs WHERE token = :tok LIMIT 1"),
-                        {"tok": clean_token},
-                    )
-                    r = q.mappings().first()
-                    if r:
-                        log_row = dict(r)
-                eng.dispose()
-        except Exception as sql_exc:
-            logger.error("SQL fallback failed for token lookup: %s", sql_exc)
+            log_row = vc_repo.get_vendor_followup_log_by_token(clean_token)
+        except Exception as vc_exc:
+            logger.warning("Aurora get_vendor_followup_log_by_token failed, falling back to Supabase: %s", vc_exc)
+            log_row = None
+
+    if not log_row:
+        try:
+            res = sb.table("vendor_followup_logs").select("*").eq("token", clean_token).limit(1).execute()
+            if res.data:
+                log_row = res.data[0]
+        except Exception as exc:
+            logger.warning("PostgREST query by token failed, attempting SQL fallback: %s", exc)
+            try:
+                from app.config import get_settings
+                import sqlalchemy as sa
+                s = get_settings()
+                db_url = s.SUPABASE_DATABASE_URL or s.DATABASE_URL
+                if db_url:
+                    eng = sa.create_engine(db_url)
+                    with eng.connect() as conn:
+                        _ensure_table_exists(conn)
+                        q = conn.execute(
+                            sa.text("SELECT * FROM public.vendor_followup_logs WHERE token = :tok LIMIT 1"),
+                            {"tok": clean_token},
+                        )
+                        r = q.mappings().first()
+                        if r:
+                            log_row = dict(r)
+                    eng.dispose()
+            except Exception as sql_exc:
+                logger.error("SQL fallback failed for token lookup: %s", sql_exc)
 
     if not log_row:
         raise HTTPException(
@@ -983,10 +1065,22 @@ def get_vendor_portal_data(sb: Client, token: str) -> dict[str, Any]:
         try:
             current_status = log_row.get("status")
             new_status = "VIEWED" if current_status in ("SENT", "LINK_OPENED", "DISPATCHED") else current_status
-            sb.table("vendor_followup_logs").update({
+            log_id_str = str(log_row["id"])
+            upd_data = {
                 "viewed_at": now_iso,
                 "status": new_status,
-            }).eq("id", log_row["id"]).execute()
+            }
+            updated_aurora = False
+            if vc_repo is not None:
+                try:
+                    vc_repo.update_vendor_followup_log(log_id_str, upd_data)
+                    updated_aurora = True
+                except Exception as vc_u_exc:
+                    logger.warning("Aurora update_vendor_followup_log viewed_at failed: %s", vc_u_exc)
+
+            if not updated_aurora:
+                sb.table("vendor_followup_logs").update(upd_data).eq("id", log_id_str).execute()
+
             log_row["viewed_at"] = now_iso
             log_row["status"] = new_status
         except Exception as exc:
@@ -997,13 +1091,25 @@ def get_vendor_portal_data(sb: Client, token: str) -> dict[str, Any]:
     client_name = "Finance & Tax Team"
     client_gstin = ""
     try:
-        c_res = sb.table("client_gstins").select("gstin, legal_name, trade_name").eq("id", client_id).limit(1).execute()
-        if c_res.data:
-            c_row = c_res.data[0]
-            client_gstin = str(c_row.get("gstin") or "").strip()
-            client_name = str(c_row.get("trade_name") or c_row.get("legal_name") or "Valued Client").strip()
+        from app.repositories.tenancy import get_tenancy_repository
+        trepo = get_tenancy_repository()
+        if trepo:
+            c_row = trepo.get_client_gstin(client_id)
+            if c_row:
+                client_gstin = str(c_row.get("gstin") or "").strip()
+                client_name = str(c_row.get("trade_name") or c_row.get("legal_name") or "Valued Client").strip()
     except Exception as exc:
-        logger.warning("Failed to fetch client details for portal: %s", exc)
+        logger.debug("Aurora client lookup unavailable for portal: %s", exc)
+
+    if not client_gstin and sb is not None:
+        try:
+            c_res = sb.table("client_gstins").select("gstin, legal_name, trade_name").eq("id", client_id).limit(1).execute()
+            if c_res.data:
+                c_row = c_res.data[0]
+                client_gstin = str(c_row.get("gstin") or "").strip()
+                client_name = str(c_row.get("trade_name") or c_row.get("legal_name") or "Valued Client").strip()
+        except Exception as exc:
+            logger.warning("Failed to fetch client details for portal: %s", exc)
 
     # 5. Retrieve invoice list strictly from immutable snapshot taken at notice dispatch time
     raw_snap = log_row.get("invoices_snapshot")
@@ -1024,9 +1130,15 @@ def get_vendor_portal_data(sb: Client, token: str) -> dict[str, Any]:
         invoices = fetch_vendor_invoices(sb, client_id, log_row["supplier_gstin"])
         if invoices:
             try:
-                sb.table("vendor_followup_logs").update({
-                    "invoices_snapshot": invoices
-                }).eq("id", log_row["id"]).execute()
+                log_id_str = str(log_row["id"])
+                snap_upd = {"invoices_snapshot": invoices}
+                if vc_repo is not None:
+                    try:
+                        vc_repo.update_vendor_followup_log(log_id_str, snap_upd)
+                    except Exception:
+                        sb.table("vendor_followup_logs").update(snap_upd).eq("id", log_id_str).execute()
+                else:
+                    sb.table("vendor_followup_logs").update(snap_upd).eq("id", log_id_str).execute()
             except Exception as exc:
                 logger.warning("Could not freeze fallback invoices_snapshot: %s", exc)
 
@@ -1113,48 +1225,59 @@ def submit_vendor_portal_response(
         "responded_at": now_iso,
     }
 
-    try:
-        sb.table("vendor_followup_logs").update(update_payload).eq("id", log_id).execute()
-    except Exception as exc:
-        logger.warning("Supabase update failed, attempting direct SQL: %s", exc)
+    updated_aurora = False
+    vc_repo = _get_vc_repo()
+    if vc_repo is not None:
         try:
-            from app.config import get_settings
-            import sqlalchemy as sa
-            s = get_settings()
-            db_url = s.SUPABASE_DATABASE_URL or s.DATABASE_URL
-            if db_url:
-                eng = sa.create_engine(db_url)
-                with eng.connect() as conn:
-                    _ensure_table_exists(conn)
-                    conn.execute(
-                        sa.text(
-                            """
-                            UPDATE public.vendor_followup_logs
-                            SET status = :stat,
-                                response_action = :act,
-                                arn_number = :arn,
-                                promised_period = :pperiod,
-                                dispute_reason = :dreason,
-                                attachment_key = :akey,
-                                responded_at = :resp_at
-                            WHERE id = :lid
-                            """
-                        ),
-                        {
-                            "stat": status_val,
-                            "act": clean_action,
-                            "arn": update_payload["arn_number"],
-                            "pperiod": update_payload["promised_period"],
-                            "dreason": update_payload["dispute_reason"],
-                            "akey": update_payload["attachment_key"],
-                            "resp_at": now_iso,
-                            "lid": log_id,
-                        },
-                    )
-                    conn.commit()
-                eng.dispose()
-        except Exception as sql_exc:
-            logger.error("SQL update failed in submit_vendor_portal_response: %s", sql_exc)
+            res = vc_repo.update_vendor_followup_log(log_id, update_payload)
+            if res:
+                updated_aurora = True
+        except Exception as vc_exc:
+            logger.warning("Aurora update_vendor_followup_log failed, falling back to Supabase: %s", vc_exc)
+
+    if not updated_aurora:
+        try:
+            sb.table("vendor_followup_logs").update(update_payload).eq("id", log_id).execute()
+        except Exception as exc:
+            logger.warning("Supabase update failed, attempting direct SQL: %s", exc)
+            try:
+                from app.config import get_settings
+                import sqlalchemy as sa
+                s = get_settings()
+                db_url = s.SUPABASE_DATABASE_URL or s.DATABASE_URL
+                if db_url:
+                    eng = sa.create_engine(db_url)
+                    with eng.connect() as conn:
+                        _ensure_table_exists(conn)
+                        conn.execute(
+                            sa.text(
+                                """
+                                UPDATE public.vendor_followup_logs
+                                SET status = :stat,
+                                    response_action = :act,
+                                    arn_number = :arn,
+                                    promised_period = :pperiod,
+                                    dispute_reason = :dreason,
+                                    attachment_key = :akey,
+                                    responded_at = :resp_at
+                                WHERE id = :lid
+                                """
+                            ),
+                            {
+                                "stat": status_val,
+                                "act": clean_action,
+                                "arn": update_payload["arn_number"],
+                                "pperiod": update_payload["promised_period"],
+                                "dreason": update_payload["dispute_reason"],
+                                "akey": update_payload["attachment_key"],
+                                "resp_at": now_iso,
+                                "lid": log_id,
+                            },
+                        )
+                        conn.commit()
+                    eng.dispose()
+            except Exception as sql_exc:
+                logger.error("SQL update failed in submit_vendor_portal_response: %s", sql_exc)
 
     return {
         "success": True,
@@ -1178,10 +1301,12 @@ def update_vendor_contact_info(
     vendor_phone: Optional[str] = None,
     vendor_email: Optional[str] = None,
 ) -> dict[str, Any]:
-    """Persist updated vendor mobile and email into supplier compliance summary & recent logs."""
+    """Persist updated vendor mobile and email into supplier compliance summary & recent logs (Aurora primary with Supabase fallback)."""
     gstin_norm = (supplier_gstin or "").strip().upper()
     phone_clean = "".join(c for c in (vendor_phone or "") if c.isdigit())
     email_clean = (vendor_email or "").strip().lower()
+
+    vc_repo = _get_vc_repo()
 
     # 1. Update in supplier_compliance_summary if row exists
     try:
@@ -1191,7 +1316,17 @@ def update_vendor_contact_info(
         if email_clean:
             upd["vendor_email"] = email_clean
         if upd:
-            sb.table("supplier_compliance_summary").update(upd).eq("supplier_gstin_normalized", gstin_norm).execute()
+            updated_summary = False
+            if vc_repo is not None:
+                try:
+                    count = vc_repo.update_supplier_compliance_summary_by_gstin(gstin_norm, upd)
+                    if count > 0:
+                        updated_summary = True
+                except Exception as vc_exc:
+                    logger.warning("Aurora update_supplier_compliance_summary_by_gstin failed: %s", vc_exc)
+
+            if not updated_summary:
+                sb.table("supplier_compliance_summary").update(upd).eq("supplier_gstin_normalized", gstin_norm).execute()
     except Exception as exc:
         logger.warning("Could not update supplier_compliance_summary: %s", exc)
 
@@ -1203,7 +1338,17 @@ def update_vendor_contact_info(
         if email_clean:
             log_upd["vendor_email"] = email_clean
         if log_upd:
-            sb.table("vendor_followup_logs").update(log_upd).eq("client_gstin_id", client_gstin_id).eq("supplier_gstin", gstin_norm).execute()
+            updated_logs = False
+            if vc_repo is not None:
+                try:
+                    count = vc_repo.update_vendor_followup_logs_by_supplier(client_gstin_id, gstin_norm, log_upd)
+                    if count > 0:
+                        updated_logs = True
+                except Exception as vc_exc:
+                    logger.warning("Aurora update_vendor_followup_logs_by_supplier failed: %s", vc_exc)
+
+            if not updated_logs:
+                sb.table("vendor_followup_logs").update(log_upd).eq("client_gstin_id", client_gstin_id).eq("supplier_gstin", gstin_norm).execute()
     except Exception as exc:
         logger.warning("Could not update vendor_followup_logs: %s", exc)
 
@@ -1220,7 +1365,14 @@ def get_work_item_followup_history(
     client_gstin_id: str,
     work_item_id: str,
 ) -> list[dict[str, Any]]:
-    """Retrieve follow-up dispatch history explicitly linked to a work item."""
+    """Retrieve follow-up dispatch history explicitly linked to a work item (Aurora primary with Supabase fallback)."""
+    vc_repo = _get_vc_repo()
+    if vc_repo is not None:
+        try:
+            return vc_repo.list_vendor_followup_logs_for_work_item(work_item_id, limit=100)
+        except Exception as vc_exc:
+            logger.warning("Aurora list_vendor_followup_logs_for_work_item failed: %s", vc_exc)
+
     try:
         res = (
             sb.table("vendor_followup_logs")
@@ -1238,7 +1390,14 @@ def get_work_item_followup_history(
 
 
 def get_followup_history(sb: Client, client_gstin_id: str) -> list[dict[str, Any]]:
-    """Retrieve follow-up dispatch logs for a client."""
+    """Retrieve follow-up dispatch logs for a client (Aurora primary with Supabase fallback)."""
+    vc_repo = _get_vc_repo()
+    if vc_repo is not None:
+        try:
+            return vc_repo.list_vendor_followup_logs_for_client(client_gstin_id, limit=100)
+        except Exception as vc_exc:
+            logger.warning("Aurora list_vendor_followup_logs_for_client failed: %s", vc_exc)
+
     try:
         res = (
             sb.table("vendor_followup_logs")

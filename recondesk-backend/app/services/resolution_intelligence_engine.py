@@ -45,6 +45,15 @@ def _calculate_age_days(invoice_date_str: Optional[str], ref_date: Optional[date
     return max(0, delta)
 
 
+def _get_vc_repo():
+    """Return the Aurora vendor compliance repository if available."""
+    try:
+        from app.repositories.vendor_compliance import get_vendor_compliance_repository
+        return get_vendor_compliance_repository()
+    except Exception:
+        return None
+
+
 def get_work_item_resolution_intelligence(
     sb: Client,
     item: dict[str, Any],
@@ -79,43 +88,58 @@ def get_work_item_resolution_intelligence(
     user_role = str(current_user.get("role") or "staff").lower()
     is_admin = user_role in ("admin", "owner")
 
-    # 1. Fetch precomputed supplier compliance scorecard (read-only)
+    # 1. Fetch precomputed supplier compliance scorecard (read-only, Aurora primary with Supabase fallback)
     summary_data: dict[str, Any] = {}
+    vc_repo = _get_vc_repo()
     if vendor_gstin and firm_id:
         try:
             norm_gstin = normalize_gstin(vendor_gstin)
         except Exception:
             norm_gstin = vendor_gstin
 
-        try:
-            res = (
-                sb.table("supplier_compliance_summary")
-                .select("*")
-                .eq("firm_owner_id", firm_id)
-                .eq("supplier_gstin_normalized", norm_gstin)
-                .limit(1)
-                .execute()
-            )
-            if res.data:
-                summary_data = res.data[0]
-        except Exception as exc:
-            _log.warning("supplier_compliance_summary lookup failed: %s", exc)
+        if vc_repo is not None:
+            try:
+                summary_data = vc_repo.get_supplier_compliance_summary(firm_id, norm_gstin) or {}
+            except Exception as vc_exc:
+                _log.warning("Aurora get_supplier_compliance_summary failed: %s", vc_exc)
 
-    # 2. Fetch follow-up dispatch logs for this work item (read-only)
+        if not summary_data:
+            try:
+                res = (
+                    sb.table("supplier_compliance_summary")
+                    .select("*")
+                    .eq("firm_owner_id", firm_id)
+                    .eq("supplier_gstin_normalized", norm_gstin)
+                    .limit(1)
+                    .execute()
+                )
+                if res.data:
+                    summary_data = res.data[0]
+            except Exception as exc:
+                _log.warning("supplier_compliance_summary lookup failed: %s", exc)
+
+    # 2. Fetch follow-up dispatch logs for this work item (read-only, Aurora primary with Supabase fallback)
     followup_logs: list[dict[str, Any]] = []
     if wid:
-        try:
-            res = (
-                sb.table("vendor_followup_logs")
-                .select("id, channel, template_type, status, dispatched_at, message_body")
-                .eq("work_item_id", wid)
-                .order("dispatched_at", desc=True)
-                .limit(25)
-                .execute()
-            )
-            followup_logs = res.data or []
-        except Exception as exc:
-            _log.warning("vendor_followup_logs lookup failed: %s", exc)
+        if vc_repo is not None:
+            try:
+                followup_logs = vc_repo.list_vendor_followup_logs_for_work_item(wid, limit=25)
+            except Exception as vc_exc:
+                _log.warning("Aurora list_vendor_followup_logs_for_work_item failed: %s", vc_exc)
+
+        if not followup_logs:
+            try:
+                res = (
+                    sb.table("vendor_followup_logs")
+                    .select("id, channel, template_type, status, dispatched_at, message_body")
+                    .eq("work_item_id", wid)
+                    .order("dispatched_at", desc=True)
+                    .limit(25)
+                    .execute()
+                )
+                followup_logs = res.data or []
+            except Exception as exc:
+                _log.warning("vendor_followup_logs lookup failed: %s", exc)
 
     # 3. Analyze work-item timeline events (read-only)
     events: list[dict[str, Any]] = item.get("events") or []

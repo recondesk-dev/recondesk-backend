@@ -9,6 +9,11 @@ from app.repositories.gstr3b import (
     get_gstr3b_repository,
     set_gstr3b_repository,
 )
+from app.repositories.vendor_compliance import (
+    AuroraVendorComplianceRepository,
+    get_vendor_compliance_repository,
+    set_vendor_compliance_repository,
+)
 
 __all__ = [
     "AuroraComplianceRepository",
@@ -16,4 +21,7 @@ __all__ = [
     "AuroraGstr3bRepository",
     "get_gstr3b_repository",
     "set_gstr3b_repository",
+    "AuroraVendorComplianceRepository",
+    "get_vendor_compliance_repository",
+    "set_vendor_compliance_repository",
 ]

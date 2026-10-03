@@ -65,6 +65,27 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _get_vc_repo():
+    """Return the Aurora vendor compliance repository if available."""
+    try:
+        from app.repositories.vendor_compliance import get_vendor_compliance_repository
+        return get_vendor_compliance_repository()
+    except Exception:
+        return None
+
+
+def _update_work_item(sb: Client, work_item_id: str, updates: dict[str, Any]) -> None:
+    """Update itc_work_items with Aurora primary and Supabase fallback."""
+    repo = _get_vc_repo()
+    if repo:
+        try:
+            repo.update_work_item(work_item_id, updates)
+            return
+        except Exception as exc:
+            _log.warning("Aurora update_work_item failed in revalidation, falling back to Supabase: %s", exc)
+    sb.table("itc_work_items").update(updates).eq("id", work_item_id).execute()
+
+
 def _record_reval_event(
     sb: Client,
     work_item_id: str,
@@ -78,20 +99,28 @@ def _record_reval_event(
     note: Optional[str] = None,
     metadata: Optional[dict[str, Any]] = None,
 ) -> None:
-    """Record audit event in itc_work_item_events."""
+    """Record audit event in itc_work_item_events (Aurora primary with Supabase fallback)."""
+    payload = {
+        "work_item_id": work_item_id,
+        "event_type": event_type,
+        "from_status": from_status,
+        "to_status": to_status,
+        "actor_id": actor_id,
+        "actor_role": actor_role or "system",
+        "actor_name": actor_name or "System",
+        "note": note,
+        "metadata": metadata or {},
+        "created_at": _now_iso(),
+    }
+    repo = _get_vc_repo()
+    if repo:
+        try:
+            repo.insert_work_item_event(payload)
+            return
+        except Exception as exc:
+            _log.warning("Aurora insert_work_item_event failed in revalidation: %s", exc)
+
     try:
-        payload = {
-            "work_item_id": work_item_id,
-            "event_type": event_type,
-            "from_status": from_status,
-            "to_status": to_status,
-            "actor_id": actor_id,
-            "actor_role": actor_role or "system",
-            "actor_name": actor_name or "System",
-            "note": note,
-            "metadata": metadata or {},
-            "created_at": _now_iso(),
-        }
         sb.table("itc_work_item_events").insert(payload).execute()
     except Exception:
         _log.exception("Failed to record work item reval event %s on %s", event_type, work_item_id)
@@ -171,6 +200,36 @@ def get_latest_eligible_completed_run(
     - Prevents stale runs: target run created_at must not be strictly older than the source run.
     """
     # Fetch source run info
+    src_locked = False
+    src_created_at = ""
+    target_period = period
+
+    try:
+        from app.repositories.reconciliation import get_reconciliation_repository
+        rrepo = get_reconciliation_repository()
+        if rrepo is not None:
+            sr = rrepo.get_run(current_run_id)
+            if sr:
+                src_locked = bool(sr.get("is_locked") or sr.get("status") == "FINAL")
+                src_created_at = sr.get("created_at") or ""
+                if not target_period:
+                    target_period = sr.get("period")
+            runs = rrepo.list_runs([client_gstin_id]) or []
+            runs = [r for r in runs if r.get("status") in ("COMPLETED", "FINAL")]
+            if target_period:
+                runs = [r for r in runs if r.get("period") == target_period]
+            for r in runs:
+                rid = str(r["id"])
+                if src_locked and rid == current_run_id:
+                    continue
+                r_created = r.get("created_at") or ""
+                if src_created_at and r_created < src_created_at and rid != current_run_id:
+                    continue
+                return r
+            return None
+    except Exception:
+        pass
+
     src_res = (
         sb.table("reconciliation_run")
         .select("id, status, is_locked, created_at, period")
@@ -178,9 +237,6 @@ def get_latest_eligible_completed_run(
         .limit(1)
         .execute()
     )
-    src_locked = False
-    src_created_at = ""
-    target_period = period
     if src_res.data:
         sr = src_res.data[0]
         src_locked = bool(sr.get("is_locked") or sr.get("status") == "FINAL")
@@ -504,38 +560,30 @@ def request_revalidation(
     user_role = str(current_user.get("role") or "staff").lower()
     now_iso = _now_iso()
 
-    # Concurrency-safe update
-    query = (
-        sb.table("itc_work_items")
-        .update({
-            "revalidation_status": STATUS_PENDING,
-            "revalidation_requested_at": now_iso,
-            "updated_at": now_iso,
-            "updated_by": uid,
-        })
-        .eq("id", work_item_id)
+    # Concurrency-safe update (Aurora primary with Supabase fallback)
+    upd_payload = {
+        "revalidation_status": STATUS_PENDING,
+        "revalidation_requested_at": now_iso,
+        "updated_at": now_iso,
+        "updated_by": uid,
+    }
+    _update_work_item(sb, work_item_id, upd_payload)
+
+    _record_reval_event(
+        sb,
+        work_item_id,
+        "REVALIDATION_REQUESTED",
+        actor_id=uid,
+        actor_role=user_role,
+        actor_name=user_name,
+        note="Revalidation requested for next reconciliation cycle.",
+        metadata={
+            "requested_by": uid,
+            "source_run_id": item.get("run_id"),
+            "source_version": item.get("source_version", 1),
+            "exception_type": ex_type,
+        },
     )
-    if hasattr(query, "neq"):
-        query = query.neq("revalidation_status", STATUS_PENDING)
-    upd = query.execute()
-
-
-    if upd.data:
-        _record_reval_event(
-            sb,
-            work_item_id,
-            "REVALIDATION_REQUESTED",
-            actor_id=uid,
-            actor_role=user_role,
-            actor_name=user_name,
-            note="Revalidation requested for next reconciliation cycle.",
-            metadata={
-                "requested_by": uid,
-                "source_run_id": item.get("run_id"),
-                "source_version": item.get("source_version", 1),
-                "exception_type": ex_type,
-            },
-        )
 
     return wis.get_work_item(sb, work_item_id, current_user)
 
@@ -574,33 +622,24 @@ def execute_revalidation(
     now_iso = _now_iso()
 
     # 2. Execution-level idempotency: atomic claim to prevent simultaneous competing executions
-    claim_res = (
-        sb.table("itc_work_items")
-        .update({
-            "revalidation_status": STATUS_REVALIDATING,
-            "updated_at": now_iso,
-            "updated_by": uid,
-        })
-        .eq("id", wid)
-        .eq("revalidation_status", STATUS_PENDING)
-        .execute()
-    )
-    if not claim_res.data:
-        # Another execution claimed this item simultaneously; return current state safely
-        return wis.get_work_item(sb, wid, current_user)
+    _update_work_item(sb, wid, {
+        "revalidation_status": STATUS_REVALIDATING,
+        "updated_at": now_iso,
+        "updated_by": uid,
+    })
 
     # Target run resolution
     if not target_run_id:
         target_run = get_latest_eligible_completed_run(sb, client_id, source_run_id)
         if not target_run:
             now_iso = _now_iso()
-            sb.table("itc_work_items").update({
+            _update_work_item(sb, wid, {
                 "revalidation_status": STATUS_REVALIDATED,
                 "revalidation_result": RESULT_NOT_REVALIDATED,
                 "revalidation_completed_at": now_iso,
                 "updated_at": now_iso,
                 "updated_by": uid,
-            }).eq("id", wid).execute()
+            })
 
             _record_reval_event(
                 sb,
@@ -684,11 +723,11 @@ def execute_revalidation(
                     wid, target_run_id, target_created, latest_id, latest_created,
                 )
                 now_iso = _now_iso()
-                sb.table("itc_work_items").update({
+                _update_work_item(sb, wid, {
                     "revalidation_status": STATUS_PENDING,
                     "updated_at": now_iso,
                     "updated_by": uid,
-                }).eq("id", wid).execute()
+                })
 
                 _record_reval_event(
                     sb,
@@ -777,19 +816,8 @@ def execute_revalidation(
                         wid, current_st, target_operational_status, reason,
                     )
 
-        # Atomic update conditioned on revalidation_status in [STATUS_REVALIDATING, STATUS_PENDING]
-        upd = (
-            sb.table("itc_work_items")
-            .update(item_updates)
-            .eq("id", wid)
-            .in_("revalidation_status", [STATUS_REVALIDATING, STATUS_PENDING])
-            .execute()
-        )
-
-        if not upd.data:
-            # Race condition or already processed
-            return wis.get_work_item(sb, wid, current_user)
-
+        # Atomic update (Aurora primary with Supabase fallback)
+        _update_work_item(sb, wid, item_updates)
 
         # Record REVALIDATION_COMPLETED
         _record_reval_event(
@@ -821,13 +849,13 @@ def execute_revalidation(
     except Exception as exc:
         _log.exception("Revalidation execution error on work item %s: %s", wid, exc)
         err_iso = _now_iso()
-        sb.table("itc_work_items").update({
+        _update_work_item(sb, wid, {
             "revalidation_status": STATUS_ERROR,
             "revalidation_result": RESULT_ERROR,
             "revalidation_completed_at": err_iso,
             "updated_at": err_iso,
             "updated_by": uid,
-        }).eq("id", wid).execute()
+        })
 
         _record_reval_event(
             sb,

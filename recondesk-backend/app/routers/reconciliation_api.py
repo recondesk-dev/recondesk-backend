@@ -1133,6 +1133,16 @@ def _followup_audit_query(
     st = (status or "").strip().lower() or None
     sg = (supplier_gstin or "").strip().upper() or None
     tp = (tax_period or "").strip() or None
+    from app.repositories.vendor_compliance import get_vendor_compliance_repository
+    vc_repo = get_vendor_compliance_repository()
+    if vc_repo is not None:
+        try:
+            if run_id:
+                return vc_repo.list_supplier_followup_audit_for_run(run_id, status=st, supplier_gstin=sg)
+            elif run_ids is not None:
+                return vc_repo.list_supplier_followup_audit_for_runs(ids, status=st, tax_period=tp)
+        except Exception as exc:
+            _log.warning("Aurora followup audit query failed, falling back to Supabase: %s", exc)
 
     rows: list[dict[str, Any]] = []
     for i in range(0, len(ids), _FOLLOWUP_AUDIT_RUN_CHUNK):
@@ -5950,6 +5960,13 @@ async def delete_reconcile_run(
                         repo.delete_rule37_actions_for_run(rid)
                     except Exception as exc:
                         _log.warning("delete_rule37_actions_for_run: Aurora failed run_id=%s: %s", rid, exc)
+                vc_repo = get_vendor_compliance_repository()
+                if vc_repo is not None:
+                    try:
+                        vc_repo.delete_supplier_followup_audit_for_run(rid)
+                        vc_repo.delete_work_items_for_run(rid)
+                    except Exception as exc:
+                        _log.warning("delete_reconcile_run: Aurora Batch 2C cleanup failed run_id=%s: %s", rid, exc)
                 _safe_delete_by_eq(sb, "rule37_actions", "run_id", rid)
                 if import_row:
                     _safe_delete_by_eq(sb, "reconciliation_import_runs", "id", rid)
@@ -6573,29 +6590,39 @@ def _log_supplier_followup_audit_impl(
         "supplier_name_display": (body.supplier_name_display or "").strip() or None,
         "letter_body": letter_body,
     }
-    try:
-        ins = sb.table("supplier_followup_audit").insert(row_ins).execute()
-    except HTTPException:
-        raise
-    except Exception as exc:
-        detail = supabase_error_message(
-            exc, context="supplier_followup_audit insert failed"
-        )
-        _log.exception(
-            "supplier_followup_audit insert failed run_id=%s detail=%s",
-            rid,
-            detail,
-        )
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=detail,
-        ) from exc
-    if not ins.data:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="failed to record follow-up audit",
-        )
-    out = ins.data[0]
+    from app.repositories.vendor_compliance import get_vendor_compliance_repository
+    vc_repo = get_vendor_compliance_repository()
+    out = None
+    if vc_repo is not None:
+        try:
+            out = vc_repo.insert_supplier_followup_audit(row_ins)
+        except Exception as exc:
+            _log.warning("Aurora insert_supplier_followup_audit failed, falling back to Supabase: %s", exc)
+
+    if out is None:
+        try:
+            ins = sb.table("supplier_followup_audit").insert(row_ins).execute()
+        except HTTPException:
+            raise
+        except Exception as exc:
+            detail = supabase_error_message(
+                exc, context="supplier_followup_audit insert failed"
+            )
+            _log.exception(
+                "supplier_followup_audit insert failed run_id=%s detail=%s",
+                rid,
+                detail,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=detail,
+            ) from exc
+        if not ins.data:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="failed to record follow-up audit",
+            )
+        out = ins.data[0]
     return SupplierFollowupAuditResponse(
         id=str(out.get("id") or ""),
         status=str(out.get("status") or body.status),

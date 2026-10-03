@@ -567,7 +567,27 @@ def _replace_client_contributions(
     client_gstin_id: str,
     counters: dict[str, SupplierClientCounters],
 ) -> set[str]:
-    """Replace by_client rows for this client. Returns old∪new supplier GSTINs."""
+    now = _now_iso()
+    rows = [
+        counters_to_row_dict(
+            c, firm_owner_id=firm_owner_id, client_gstin_id=client_gstin_id, now_iso=now
+        )
+        for c in counters.values()
+    ]
+
+    from app.repositories.vendor_compliance import get_vendor_compliance_repository
+    vc_repo = get_vendor_compliance_repository()
+    if vc_repo is not None:
+        try:
+            affected = vc_repo.replace_client_contributions(
+                firm_owner_id=firm_owner_id,
+                client_gstin_id=client_gstin_id,
+                rows=rows,
+            )
+            return affected
+        except Exception as exc:
+            _log.warning("Aurora replace_client_contributions failed, falling back to Supabase: %s", exc)
+
     prior = (
         sb.table("supplier_compliance_by_client")
         .select("supplier_gstin_normalized")
@@ -586,13 +606,6 @@ def _replace_client_contributions(
         "firm_owner_id", firm_owner_id
     ).eq("client_gstin_id", client_gstin_id).execute()
 
-    now = _now_iso()
-    rows = [
-        counters_to_row_dict(
-            c, firm_owner_id=firm_owner_id, client_gstin_id=client_gstin_id, now_iso=now
-        )
-        for c in counters.values()
-    ]
     for i in range(0, len(rows), 200):
         chunk = rows[i : i + 200]
         if chunk:
@@ -604,6 +617,29 @@ def _rollup_suppliers(
     sb: Client, *, firm_owner_id: str, supplier_gstins: Iterable[str]
 ) -> None:
     now = _now_iso()
+    from app.repositories.vendor_compliance import get_vendor_compliance_repository
+    vc_repo = get_vendor_compliance_repository()
+    if vc_repo is not None:
+        try:
+            for gstin in supplier_gstins:
+                if not gstin:
+                    continue
+                rows = vc_repo.get_by_client_rows_for_supplier(
+                    firm_owner_id=firm_owner_id, supplier_gstin_normalized=gstin
+                )
+                if not rows:
+                    vc_repo.delete_supplier_compliance_summary(
+                        firm_owner_id=firm_owner_id, supplier_gstin_normalized=gstin
+                    )
+                    continue
+                rolled = rollup_client_rows(rows)
+                rolled["firm_owner_id"] = firm_owner_id
+                rolled["last_updated_at"] = now
+                vc_repo.upsert_supplier_compliance_summary(rolled)
+            return
+        except Exception as exc:
+            _log.warning("Aurora _rollup_suppliers failed, falling back to Supabase: %s", exc)
+
     for gstin in supplier_gstins:
         if not gstin:
             continue
@@ -682,6 +718,14 @@ def rebuild_firm(sb: Client, firm_owner_id: str) -> None:
         all_suppliers |= affected
 
     # Drop stale summary rows for this firm
+    from app.repositories.vendor_compliance import get_vendor_compliance_repository
+    vc_repo = get_vendor_compliance_repository()
+    if vc_repo is not None:
+        try:
+            vc_repo.delete_stale_summary_rows(firm_owner_id=fid, valid_gstins=all_suppliers)
+        except Exception as exc:
+            _log.warning("Aurora delete_stale_summary_rows failed, falling back to Supabase: %s", exc)
+
     existing = (
         sb.table("supplier_compliance_summary")
         .select("supplier_gstin_normalized")

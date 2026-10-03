@@ -199,16 +199,22 @@ def get_itc_command_center_data(
 
     if target_run and run_id:
         try:
-            persisted_res = (
-                sb.table("itc_work_items")
-                .select("*")
-                .eq("run_id", run_id)
-                .execute()
-            )
-            persisted_rows = persisted_res.data or []
-            if not persisted_rows and all_outcomes:
-                from app.services.itc_work_item_service import sync_work_items_for_run
-                sync_work_items_for_run(sb, client_id, run_id, user_id=user_id)
+            repo = None
+            try:
+                from app.repositories.vendor_compliance import get_vendor_compliance_repository
+                repo = get_vendor_compliance_repository()
+            except Exception:
+                repo = None
+
+            if repo is not None:
+                try:
+                    items_map = repo.get_existing_work_items_map_for_run(run_id)
+                    persisted_rows = list(items_map.values())
+                except Exception as vc_exc:
+                    _log.warning("Aurora get_existing_work_items_map_for_run failed: %s", vc_exc)
+                    persisted_rows = []
+
+            if not persisted_rows and not repo:
                 persisted_res = (
                     sb.table("itc_work_items")
                     .select("*")
@@ -216,6 +222,24 @@ def get_itc_command_center_data(
                     .execute()
                 )
                 persisted_rows = persisted_res.data or []
+
+            if not persisted_rows and all_outcomes:
+                from app.services.itc_work_item_service import sync_work_items_for_run
+                sync_work_items_for_run(sb, client_id, run_id, user_id=user_id)
+                if repo is not None:
+                    try:
+                        items_map = repo.get_existing_work_items_map_for_run(run_id)
+                        persisted_rows = list(items_map.values())
+                    except Exception:
+                        persisted_rows = []
+                if not persisted_rows:
+                    persisted_res = (
+                        sb.table("itc_work_items")
+                        .select("*")
+                        .eq("run_id", run_id)
+                        .execute()
+                    )
+                    persisted_rows = persisted_res.data or []
         except Exception:
             _log.warning("itc_work_items table lookup failed; fallback to outcome mapping", exc_info=True)
 

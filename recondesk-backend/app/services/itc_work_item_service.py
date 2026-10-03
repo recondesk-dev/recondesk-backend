@@ -173,6 +173,27 @@ def _parse_iso_datetime(val: Optional[str]) -> Optional[datetime]:
             return None
 
 
+def _get_vc_repo():
+    """Return the Aurora vendor compliance repository if available."""
+    try:
+        from app.repositories.vendor_compliance import get_vendor_compliance_repository
+        return get_vendor_compliance_repository()
+    except Exception:
+        return None
+
+
+def _update_work_item_record(sb: Client, work_item_id: str, updates: dict[str, Any]) -> None:
+    """Update itc_work_items with Aurora primary and Supabase fallback."""
+    repo = _get_vc_repo()
+    if repo:
+        try:
+            repo.update_work_item(work_item_id, updates)
+            return
+        except Exception as exc:
+            _log.warning("Aurora update_work_item failed, falling back to Supabase: %s", exc)
+    sb.table("itc_work_items").update(updates).eq("id", work_item_id).execute()
+
+
 def _record_event(
     sb: Client,
     work_item_id: str,
@@ -186,23 +207,32 @@ def _record_event(
     note: Optional[str] = None,
     metadata: Optional[dict[str, Any]] = None,
 ) -> None:
-    """Append an immutable event into itc_work_item_events."""
+    """Append an immutable event into itc_work_item_events (Aurora primary with Supabase fallback)."""
+    payload = {
+        "work_item_id": work_item_id,
+        "event_type": event_type,
+        "from_status": from_status,
+        "to_status": to_status,
+        "actor_id": actor_id,
+        "actor_role": actor_role,
+        "actor_name": actor_name,
+        "note": note,
+        "metadata": metadata or {},
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    repo = _get_vc_repo()
+    if repo:
+        try:
+            repo.insert_work_item_event(payload)
+            return
+        except Exception as exc:
+            _log.warning("Aurora insert_work_item_event failed, falling back to Supabase: %s", exc)
+
     try:
-        payload = {
-            "work_item_id": work_item_id,
-            "event_type": event_type,
-            "from_status": from_status,
-            "to_status": to_status,
-            "actor_id": actor_id,
-            "actor_role": actor_role,
-            "actor_name": actor_name,
-            "note": note,
-            "metadata": metadata or {},
-            "created_at": datetime.now(timezone.utc).isoformat(),
-        }
         sb.table("itc_work_item_events").insert(payload).execute()
     except Exception:
         _log.exception("Failed to record work item event %s on %s", event_type, work_item_id)
+
 
 
 def sync_work_items_for_run(
@@ -213,31 +243,55 @@ def sync_work_items_for_run(
 ) -> dict[str, Any]:
     """Idempotently sync reconciliation exceptions into itc_work_items without mutating existing operational fields."""
     # 1. Fetch Client Profile & Firm Owner
-    client_res = (
-        sb.table("client_gstins")
-        .select("id, gstin, trade_name, legal_name, firm_owner_id, assigned_to")
-        .eq("id", client_id)
-        .limit(1)
-        .execute()
-    )
-    if not client_res.data:
-        raise ValueError(f"Client not found: {client_id}")
-    client_data = client_res.data[0]
+    client_data = None
+    try:
+        from app.repositories.tenancy import get_tenancy_repository
+        trepo = get_tenancy_repository()
+        if trepo:
+            c_row = trepo.get_client_gstin(client_id)
+            if c_row:
+                client_data = c_row
+    except Exception as exc:
+        _log.debug("Aurora get_client_gstin unavailable: %s", exc)
+
+    if not client_data:
+        client_res = (
+            sb.table("client_gstins")
+            .select("id, gstin, trade_name, legal_name, firm_owner_id, assigned_to")
+            .eq("id", client_id)
+            .limit(1)
+            .execute()
+        )
+        if not client_res.data:
+            raise ValueError(f"Client not found: {client_id}")
+        client_data = client_res.data[0]
     firm_owner_id = str(client_data.get("firm_owner_id") or user_id or "").strip()
     if not firm_owner_id:
         firm_owner_id = str(user_id or client_id)
 
     # 2. Fetch Run
-    run_res = (
-        sb.table("reconciliation_run")
-        .select("id, period, status, is_locked")
-        .eq("id", run_id)
-        .limit(1)
-        .execute()
-    )
-    if not run_res.data:
-        raise ValueError(f"Run not found: {run_id}")
-    run_data = run_res.data[0]
+    run_data = None
+    try:
+        from app.repositories.reconciliation import get_reconciliation_repository
+        rrepo = get_reconciliation_repository()
+        if rrepo:
+            r_row = rrepo.get_run(run_id)
+            if r_row:
+                run_data = r_row
+    except Exception as exc:
+        _log.debug("Aurora get_run unavailable: %s", exc)
+
+    if not run_data:
+        run_res = (
+            sb.table("reconciliation_run")
+            .select("id, period, status, is_locked")
+            .eq("id", run_id)
+            .limit(1)
+            .execute()
+        )
+        if not run_res.data:
+            raise ValueError(f"Run not found: {run_id}")
+        run_data = run_res.data[0]
 
     # 3. Load payload, outcomes, blockers, and dispositions
     p = ro.load_payload(sb, run_id) or {}
@@ -250,17 +304,27 @@ def sync_work_items_for_run(
         str(b.get("record_id")) for b in gate.get("blocking_records", [])
     }
 
-    # 4. Fetch existing work items for run
-    existing_items_res = (
-        sb.table("itc_work_items")
-        .select("id, record_id, exception_type, status, priority, manual_priority, assigned_to")
-        .eq("run_id", run_id)
-        .execute()
-    )
-    existing_map: dict[tuple[str, str], dict[str, Any]] = {
-        (r["record_id"], r["exception_type"]): r
-        for r in (existing_items_res.data or [])
-    }
+    # 4. Fetch existing work items for run (Aurora primary with Supabase fallback)
+    repo = _get_vc_repo()
+    existing_map: dict[tuple[str, str], dict[str, Any]] = {}
+    if repo:
+        try:
+            existing_map = repo.get_existing_work_items_map_for_run(run_id)
+        except Exception as exc:
+            _log.warning("Aurora get_existing_work_items_map_for_run failed, falling back to Supabase: %s", exc)
+            repo = None
+
+    if not existing_map and not repo:
+        existing_items_res = (
+            sb.table("itc_work_items")
+            .select("id, record_id, exception_type, status, priority, manual_priority, assigned_to")
+            .eq("run_id", run_id)
+            .execute()
+        )
+        existing_map = {
+            (r["record_id"], r["exception_type"]): r
+            for r in (existing_items_res.data or [])
+        }
 
     created_count = 0
     preserved_count = 0
@@ -386,22 +450,33 @@ def sync_work_items_for_run(
             "updated_at": now_iso,
         }
 
-        try:
-            ins_res = sb.table("itc_work_items").insert(item_row).execute()
-            if ins_res.data:
-                wi_id = str(ins_res.data[0]["id"])
-                _record_event(
-                    sb,
-                    wi_id,
-                    "WORK_ITEM_CREATED",
-                    to_status=STATUS_OPEN,
-                    actor_id=user_id,
-                    actor_role="system",
-                    note=f"Created from reconciliation run {run_id} exception {ex_type}.",
-                )
-                created_count += 1
-        except Exception:
-            _log.exception("Insert itc_work_item failed for (%s, %s, %s)", run_id, rec_id, ex_type)
+        wi_id = None
+        if repo:
+            try:
+                inserted = repo.insert_work_item(item_row)
+                wi_id = str(inserted["id"])
+            except Exception as exc:
+                _log.warning("Aurora insert_work_item failed, falling back to Supabase: %s", exc)
+
+        if not wi_id:
+            try:
+                ins_res = sb.table("itc_work_items").insert(item_row).execute()
+                if ins_res.data:
+                    wi_id = str(ins_res.data[0]["id"])
+            except Exception:
+                _log.exception("Insert itc_work_item failed for (%s, %s, %s)", run_id, rec_id, ex_type)
+
+        if wi_id:
+            _record_event(
+                sb,
+                wi_id,
+                "WORK_ITEM_CREATED",
+                to_status=STATUS_OPEN,
+                actor_id=user_id,
+                actor_role="system",
+                note=f"Created from reconciliation run {run_id} exception {ex_type}.",
+            )
+            created_count += 1
 
     return {
         "run_id": run_id,
@@ -429,46 +504,70 @@ def list_work_items(
     current_user: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     """Retrieve filtered, paginated work items for a client."""
-    # Build query
-    q = sb.table("itc_work_items").select("*", count="exact").eq("client_gstin_id", client_id)
+    # Build query (Aurora primary with Supabase fallback)
+    repo = _get_vc_repo()
+    items = None
+    total_count = None
+    if repo:
+        try:
+            current_uid = str(current_user.get("id")) if current_user else None
+            offset = max(0, (page - 1) * page_size)
+            items, total_count = repo.list_work_items(
+                client_id,
+                run_id=run_id,
+                status_filter=status_filter,
+                priority_filter=priority_filter,
+                assigned_to_filter=assigned_to_filter,
+                exception_type_filter=exception_type_filter,
+                search=search,
+                limit=page_size,
+                offset=offset,
+                current_user_id=current_uid,
+            )
+        except Exception as exc:
+            _log.warning("Aurora list_work_items failed, falling back to Supabase: %s", exc)
+            items = None
 
-    if run_id:
-        q = q.eq("run_id", run_id)
-    if status_filter:
-        s_norm = status_filter.strip().upper()
-        if s_norm == "BLOCKERS":
-            q = q.eq("is_blocking", True)
-        elif s_norm != "ALL":
-            q = q.eq("status", s_norm)
-    if priority_filter and priority_filter.strip().upper() != "ALL":
-        q = q.eq("priority", priority_filter.strip().upper())
-    if exception_type_filter:
-        q = q.eq("exception_type", exception_type_filter.strip())
+    if items is None:
+        q = sb.table("itc_work_items").select("*", count="exact").eq("client_gstin_id", client_id)
 
-    # Assigned To Filter
-    if assigned_to_filter:
-        a_norm = assigned_to_filter.strip()
-        if a_norm == "UNASSIGNED":
-            q = q.is_("assigned_to", "null")
-        elif a_norm == "MY_WORK" and current_user:
-            uid = str(current_user.get("id", ""))
-            q = q.eq("assigned_to", uid)
-        elif a_norm != "ALL":
-            q = q.eq("assigned_to", a_norm)
+        if run_id:
+            q = q.eq("run_id", run_id)
+        if status_filter:
+            s_norm = status_filter.strip().upper()
+            if s_norm == "BLOCKERS":
+                q = q.eq("is_blocking", True)
+            elif s_norm != "ALL":
+                q = q.eq("status", s_norm)
+        if priority_filter and priority_filter.strip().upper() != "ALL":
+            q = q.eq("priority", priority_filter.strip().upper())
+        if exception_type_filter:
+            q = q.eq("exception_type", exception_type_filter.strip())
 
-    if search:
-        s = search.strip()
-        q = q.or_(f"invoice_number.ilike.%{s}%,vendor_name.ilike.%{s}%,vendor_gstin.ilike.%{s}%,record_id.ilike.%{s}%")
+        # Assigned To Filter
+        if assigned_to_filter:
+            a_norm = assigned_to_filter.strip()
+            if a_norm == "UNASSIGNED":
+                q = q.is_("assigned_to", "null")
+            elif a_norm == "MY_WORK" and current_user:
+                uid = str(current_user.get("id", ""))
+                q = q.eq("assigned_to", uid)
+            elif a_norm != "ALL":
+                q = q.eq("assigned_to", a_norm)
 
-    # Order by priority weight & creation
-    q = q.order("is_blocking", desc=True).order("created_at", desc=True)
+        if search:
+            s = search.strip()
+            q = q.or_(f"invoice_number.ilike.%{s}%,vendor_name.ilike.%{s}%,vendor_gstin.ilike.%{s}%,record_id.ilike.%{s}%")
 
-    offset = max(0, (page - 1) * page_size)
-    q = q.range(offset, offset + page_size - 1)
+        # Order by priority weight & creation
+        q = q.order("is_blocking", desc=True).order("created_at", desc=True)
 
-    res = q.execute()
-    items = res.data or []
-    total_count = res.count or len(items)
+        offset = max(0, (page - 1) * page_size)
+        q = q.range(offset, offset + page_size - 1)
+
+        res = q.execute()
+        items = res.data or []
+        total_count = res.count or len(items)
 
     # Resolve user profiles for assignees
     assignee_ids = {str(item["assigned_to"]) for item in items if item.get("assigned_to")}
@@ -518,17 +617,26 @@ def list_work_items(
 
 
 def get_work_item(sb: Client, work_item_id: str, current_user: dict[str, Any]) -> dict[str, Any]:
-    """Retrieve full work item details and activity timeline."""
-    item_res = (
-        sb.table("itc_work_items")
-        .select("*")
-        .eq("id", work_item_id)
-        .limit(1)
-        .execute()
-    )
-    if not item_res.data:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Work item not found")
-    item = item_res.data[0]
+    """Retrieve full work item details and activity timeline (Aurora primary with Supabase fallback)."""
+    repo = _get_vc_repo()
+    item = None
+    if repo:
+        try:
+            item = repo.get_work_item(work_item_id)
+        except Exception as exc:
+            _log.warning("Aurora get_work_item failed, falling back to Supabase: %s", exc)
+
+    if not item:
+        item_res = (
+            sb.table("itc_work_items")
+            .select("*")
+            .eq("id", work_item_id)
+            .limit(1)
+            .execute()
+        )
+        if not item_res.data:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Work item not found")
+        item = item_res.data[0]
 
     # Verify accessibility
     cid = str(item["client_gstin_id"])
@@ -537,14 +645,22 @@ def get_work_item(sb: Client, work_item_id: str, current_user: dict[str, Any]) -
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied for this client")
 
     # Fetch Timeline Events
-    events_res = (
-        sb.table("itc_work_item_events")
-        .select("*")
-        .eq("work_item_id", work_item_id)
-        .order("created_at", desc=False)
-        .execute()
-    )
-    events = events_res.data or []
+    events = None
+    if repo:
+        try:
+            events = repo.list_work_item_events(work_item_id)
+        except Exception as exc:
+            _log.warning("Aurora list_work_item_events failed, falling back to Supabase: %s", exc)
+
+    if events is None:
+        events_res = (
+            sb.table("itc_work_item_events")
+            .select("*")
+            .eq("work_item_id", work_item_id)
+            .order("created_at", desc=False)
+            .execute()
+        )
+        events = events_res.data or []
 
     # Assignee name
     aid = str(item.get("assigned_to") or "")
@@ -657,7 +773,7 @@ def assign_work_item(
         target_status = STATUS_ASSIGNED
         updates["status"] = STATUS_ASSIGNED
 
-    sb.table("itc_work_items").update(updates).eq("id", work_item_id).execute()
+    _update_work_item_record(sb, work_item_id, updates)
 
     ev_type = "REASSIGNED" if old_assigned else "ASSIGNED"
     _record_event(
@@ -704,7 +820,7 @@ def transition_work_item_status(
         "updated_by": uid,
     }
 
-    sb.table("itc_work_items").update(updates).eq("id", work_item_id).execute()
+    _update_work_item_record(sb, work_item_id, updates)
 
     ev_type = "STATUS_CHANGED"
     if t_status == STATUS_READY_FOR_REVIEW:
@@ -772,7 +888,7 @@ def override_work_item_priority(
         "updated_by": uid,
     }
 
-    sb.table("itc_work_items").update(updates).eq("id", work_item_id).execute()
+    _update_work_item_record(sb, work_item_id, updates)
 
     _record_event(
         sb,
@@ -816,7 +932,7 @@ def set_work_item_due_date(
         "updated_by": uid,
     }
 
-    sb.table("itc_work_items").update(updates).eq("id", work_item_id).execute()
+    _update_work_item_record(sb, work_item_id, updates)
 
     _record_event(
         sb,
@@ -897,7 +1013,7 @@ def resolve_work_item(
             "updated_at": datetime.now(timezone.utc).isoformat(),
             "updated_by": uid,
         }
-        sb.table("itc_work_items").update(updates).eq("id", work_item_id).execute()
+        _update_work_item_record(sb, work_item_id, updates)
         _record_event(
             sb,
             work_item_id,
@@ -927,7 +1043,7 @@ def resolve_work_item(
         "updated_at": now_iso,
         "updated_by": uid,
     }
-    sb.table("itc_work_items").update(updates).eq("id", work_item_id).execute()
+    _update_work_item_record(sb, work_item_id, updates)
 
     _record_event(
         sb,
@@ -971,7 +1087,7 @@ def dismiss_work_item(
         "updated_at": now_iso,
         "updated_by": uid,
     }
-    sb.table("itc_work_items").update(updates).eq("id", work_item_id).execute()
+    _update_work_item_record(sb, work_item_id, updates)
 
     _record_event(
         sb,
@@ -1023,7 +1139,7 @@ def reopen_work_item(
         "updated_at": now_iso,
         "updated_by": uid,
     }
-    sb.table("itc_work_items").update(updates).eq("id", work_item_id).execute()
+    _update_work_item_record(sb, work_item_id, updates)
 
     _record_event(
         sb,
@@ -1183,7 +1299,7 @@ def record_vendor_response(
         updates["due_at"] = parsed_due.isoformat() if parsed_due else None
         updates["sla_status"] = compute_sla_status(parsed_due)
 
-    sb.table("itc_work_items").update(updates).eq("id", work_item_id).execute()
+    _update_work_item_record(sb, work_item_id, updates)
 
     # Record immutable VENDOR_RESPONSE_RECORDED event
     metadata = {
@@ -1235,7 +1351,7 @@ def schedule_work_item_followup(
         "updated_at": now_iso,
         "updated_by": uid,
     }
-    sb.table("itc_work_items").update(updates).eq("id", work_item_id).execute()
+    _update_work_item_record(sb, work_item_id, updates)
 
     _record_event(
         sb,
@@ -1269,42 +1385,65 @@ def get_work_item_vendor_profile(
         except Exception:
             norm_gstin = vendor_gstin
 
-    # 1. Fetch scorecard summary for firm & vendor
+    # 1. Fetch scorecard summary for firm & vendor (Aurora primary with Supabase fallback)
     summary_data = {}
+    repo = _get_vc_repo()
     if norm_gstin and firm_id:
-        try:
-            res = (
-                sb.table("supplier_compliance_summary")
-                .select("*")
-                .eq("firm_owner_id", firm_id)
-                .eq("supplier_gstin_normalized", norm_gstin)
-                .limit(1)
-                .execute()
-            )
-            if res.data:
-                summary_data = res.data[0]
-        except Exception as exc:
-            _log.warning("Failed to query supplier_compliance_summary for %s: %s", norm_gstin, exc)
+        if repo:
+            try:
+                summary_data = repo.get_supplier_compliance_summary(firm_id, norm_gstin) or {}
+            except Exception as exc:
+                _log.warning("Aurora get_supplier_compliance_summary failed: %s", exc)
 
-    # 2. Count open work items for this vendor in this client
+        if not summary_data:
+            try:
+                res = (
+                    sb.table("supplier_compliance_summary")
+                    .select("*")
+                    .eq("firm_owner_id", firm_id)
+                    .eq("supplier_gstin_normalized", norm_gstin)
+                    .limit(1)
+                    .execute()
+                )
+                if res.data:
+                    summary_data = res.data[0]
+            except Exception as exc:
+                _log.warning("Failed to query supplier_compliance_summary for %s: %s", norm_gstin, exc)
+
+    # 2. Count open work items for this vendor in this client (Aurora primary with Supabase fallback)
     open_items_count = 0
     total_itc_paise = 0
     if vendor_gstin and client_id:
-        try:
-            items_res = (
-                sb.table("itc_work_items")
-                .select("id, itc_amount_at_stake_paise, status")
-                .eq("client_gstin_id", client_id)
-                .eq("vendor_gstin", vendor_gstin)
-                .execute()
-            )
-            for r in items_res.data or []:
-                st = str(r.get("status") or "")
-                if st not in (STATUS_RESOLVED, STATUS_DISMISSED, STATUS_NOT_ACTIONABLE):
-                    open_items_count += 1
-                    total_itc_paise += int(r.get("itc_amount_at_stake_paise") or 0)
-        except Exception as exc:
-            _log.warning("Failed to count open work items for %s: %s", vendor_gstin, exc)
+        items_list = None
+        if repo:
+            try:
+                items_page, _ = repo.list_work_items(client_id, limit=500)
+                items_list = [
+                    i for i in items_page
+                    if (i.get("vendor_gstin") or "").upper() == vendor_gstin.upper()
+                ]
+            except Exception as exc:
+                _log.warning("Aurora list_work_items in enrich failed: %s", exc)
+
+        if items_list is None:
+            try:
+                items_res = (
+                    sb.table("itc_work_items")
+                    .select("id, itc_amount_at_stake_paise, status")
+                    .eq("client_gstin_id", client_id)
+                    .eq("vendor_gstin", vendor_gstin)
+                    .execute()
+                )
+                items_list = items_res.data or []
+            except Exception as exc:
+                _log.warning("Failed to count open work items for %s: %s", vendor_gstin, exc)
+                items_list = []
+
+        for r in (items_list or []):
+            st = str(r.get("status") or "")
+            if st not in (STATUS_RESOLVED, STATUS_DISMISSED, STATUS_NOT_ACTIONABLE):
+                open_items_count += 1
+                total_itc_paise += int(r.get("itc_amount_at_stake_paise") or 0)
 
     risk_score = int(summary_data.get("risk_score") or 0)
     tier = compute_risk_tier(risk_score)

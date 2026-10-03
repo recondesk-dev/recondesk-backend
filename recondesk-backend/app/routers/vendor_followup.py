@@ -285,19 +285,31 @@ async def fetch_work_item_followup_history_endpoint(
     sb = get_supabase()
     user_id = str(current_user.get("id") or "")
 
-    wi_res = (
-        sb.table("itc_work_items")
-        .select("id, client_gstin_id")
-        .eq("id", work_item_id)
-        .limit(1)
-        .execute()
-    )
-    if not wi_res.data:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Work item not found",
+    wi = None
+    try:
+        from app.repositories.vendor_compliance import get_vendor_compliance_repository
+        repo = get_vendor_compliance_repository()
+        if repo:
+            wi = repo.get_work_item(work_item_id)
+    except Exception:
+        wi = None
+
+    if not wi:
+        wi_res = (
+            sb.table("itc_work_items")
+            .select("id, client_gstin_id")
+            .eq("id", work_item_id)
+            .limit(1)
+            .execute()
         )
-    client_id = str(wi_res.data[0]["client_gstin_id"])
+        if not wi_res.data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Work item not found",
+            )
+        wi = wi_res.data[0]
+
+    client_id = str(wi["client_gstin_id"])
     _assert_client(sb, client_id, user_id)
 
     try:
