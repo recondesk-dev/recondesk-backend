@@ -708,6 +708,17 @@ class AuroraReturnReconciliationRepository:
         finally:
             session.close()
 
+    def get_gstr2a_delta_summary(
+        self,
+        client_gstin_id: str | UUID,
+        period: str,
+    ) -> Optional[dict[str, Any]]:
+        """Get summary metrics for GSTR-2A vs GSTR-2B delta results."""
+        row = self.get_gstr2a_delta(client_gstin_id, period)
+        if not row:
+            return None
+        return row.get("summary") or {}
+
     def list_gstr2a_deltas(
         self,
         client_gstin_id: str | UUID,
