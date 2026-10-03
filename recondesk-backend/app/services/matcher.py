@@ -1868,7 +1868,27 @@ def _match_gstr_to_pr_pair(
         # variant identity with zero financial diff stays on Matched as L2
         # (requires_human_review=False) so the Non-exact chip and FUZZY filter
         # can surface formatting-only matches. Do not promote those to L1.
+        delta_days = (dg - dp).days if (dg and dp) else date_diff_days
+        delta_str = (
+            f"+{delta_days} day" if delta_days == 1
+            else f"+{delta_days} days" if delta_days > 0
+            else f"{delta_days} day" if delta_days == -1
+            else f"{delta_days} days"
+        )
         if raw_inv_ok:
+            if not skip_date and date_diff_days != 0:
+                return _ret(
+                    level=1, matched=True, confidence=100, requires_human_review=False,
+                    decision_what="Matched within date tolerance",
+                    decision_why=(
+                        f"Invoice number and amount align; date difference is {delta_str} "
+                        f"(within {DATE_TOLERANCE_L1_DAYS}-day tolerance)"
+                    ),
+                    decision_next="No action required",
+                    discrepancies=discrepancies,
+                    identity_confidence="High", financial_status="Exact",
+                    review_reason=None,
+                )
             return _ret(
                 level=1, matched=True, confidence=100, requires_human_review=False,
                 decision_what="Exact match found",
@@ -1878,13 +1898,18 @@ def _match_gstr_to_pr_pair(
                 identity_confidence="High", financial_status="Exact",
                 review_reason=None,
             )
+        why_text = (
+            "Invoice numbers match after normalization or format variant; amounts and dates align"
+            if (skip_date or date_diff_days == 0)
+            else (
+                f"Invoice numbers match after normalization or format variant; amounts align; "
+                f"date difference is {delta_str} (within {DATE_TOLERANCE_L1_DAYS}-day tolerance)"
+            )
+        )
         return _ret(
             level=2, matched=True, confidence=95, requires_human_review=False,
             decision_what="Normalized invoice match",
-            decision_why=(
-                "Invoice numbers match after normalization or format variant; "
-                "amounts and dates align"
-            ),
+            decision_why=why_text,
             decision_next="No action required — formatting differs, amounts align",
             discrepancies=discrepancies,
             identity_confidence="High", financial_status="Exact",
@@ -1893,6 +1918,25 @@ def _match_gstr_to_pr_pair(
 
     if gstin_match and raw_inv_ok and _vendor_name_ok:
         if amount_within_l1 and date_within_l1 and l12_finance_ok and tax_structure_match:
+            delta_days = (dg - dp).days if (dg and dp) else date_diff_days
+            delta_str = (
+                f"+{delta_days} day" if delta_days == 1
+                else f"+{delta_days} days" if delta_days > 0
+                else f"{delta_days} day" if delta_days == -1
+                else f"{delta_days} days"
+            )
+            if not skip_date and date_diff_days != 0:
+                return _ret(
+                    level=1, matched=True, confidence=100, requires_human_review=False,
+                    decision_what="Matched within date tolerance",
+                    decision_why=(
+                        f"Invoice number and amount align; date difference is {delta_str} "
+                        f"(within {DATE_TOLERANCE_L1_DAYS}-day tolerance)"
+                    ),
+                    decision_next="No action required",
+                    discrepancies=discrepancies,
+                    identity_confidence="High", financial_status=financial_status,
+                )
             return _ret(
                 level=1, matched=True, confidence=100, requires_human_review=False,
                 decision_what="Exact match found",

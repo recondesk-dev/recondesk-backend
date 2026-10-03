@@ -146,9 +146,24 @@ def _match_result_to_dict(mr: Any) -> dict[str, Any]:
     }
 
 
+def _categorize_mismatch(mr: MismatchResult) -> str:
+    mtype = getattr(mr.mismatch_type, "value", str(mr.mismatch_type))
+    severity = getattr(mr.severity, "value", str(mr.severity)).lower()
+    issue_type = str(mr.details.get("issue_type") or "").lower()
+
+    if severity == "info" or issue_type == "amendment_detection_skipped" or issue_type.endswith("_skipped"):
+        return "info_notice"
+    if mtype in ("G1M8_INVOICE_SERIES_ISSUE", "G1M10_DOCUMENTS_ISSUED_SUMMARY"):
+        return "compliance_warning"
+    if mtype == "G1M3_AMOUNT_MISMATCH" or mr.details.get("requires_review"):
+        return "review_required"
+    return "reconciliation_mismatch"
+
+
 def _mismatch_result_to_dict(mr: MismatchResult) -> dict[str, Any]:
     """Serialise a ``MismatchResult`` to the unified decision dict."""
     d = mr.to_dict()
+    d["category"] = _categorize_mismatch(mr)
     # Ensure the unified decision_confidence field is present
     if "decision_confidence" not in d:
         d["decision_confidence"] = mr.to_decision_output().confidence
@@ -1324,9 +1339,24 @@ async def _run_pipeline(
     unmatched_gstr1_output: list[dict[str, Any]] = []
     # Build all mismatch decisions
     mismatch_output: list[dict[str, Any]] = []
+    reconciliation_mismatches: list[dict[str, Any]] = []
+    review_required_items: list[dict[str, Any]] = []
+    series_compliance_warnings: list[dict[str, Any]] = []
+    informational_notices: list[dict[str, Any]] = []
+
     for mr in mismatch_results:
         d = _mismatch_result_to_dict(mr)
+        cat = d.get("category", "reconciliation_mismatch")
         mismatch_output.append(d)
+        if cat == "reconciliation_mismatch":
+            reconciliation_mismatches.append(d)
+        elif cat == "review_required":
+            review_required_items.append(d)
+        elif cat == "compliance_warning":
+            series_compliance_warnings.append(d)
+        elif cat == "info_notice":
+            informational_notices.append(d)
+
         if mr.mismatch_type.value == "G1M1_MISSING_INVOICE":
             # Find the corresponding SR record
             inv_num = mr.details.get("invoice_number", "?")
@@ -1381,7 +1411,13 @@ async def _run_pipeline(
             "b2cs_reconciliation_status": b2cs_recon.status,
             "unmatched_sr_count": len(unmatched_sr),
             "unmatched_gstr1_count": len(unmatched_gstr1),
-            "mismatch_count": len(mismatch_results),
+            "reconciliation_mismatch_count": len(reconciliation_mismatches),
+            "review_required_count": len(review_required_items),
+            "series_compliance_warning_count": len(series_compliance_warnings),
+            "compliance_warning_count": len(series_compliance_warnings),
+            "info_notice_count": len(informational_notices),
+            "total_mismatch_count": len(mismatch_output),
+            "mismatch_count": len(reconciliation_mismatches),
             "tie_out_clean": tie_out.is_clean,
             "tie_out_variance_count": len(tie_out.variances),
             "documents_issued_series_count": documents_issued.get(
@@ -1405,6 +1441,11 @@ async def _run_pipeline(
         "unmatched_sr": unmatched_sr_output,
         "unmatched_gstr1": unmatched_gstr1_output,
         "mismatches": mismatch_output,
+        "reconciliation_mismatches": reconciliation_mismatches,
+        "review_required_items": review_required_items,
+        "series_compliance_warnings": series_compliance_warnings,
+        "compliance_warnings": series_compliance_warnings,
+        "informational_notices": informational_notices,
         "b2cs_reconciliation": b2cs_recon.to_dict(),
         "documents_issued": documents_issued,
         "tie_out": tie_out_output,

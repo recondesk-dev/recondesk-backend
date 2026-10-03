@@ -738,3 +738,120 @@ async def test_clean_september_2026_3000_record_benchmark():
     tie_out = res["tie_out"]
     assert tie_out["unexplained_difference_paise"] == 0
     assert tie_out["unexplained_difference"] == 0.0
+
+    # 7. Separated headline mismatch count vs series compliance warnings:
+    # Headline mismatch count must be 0 for this clean dataset!
+    assert len(res["reconciliation_mismatches"]) == 0, f"Unexpected mismatches: {res['reconciliation_mismatches']}"
+    assert summary["reconciliation_mismatch_count"] == 0
+    assert summary["mismatch_count"] == 0
+    assert summary["review_required_count"] == 0
+    assert len(res["reconciliation_mismatches"]) == 0
+    assert len(res["review_required_items"]) == 0
+    assert "series_compliance_warnings" in res
+
+
+def test_date_tolerance_messaging_displays_matched_within_tolerance_and_delta():
+    """Verify that an invoice with +2 days difference is labeled 'Matched within date tolerance'
+    and shows the date delta clearly, instead of misleadingly saying 'Exact match found'."""
+    from app.matching.generic_matcher import match_sales_register_to_gstr1
+
+    sr_rec = {
+        "invoice_number": "INV/2026/001",
+        "invoice_number_normalized": "INV2026001",
+        "invoice_date": "2026-09-01",
+        "gstin": "27AAPFU0939F1ZV",
+        "taxable_amount_paise": 10000000,
+        "total_tax_paise": 1800000,
+        "igst_paise": 1800000,
+        "cgst_paise": 0,
+        "sgst_paise": 0,
+    }
+    # GSTR-1 invoice is 2 days later (+2 days)
+    gstr1_cand = {
+        "invoice_number": "INV/2026/001",
+        "invoice_number_normalized": "INV2026001",
+        "invoice_date": "2026-09-03",
+        "recipient_gstin": "27AAPFU0939F1ZV",
+        "taxable_amount_paise": 10000000,
+        "total_tax_paise": 1800000,
+        "igst_paise": 1800000,
+        "cgst_paise": 0,
+        "sgst_paise": 0,
+    }
+
+    res = match_sales_register_to_gstr1(sr_rec, [gstr1_cand])
+    assert res is not None
+    assert res.matched is True
+    assert res.level == 1
+    assert res.requires_human_review is False
+    # Decision what must accurately state tolerance rather than exact match
+    assert res.decision_what == "Matched within date tolerance"
+    assert "date difference is +2 days" in res.decision_why
+    assert "tolerance" in res.decision_why
+    # Compared fields must NOT claim date is exact
+    date_field = next((f for f in res.compared_fields if f["field_name"] == "date"), None)
+    assert date_field is not None
+    assert date_field["match_type"] != "exact"
+
+
+def test_exact_date_match_displays_exact_match_found():
+    """Verify that an invoice with 0 days difference is labeled 'Exact match found'."""
+    from app.matching.generic_matcher import match_sales_register_to_gstr1
+
+    sr_rec = {
+        "invoice_number": "INV/2026/001",
+        "invoice_number_normalized": "INV2026001",
+        "invoice_date": "2026-09-01",
+        "gstin": "27AAPFU0939F1ZV",
+        "taxable_amount_paise": 10000000,
+        "total_tax_paise": 1800000,
+        "igst_paise": 1800000,
+        "cgst_paise": 0,
+        "sgst_paise": 0,
+    }
+    gstr1_cand = {
+        "invoice_number": "INV/2026/001",
+        "invoice_number_normalized": "INV2026001",
+        "invoice_date": "2026-09-01",
+        "recipient_gstin": "27AAPFU0939F1ZV",
+        "taxable_amount_paise": 10000000,
+        "total_tax_paise": 1800000,
+        "igst_paise": 1800000,
+        "cgst_paise": 0,
+        "sgst_paise": 0,
+    }
+
+    res = match_sales_register_to_gstr1(sr_rec, [gstr1_cand])
+    assert res is not None
+    assert res.matched is True
+    assert res.level == 1
+    assert res.decision_what == "Exact match found"
+    date_field = next((f for f in res.compared_fields if f["field_name"] == "date"), None)
+    assert date_field is not None
+    assert date_field["match_type"] == "exact"
+
+
+def test_interleaved_series_gaps_capped_and_summarized():
+    """Verify that a series with hundreds of interleaved gaps does not explode into
+    thousands of individual mismatch result objects."""
+    from app.rules.gstr1_mismatch_rules import check_invoice_series_continuity
+
+    # Generate 100 invoices in a series with step=3 (e.g. 1, 4, 7... 298), leaving 99 gap runs
+    sr_records = [
+        {
+            "invoice_number": f"INV/26-27/{i:05d}",
+            "invoice_date": "2026-09-10",
+            "gstin": "27AAPFU0939F1ZV",
+            "taxable_amount_paise": 100000,
+            "total_tax_paise": 18000,
+        }
+        for i in range(1, 300, 3)
+    ]
+
+    issues = check_invoice_series_continuity(sr_records)
+    # Must cap individual gap runs (at 20) and add 1 series summary notice, rather than 99 separate objects
+    assert len(issues) <= 22
+    summary_issues = [i for i in issues if i.details.get("issue_type") == "gap_series_summary"]
+    assert len(summary_issues) == 1
+    assert summary_issues[0].details["total_gap_runs"] > 20
+

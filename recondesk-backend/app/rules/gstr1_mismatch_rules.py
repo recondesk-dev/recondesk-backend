@@ -1841,16 +1841,59 @@ def _analyse_series_gaps_and_duplicates(
         )
 
         missing = sorted(set(range(series_min, series_max + 1)) - present)
+        _MAX_GAP_RUNS_PER_SERIES = 20
+        gap_runs_reported = 0
+        total_qualifying_runs = 0
+        total_missing_in_runs = 0
         for run in _contiguous_missing_runs(missing):
             if len(run) < effective_min_gap:
                 continue
+            total_qualifying_runs += 1
+            total_missing_in_runs += len(run)
+            if gap_runs_reported < _MAX_GAP_RUNS_PER_SERIES:
+                results.append(
+                    _classify_series_gap(
+                        series_prefix=prefix,
+                        missing_numbers=run[:_MAX_GAPS_PER_SERIES],
+                        series_min=series_min,
+                        series_max=series_max,
+                        series_count=len(entries),
+                    )
+                )
+                gap_runs_reported += 1
+
+        if total_qualifying_runs > _MAX_GAP_RUNS_PER_SERIES:
+            prefix_label = prefix if prefix else "(numeric)"
+            remaining_runs = total_qualifying_runs - _MAX_GAP_RUNS_PER_SERIES
             results.append(
-                _classify_series_gap(
-                    series_prefix=prefix,
-                    missing_numbers=run[:_MAX_GAPS_PER_SERIES],
-                    series_min=series_min,
-                    series_max=series_max,
-                    series_count=len(entries),
+                MismatchResult(
+                    mismatch_type=MismatchType.INVOICE_SERIES_ISSUE,
+                    severity=MismatchSeverity.WARNING,
+                    decision_what=(
+                        f"Series '{prefix_label}': {total_qualifying_runs} sequence gap intervals "
+                        f"({total_missing_in_runs} numbers missing) across range {prefix}{series_min}..{prefix}{series_max}"
+                    ),
+                    decision_why=(
+                        f"Frequent sequence gaps detected across series '{prefix_label}'. "
+                        f"First {_MAX_GAP_RUNS_PER_SERIES} intervals shown individually; {remaining_runs} further gap intervals summarized. "
+                        f"If multiple prefixes share a common number pool or separate registers, verify series setup."
+                    ),
+                    decision_next=(
+                        f"Verify if series '{prefix_label}' shares sequence counters with other series, or if missing numbers correspond to cancelled invoices."
+                    ),
+                    rule_id="G1M_008",
+                    gst_ref="Rule 46 CGST Rules",
+                    details={
+                        "issue_type": "gap_series_summary",
+                        "series_prefix": prefix,
+                        "total_gap_runs": total_qualifying_runs,
+                        "total_missing_count": total_missing_in_runs,
+                        "series_min": series_min,
+                        "series_max": series_max,
+                        "series_invoice_count": len(entries),
+                        "matched_fields": [],
+                        "differed_fields": ["invoice_sequence"],
+                    },
                 )
             )
     return results

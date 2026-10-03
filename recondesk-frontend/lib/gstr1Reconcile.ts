@@ -58,6 +58,7 @@ export type Gstr1DecisionFields = {
   invoice_number?: string | null;
   /** GSTR-1A amendability for this mismatch rule. */
   eligibility?: Gstr1aEligibility | null;
+  category?: "reconciliation_mismatch" | "review_required" | "compliance_warning" | "info_notice" | string | null;
   note?: string | null;
   [key: string]: unknown;
 };
@@ -199,6 +200,12 @@ export type Gstr1ReconcileSummary = {
   unmatched_sr_count: number;
   unmatched_gstr1_count: number;
   mismatch_count: number;
+  reconciliation_mismatch_count?: number;
+  review_required_count?: number;
+  series_compliance_warning_count?: number;
+  compliance_warning_count?: number;
+  info_notice_count?: number;
+  total_mismatch_count?: number;
   tie_out_clean: boolean;
   tie_out_variance_count: number;
   /** G1M10 Table 13 series count. */
@@ -280,6 +287,11 @@ export type Gstr1ReconcileResult = {
   unmatched_sr: Gstr1UnmatchedRow[];
   unmatched_gstr1: Gstr1UnmatchedRow[];
   mismatches: Gstr1DecisionFields[];
+  reconciliation_mismatches?: Gstr1DecisionFields[];
+  review_required_items?: Gstr1DecisionFields[];
+  series_compliance_warnings?: Gstr1DecisionFields[];
+  compliance_warnings?: Gstr1DecisionFields[];
+  informational_notices?: Gstr1DecisionFields[];
   b2cs_reconciliation?: Gstr1B2CSReconciliation;
   /** G1M10 Table 13 period-level documents issued summary. */
   documents_issued?: Gstr1DocumentsIssued;

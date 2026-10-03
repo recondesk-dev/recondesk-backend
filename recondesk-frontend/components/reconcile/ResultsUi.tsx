@@ -643,6 +643,7 @@ export type ResultsBucketTabId =
   /** Sales / GSTR-1 reconciliation buckets */
   | "unmatched_sr"
   | "unmatched_gstr1"
+  | "series_warnings"
   | "tie_out"
   | "documents_issued"
   | "diagnostics";
@@ -681,6 +682,7 @@ export const SALES_RESULTS_BUCKET_TABS: { id: ResultsBucketTabId; label: string 
   { id: "review_required", label: "Review Required" },
   { id: "unmatched_sr", label: "Missing in GSTR-1" },
   { id: "unmatched_gstr1", label: "Extra in GSTR-1" },
+  { id: "series_warnings", label: "Series & Compliance" },
   { id: "tie_out", label: "GSTR-1 vs 3B" },
   { id: "documents_issued", label: "Table 13 Docs" },
   { id: "diagnostics", label: "Diagnostics" },
