@@ -199,6 +199,8 @@ export function Gstr1ResultsView({
   const [excelBusy, setExcelBusy] = useState(false);
   const [pdfBusy, setPdfBusy] = useState(false);
 
+  const summary = result.summary;
+
   const mismatchCounts = useMemo(
     () => countMismatchesByType(result.mismatches || []),
     [result.mismatches]
@@ -211,7 +213,57 @@ export function Gstr1ResultsView({
   );
   const g1m3Count = mismatchCounts.G1M3 || 0;
 
-  const summary = result.summary;
+  const seriesWarnings = useMemo(
+    () =>
+      result.series_compliance_warnings ||
+      (result.mismatches || []).filter(
+        (m) =>
+          m.mismatch_type === "G1M8_INVOICE_SERIES_ISSUE" ||
+          m.mismatch_type === "G1M10_DOCUMENTS_ISSUED_SUMMARY" ||
+          m.category === "compliance_warning"
+      ),
+    [result.series_compliance_warnings, result.mismatches]
+  );
+  const seriesWarningsCount =
+    summary?.series_compliance_warning_count ?? seriesWarnings.length;
+
+  const trueReconciliationMismatches = useMemo(
+    () =>
+      result.reconciliation_mismatches ||
+      (result.mismatches || []).filter(
+        (m) =>
+          m.category === "reconciliation_mismatch" ||
+          (!m.category &&
+            m.mismatch_type !== "G1M8_INVOICE_SERIES_ISSUE" &&
+            m.mismatch_type !== "G1M10_DOCUMENTS_ISSUED_SUMMARY" &&
+            m.mismatch_type !== "G1M3_AMOUNT_MISMATCH" &&
+            m.mismatch_severity !== "info")
+      ),
+    [result.reconciliation_mismatches, result.mismatches]
+  );
+
+  const reviewMismatches = useMemo(
+    () =>
+      result.review_required_items ||
+      (result.mismatches || []).filter(
+        (m) =>
+          m.category === "review_required" ||
+          (!m.category && m.mismatch_type === "G1M3_AMOUNT_MISMATCH")
+      ),
+    [result.review_required_items, result.mismatches]
+  );
+
+  const infoMismatches = useMemo(
+    () =>
+      result.informational_notices ||
+      (result.mismatches || []).filter(
+        (m) =>
+          m.category === "info_notice" ||
+          (!m.category && m.mismatch_severity === "info")
+      ),
+    [result.informational_notices, result.mismatches]
+  );
+
   const resolvedRunId =
     runIdProp || result.run_id
       ? String(runIdProp || result.run_id)
@@ -495,10 +547,11 @@ export function Gstr1ResultsView({
           tabs={SALES_RESULTS_BUCKET_TABS}
           ariaLabel="GSTR-1 sales reconciliation results"
           tabCounts={{
-            matched: summary.matched_count,
-            review_required: g1m3Count,
+            matched: invoiceLevelMatchCount,
+            review_required: summary.review_required_count ?? g1m3Count,
             unmatched_sr: mismatchCounts.G1M1 || summary.unmatched_sr_count,
             unmatched_gstr1: mismatchCounts.G1M2 || summary.unmatched_gstr1_count,
+            series_warnings: seriesWarningsCount,
             tie_out: summary.tie_out_variance_count,
             documents_issued:
               summary.documents_issued_series_count ??
@@ -546,7 +599,7 @@ export function Gstr1ResultsView({
             <h2 className="mb-4 text-[15px] font-semibold tracking-tight text-[var(--ink)]">
               Review Required{" "}
               <span className="text-gray-400">
-                ({g1m3Count.toLocaleString("en-IN")})
+                ({(summary.review_required_count ?? g1m3Count).toLocaleString("en-IN")})
               </span>
             </h2>
             <p className="mb-4 text-[13px] text-gray-500">
@@ -606,6 +659,62 @@ export function Gstr1ResultsView({
               emptyTitle="No extra GSTR-1 invoices"
               gstr1aWindow={gstr1aWindow}
             />
+          </section>
+        )}
+
+        {tab === "series_warnings" && (
+          <section className={sectionContainerClass}>
+            <div className="mb-4">
+              <h2 className="text-[15px] font-semibold tracking-tight text-[var(--ink)]">
+                Invoice Series / Compliance Warnings{" "}
+                <span className="text-gray-400">
+                  ({seriesWarningsCount.toLocaleString("en-IN")})
+                </span>
+              </h2>
+              <p className="mt-1 text-[13px] text-gray-500">
+                Statutory serial numbering continuity (Rule 46 CGST / G1M8) and Table 13 documentation compliance checks. These reflect numbering sequence gaps, duplicates, or cross-series numbering patterns in books/returns — not financial or turnover reconciliation differences.
+              </p>
+            </div>
+
+            {seriesWarnings.length === 0 ? (
+              <EmptyTableState
+                title="No series or compliance warnings"
+                description="All invoice series are continuous without unexplained numeric gaps or duplicate numbers."
+              />
+            ) : (
+              <ul className="space-y-2.5">
+                {seriesWarnings.map((m, i) => (
+                  <li
+                    key={`${m.mismatch_type}-${i}`}
+                    className="rounded-xl border border-gray-200/80 bg-white p-4 shadow-[var(--shadow-soft)]"
+                  >
+                    <div className="flex flex-wrap items-center gap-2">
+                      <TypePill type={m.mismatch_type} />
+                      <SeverityPill severity={m.mismatch_severity} />
+                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-700">
+                        Compliance Check
+                      </span>
+                      <span className="text-[13px] font-semibold text-[var(--ink)]">
+                        {m.decision_what || m.invoice_number || "Series Warning"}
+                      </span>
+                    </div>
+
+                    {m.decision_why ? (
+                      <p className="mt-2 text-[12px] text-gray-600">
+                        {m.decision_why}
+                      </p>
+                    ) : null}
+
+                    {m.decision_next ? (
+                      <div className="mt-2 rounded-lg bg-amber-50/60 p-2 text-[12px] text-amber-900 border border-amber-200/50">
+                        <span className="font-semibold">Next step: </span>
+                        <span>{m.decision_next}</span>
+                      </div>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            )}
           </section>
         )}
 
@@ -725,11 +834,11 @@ export function Gstr1ResultsView({
               </div>
             </div>
 
-            {/* Full mismatch flat list */}
-            <div className="mt-6">
-              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                <p className="text-[11px] font-medium uppercase tracking-widest text-gray-400">
-                  All classified mismatches ({summary.mismatch_count})
+            {/* Structured issue breakdown */}
+            <div className="mt-8 space-y-6">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-200/60 pb-2">
+                <p className="text-[12px] font-semibold uppercase tracking-wider text-gray-500">
+                  Classified Findings Breakdown
                 </p>
                 {gstr1aEligible.length > 0 ? (
                   <Link
@@ -740,34 +849,141 @@ export function Gstr1ResultsView({
                   </Link>
                 ) : null}
               </div>
-              {(result.mismatches || []).length === 0 ? (
-                <EmptyTableState title="No mismatches classified" />
-              ) : (
-                <ul className="space-y-2">
-                  {(result.mismatches || []).map((m, i) => (
-                    <li
-                      key={`${m.mismatch_type}-${i}`}
-                      className="rounded-xl ring-1 ring-[#F0F0F0] bg-white px-4 py-3"
-                    >
-                      <div className="flex flex-wrap items-center gap-2">
-                        <TypePill type={m.mismatch_type} />
-                        <SeverityPill severity={m.mismatch_severity} />
-                        <Gstr1aWindowBadge
-                          eligibility={m.eligibility}
-                          window={gstr1aWindow}
-                        />
-                        <span className="text-[13px] font-medium text-[var(--ink)]">
-                          {m.decision_what || m.invoice_number || "—"}
-                        </span>
-                      </div>
-                      {m.decision_next ? (
-                        <p className="mt-1.5 text-[12px] font-medium text-[var(--ink)]">
-                          {m.decision_next}
-                        </p>
-                      ) : null}
-                    </li>
-                  ))}
-                </ul>
+
+              {/* 1. True Reconciliation Mismatches */}
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <span className="h-2 w-2 rounded-full bg-rose-500" />
+                  <h3 className="text-[13px] font-semibold text-[var(--ink)]">
+                    Reconciliation Mismatches ({trueReconciliationMismatches.length})
+                  </h3>
+                </div>
+                {trueReconciliationMismatches.length === 0 ? (
+                  <p className="text-[12px] text-gray-400 italic">No reconciliation mismatches found.</p>
+                ) : (
+                  <ul className="space-y-2">
+                    {trueReconciliationMismatches.map((m, i) => (
+                      <li
+                        key={`recon-${m.mismatch_type}-${i}`}
+                        className="rounded-xl ring-1 ring-rose-200/60 bg-rose-50/20 px-4 py-3"
+                      >
+                        <div className="flex flex-wrap items-center gap-2">
+                          <TypePill type={m.mismatch_type} />
+                          <SeverityPill severity={m.mismatch_severity} />
+                          <Gstr1aWindowBadge
+                            eligibility={m.eligibility}
+                            window={gstr1aWindow}
+                          />
+                          <span className="text-[13px] font-medium text-[var(--ink)]">
+                            {m.decision_what || m.invoice_number || "—"}
+                          </span>
+                        </div>
+                        {m.decision_next ? (
+                          <p className="mt-1.5 text-[12px] font-medium text-rose-900">
+                            {m.decision_next}
+                          </p>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+
+              {/* 2. Review-Required Items */}
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <span className="h-2 w-2 rounded-full bg-amber-500" />
+                  <h3 className="text-[13px] font-semibold text-[var(--ink)]">
+                    Review Required ({reviewMismatches.length})
+                  </h3>
+                </div>
+                {reviewMismatches.length === 0 ? (
+                  <p className="text-[12px] text-gray-400 italic">No review-required items.</p>
+                ) : (
+                  <ul className="space-y-2">
+                    {reviewMismatches.map((m, i) => (
+                      <li
+                        key={`review-${m.mismatch_type}-${i}`}
+                        className="rounded-xl ring-1 ring-amber-200/60 bg-amber-50/20 px-4 py-3"
+                      >
+                        <div className="flex flex-wrap items-center gap-2">
+                          <TypePill type={m.mismatch_type} />
+                          <SeverityPill severity={m.mismatch_severity} />
+                          <span className="text-[13px] font-medium text-[var(--ink)]">
+                            {m.decision_what || m.invoice_number || "—"}
+                          </span>
+                        </div>
+                        {m.decision_next ? (
+                          <p className="mt-1.5 text-[12px] font-medium text-amber-900">
+                            {m.decision_next}
+                          </p>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+
+              {/* 3. Invoice Series / Compliance Warnings */}
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <span className="h-2 w-2 rounded-full bg-slate-500" />
+                  <h3 className="text-[13px] font-semibold text-[var(--ink)]">
+                    Invoice Series / Compliance Warnings ({seriesWarnings.length})
+                  </h3>
+                </div>
+                {seriesWarnings.length === 0 ? (
+                  <p className="text-[12px] text-gray-400 italic">No invoice series compliance warnings.</p>
+                ) : (
+                  <ul className="space-y-2">
+                    {seriesWarnings.map((m, i) => (
+                      <li
+                        key={`series-${m.mismatch_type}-${i}`}
+                        className="rounded-xl ring-1 ring-slate-200/80 bg-slate-50/40 px-4 py-3"
+                      >
+                        <div className="flex flex-wrap items-center gap-2">
+                          <TypePill type={m.mismatch_type} />
+                          <SeverityPill severity={m.mismatch_severity} />
+                          <span className="text-[13px] font-medium text-[var(--ink)]">
+                            {m.decision_what || m.invoice_number || "—"}
+                          </span>
+                        </div>
+                        {m.decision_next ? (
+                          <p className="mt-1.5 text-[12px] text-slate-700">
+                            {m.decision_next}
+                          </p>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+
+              {/* 4. Informational Notices */}
+              {infoMismatches.length > 0 && (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <span className="h-2 w-2 rounded-full bg-blue-400" />
+                    <h3 className="text-[13px] font-semibold text-[var(--ink)]">
+                      Informational Notices ({infoMismatches.length})
+                    </h3>
+                  </div>
+                  <ul className="space-y-2">
+                    {infoMismatches.map((m, i) => (
+                      <li
+                        key={`info-${m.mismatch_type}-${i}`}
+                        className="rounded-xl ring-1 ring-blue-100 bg-blue-50/20 px-4 py-3"
+                      >
+                        <div className="flex flex-wrap items-center gap-2">
+                          <TypePill type={m.mismatch_type} />
+                          <span className="text-[13px] font-medium text-[var(--ink)]">
+                            {m.decision_what || m.invoice_number || "—"}
+                          </span>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
               )}
             </div>
           </section>

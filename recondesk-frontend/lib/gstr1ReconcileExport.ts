@@ -190,11 +190,29 @@ export function downloadGstr1ExcelReport(result: Gstr1ReconcileResult): void {
     )
   );
 
-  sections.push("\n=== All mismatches ===");
+  const reconMismatches =
+    result.reconciliation_mismatches ||
+    (result.mismatches || []).filter(
+      (m) =>
+        m.mismatch_type !== "G1M8_INVOICE_SERIES_ISSUE" &&
+        m.mismatch_type !== "G1M10_DOCUMENTS_ISSUED_SUMMARY" &&
+        m.category !== "compliance_warning"
+    );
+
+  const seriesCompliance =
+    result.series_compliance_warnings ||
+    (result.mismatches || []).filter(
+      (m) =>
+        m.mismatch_type === "G1M8_INVOICE_SERIES_ISSUE" ||
+        m.mismatch_type === "G1M10_DOCUMENTS_ISSUED_SUMMARY" ||
+        m.category === "compliance_warning"
+    );
+
+  sections.push("\n=== Reconciliation Mismatches ===");
   sections.push(
     rowsToCsv(
       ["type", "severity", "invoice", "gstin", "what", "why", "next"],
-      (result.mismatches || []).map((m) => [
+      reconMismatches.map((m) => [
         mismatchTypeShort(m.mismatch_type),
         m.mismatch_severity || "",
         excelTextQuote(m.invoice_number),
@@ -205,6 +223,24 @@ export function downloadGstr1ExcelReport(result: Gstr1ReconcileResult): void {
       ])
     )
   );
+
+  if (seriesCompliance.length > 0) {
+    sections.push("\n=== Invoice Series & Compliance Warnings ===");
+    sections.push(
+      rowsToCsv(
+        ["type", "severity", "invoice", "gstin", "what", "why", "next"],
+        seriesCompliance.map((m) => [
+          mismatchTypeShort(m.mismatch_type),
+          m.mismatch_severity || "",
+          excelTextQuote(m.invoice_number),
+          m.recipient_gstin || "",
+          m.decision_what || "",
+          m.decision_why || "",
+          m.decision_next || "",
+        ])
+      )
+    );
+  }
 
   const tie = result.tie_out || {};
   sections.push("\n=== GSTR-1 vs 3B variances ===");
@@ -355,8 +391,12 @@ export async function downloadGstr1PdfReport(
       : "") +
     ` · Accounted: ${accountedSourceCount}/${s.sr_total_records} (${coveragePct}%)`
   );
+  const seriesWarningsCount =
+    s.series_compliance_warning_count ??
+    (result.series_compliance_warnings?.length ?? counts.G1M8 ?? 0);
   line(
-    `Missing in GSTR-1 (G1M1): ${counts.G1M1 || s.unmatched_sr_count} · Extra in GSTR-1 (G1M2): ${counts.G1M2 || s.unmatched_gstr1_count} · Review Required (G1M3): ${g1m3}`
+    `Missing in GSTR-1 (G1M1): ${counts.G1M1 || s.unmatched_sr_count} · Extra in GSTR-1 (G1M2): ${counts.G1M2 || s.unmatched_gstr1_count} · Review Required (G1M3): ${g1m3}` +
+    (seriesWarningsCount > 0 ? ` · Series & Compliance: ${seriesWarningsCount}` : "")
   );
   line(
     `Tie-out: ${s.tie_out_clean ? "Clean" : "Variances"} (${s.tie_out_variance_count})`

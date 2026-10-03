@@ -5960,6 +5960,7 @@ async def delete_reconcile_run(
                         repo.delete_rule37_actions_for_run(rid)
                     except Exception as exc:
                         _log.warning("delete_rule37_actions_for_run: Aurora failed run_id=%s: %s", rid, exc)
+                from app.repositories.vendor_compliance import get_vendor_compliance_repository
                 vc_repo = get_vendor_compliance_repository()
                 if vc_repo is not None:
                     try:

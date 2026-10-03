@@ -324,9 +324,12 @@ def _build_discrepancies(
         )
 
     if not skip_date and da is not None and db is not None and date_diff_days != 0:
+        signed = (db - da).days
+        signed_str = f"+{signed} days" if signed > 0 else (f"{signed} days" if signed < 0 else "0 days")
+        diff_label = f"{date_diff_days} days ({signed_str})" if signed_str != f"{date_diff_days} days" else f"{date_diff_days} days"
         out.append(
             f"date: {config.a_label}={da.isoformat()}, "
-            f"{config.b_label}={db.isoformat()}, diff={date_diff_days} days"
+            f"{config.b_label}={db.isoformat()}, diff={diff_label}"
         )
     elif skip_date and (da is not None or db is not None):
         da_s = da.isoformat() if da else "None"
@@ -477,7 +480,7 @@ def _build_compared_fields(
     d_a = _parse_invoice_date(rec_a)
     d_b = _parse_invoice_date(rec_b)
     dd_days, skip_d = _date_diff_days_and_skip(d_a, d_b)
-    if skip_d or dd_days <= DATE_TOLERANCE_L1_DAYS:
+    if skip_d or dd_days == 0:
         out.append(_field_entry("date", "exact"))
     elif dd_days <= DATE_TOLERANCE_L3_DAYS:
         closeness = max(0.0, 1.0 - (dd_days / float(DATE_TOLERANCE_L3_DAYS)))
@@ -792,7 +795,28 @@ def generic_match_pair(
         and date_within_l1
         and tax_structure_match
     ):
+        delta_days = (db - da).days if (da and db) else date_diff_days
+        delta_str = (
+            f"+{delta_days} day" if delta_days == 1
+            else f"+{delta_days} days" if delta_days > 0
+            else f"{delta_days} day" if delta_days == -1
+            else f"{delta_days} days"
+        )
         if raw_inv_ok:
+            if not skip_date and date_diff_days != 0:
+                return _ret(
+                    level=1, matched=True, confidence=100,
+                    requires_human_review=False,
+                    decision_what="Matched within date tolerance",
+                    decision_why=(
+                        f"Invoice number and amount align; date difference is {delta_str} "
+                        f"(within {DATE_TOLERANCE_L1_DAYS}-day tolerance)"
+                    ),
+                    decision_next="No action required",
+                    discrepancies=discrepancies,
+                    identity_confidence="High", financial_status="Exact",
+                    review_reason=None,
+                )
             return _ret(
                 level=1, matched=True, confidence=100,
                 requires_human_review=False,
@@ -803,14 +827,24 @@ def generic_match_pair(
                 identity_confidence="High", financial_status="Exact",
                 review_reason=None,
             )
+        why_text = (
+            "Invoice numbers match after normalization or format variant; amounts and dates align"
+            if (skip_date or date_diff_days == 0)
+            else (
+                f"Invoice numbers match after normalization or format variant; amounts align; "
+                f"date difference is {delta_str} (within {DATE_TOLERANCE_L1_DAYS}-day tolerance)"
+            )
+        )
+        what_text = (
+            "Normalized invoice match"
+            if (skip_date or date_diff_days == 0)
+            else "Normalized invoice match (within date tolerance)"
+        )
         return _ret(
             level=2, matched=True, confidence=95,
             requires_human_review=False,
-            decision_what="Normalized invoice match",
-            decision_why=(
-                "Invoice numbers match after normalization or format variant; "
-                "amounts and dates align"
-            ),
+            decision_what=what_text,
+            decision_why=why_text,
             decision_next=(
                 "No action required — formatting differs, amounts align"
             ),
@@ -825,6 +859,26 @@ def generic_match_pair(
     # ══════════════════════════════════════════════════════════════════════
     if identity_ok and raw_inv_ok and _name_ok:
         if amount_within_l1 and date_within_l1 and l12_finance_ok:
+            delta_days = (db - da).days if (da and db) else date_diff_days
+            delta_str = (
+                f"+{delta_days} day" if delta_days == 1
+                else f"+{delta_days} days" if delta_days > 0
+                else f"{delta_days} day" if delta_days == -1
+                else f"{delta_days} days"
+            )
+            if not skip_date and date_diff_days != 0:
+                return _ret(
+                    level=1, matched=True, confidence=100,
+                    requires_human_review=False,
+                    decision_what="Matched within date tolerance",
+                    decision_why=(
+                        f"Invoice number and amount align; date difference is {delta_str} "
+                        f"(within {DATE_TOLERANCE_L1_DAYS}-day tolerance)"
+                    ),
+                    decision_next="No action required",
+                    discrepancies=discrepancies,
+                    identity_confidence="High", financial_status=financial_status,
+                )
             return _ret(
                 level=1, matched=True, confidence=100,
                 requires_human_review=False,
