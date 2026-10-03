@@ -52,6 +52,14 @@ from app.models.integrations import (
     TallyBridgeKey,
     TallyLedgerMaster,
 )
+from app.models.filing_automation import (
+    FilingBatch,
+    FilingBatchItem,
+    FilingRun,
+    FilingSession,
+    SalesRegisterRun,
+    SrRecord,
+)
 
 __all__ = [
     "Base",
@@ -95,5 +103,11 @@ __all__ = [
     "EinvoiceReconResult",
     "GstFetchLog",
     "ImsActionSubmission",
+    "FilingSession",
+    "FilingRun",
+    "FilingBatch",
+    "FilingBatchItem",
+    "SalesRegisterRun",
+    "SrRecord",
 ]
 

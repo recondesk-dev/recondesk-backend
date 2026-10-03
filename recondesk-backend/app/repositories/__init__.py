@@ -23,6 +23,11 @@ from app.repositories.integrations import (
     AuroraIntegrationsRepository,
     get_integrations_repository,
 )
+from app.repositories.filing_automation import (
+    AuroraFilingAutomationRepository,
+    get_filing_automation_repository,
+    set_filing_automation_repository,
+)
 
 __all__ = [
     "AuroraComplianceRepository",
@@ -38,4 +43,7 @@ __all__ = [
     "set_return_reconciliation_repository",
     "AuroraIntegrationsRepository",
     "get_integrations_repository",
+    "AuroraFilingAutomationRepository",
+    "get_filing_automation_repository",
+    "set_filing_automation_repository",
 ]
