@@ -96,6 +96,12 @@ export function downloadGstr1ExcelReport(result: Gstr1ReconcileResult): void {
       [
         ["sr_total_records", result.summary.sr_total_records],
         ["gstr1_total_records", result.summary.gstr1_total_records],
+        ["invoice_level_match_count", result.summary.invoice_level_match_count ?? result.summary.matched_count],
+        ["aggregate_source_invoice_count (B2CS)", result.summary.aggregate_source_invoice_count ?? 0],
+        ["accounted_source_invoice_count", result.summary.accounted_source_invoice_count ?? result.summary.matched_count],
+        ["unaccounted_source_invoice_count", result.summary.unaccounted_source_invoice_count ?? 0],
+        ["coverage_percentage", `${result.summary.coverage_percentage ?? 0}%`],
+        ["b2cs_reconciliation_status", result.summary.b2cs_reconciliation_status ?? "N/A"],
         ["matched_count", result.summary.matched_count],
         ["unmatched_sr_count", result.summary.unmatched_sr_count],
         ["unmatched_gstr1_count", result.summary.unmatched_gstr1_count],
@@ -338,12 +344,19 @@ export async function downloadGstr1PdfReport(
   y += 10;
 
   line("Summary", { bold: true, size: 12 });
+  const invoiceLevelMatchCount = s.invoice_level_match_count ?? s.matched_count;
+  const aggregateSourceCount = s.aggregate_source_invoice_count ?? 0;
+  const accountedSourceCount = s.accounted_source_invoice_count ?? s.matched_count;
+  const coveragePct = s.coverage_percentage ?? 0;
   line(
-    `Sales Register: ${s.sr_total_records} · GSTR-1: ${s.gstr1_total_records} · Matched: ${s.matched_count} · Review Required (G1M3): ${g1m3}`
+    `Sales Register: ${s.sr_total_records} · Invoice-Level Matched: ${invoiceLevelMatchCount}` +
+    (aggregateSourceCount > 0
+      ? ` · B2CS Aggregate: ${aggregateSourceCount} invoices (${s.b2cs_reconciliation_status ?? "N/A"})`
+      : "") +
+    ` · Accounted: ${accountedSourceCount}/${s.sr_total_records} (${coveragePct}%)`
   );
-  const fieldMismatches = g1m3;
   line(
-    `Missing in GSTR-1 (G1M1): ${counts.G1M1 || s.unmatched_sr_count} · Extra in GSTR-1 (G1M2): ${counts.G1M2 || s.unmatched_gstr1_count} · Field mismatches (G1M3): ${fieldMismatches}`
+    `Missing in GSTR-1 (G1M1): ${counts.G1M1 || s.unmatched_sr_count} · Extra in GSTR-1 (G1M2): ${counts.G1M2 || s.unmatched_gstr1_count} · Review Required (G1M3): ${g1m3}`
   );
   line(
     `Tie-out: ${s.tie_out_clean ? "Clean" : "Variances"} (${s.tie_out_variance_count})`

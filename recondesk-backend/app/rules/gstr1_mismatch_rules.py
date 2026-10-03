@@ -1762,6 +1762,8 @@ def _analyse_series_gaps_and_duplicates(
     records: list[Mapping[str, Any]],
     *,
     source_label: str,
+    min_gap_run_length: int | None = None,
+    check_gaps: bool = True,
 ) -> list[MismatchResult]:
     """Gap + duplicate detection for one source (SR or GSTR-1)."""
     results: list[MismatchResult] = []
@@ -1769,7 +1771,7 @@ def _analyse_series_gaps_and_duplicates(
         return results
 
     inv_occurrences: dict[str, list[str]] = {}
-    series: dict[str, list[tuple[int, str, date | None]]] = {}
+    series: dict[tuple[str, str], list[tuple[int, str, date | None]]] = {}
 
     for rec in records:
         inv_raw = str(
@@ -1788,7 +1790,15 @@ def _analyse_series_gaps_and_duplicates(
         if split is None:
             continue
         prefix, num = split
-        series.setdefault(prefix, []).append((num, inv_raw, inv_date))
+
+        # Separate document types into independent series
+        is_cn = _is_credit_note(rec) or str(rec.get("doc_type") or "").upper() == "CREDIT_NOTE"
+        is_dn = _is_debit_note(rec) or str(rec.get("doc_type") or "").upper() == "DEBIT_NOTE"
+        doc_category = "CN" if is_cn else ("DN" if is_dn else "INV")
+        series_key = (doc_category, prefix)
+
+        # Sequence entry (cancelled invoices are part of books and fill their numeric slot)
+        series.setdefault(series_key, []).append((num, inv_raw, inv_date))
 
     for inv_num, dates in inv_occurrences.items():
         if len(dates) > 1:
@@ -1801,7 +1811,10 @@ def _analyse_series_gaps_and_duplicates(
                 )
             )
 
-    for prefix, entries in series.items():
+    if not check_gaps:
+        return results
+
+    for (doc_category, prefix), entries in series.items():
         if len(entries) < _MIN_SERIES_SIZE:
             continue
         entries_sorted = sorted(entries, key=lambda e: e[0])
@@ -1820,9 +1833,16 @@ def _analyse_series_gaps_and_duplicates(
                 _MAX_SERIES_NUMERIC_SPAN,
             )
             continue
+
+        effective_min_gap = (
+            min_gap_run_length
+            if min_gap_run_length is not None
+            else (1 if len(entries) >= 4 else 3)
+        )
+
         missing = sorted(set(range(series_min, series_max + 1)) - present)
         for run in _contiguous_missing_runs(missing):
-            if len(run) < _MIN_GAP_RUN_LENGTH:
+            if len(run) < effective_min_gap:
                 continue
             results.append(
                 _classify_series_gap(
@@ -1839,59 +1859,56 @@ def _analyse_series_gaps_and_duplicates(
 def check_invoice_series_continuity(
     sr_records: list[Mapping[str, Any]],
     gstr1_records: list[Mapping[str, Any]] | None = None,
+    *,
+    min_gap_run_length: int | None = None,
 ) -> list[MismatchResult]:
     """G1M8 — Detect invoice series gaps and duplicates.
 
     Analyses Sales Register and (optionally) GSTR-1 invoice numbering:
 
-    1. **Duplicates** — same invoice number appearing more than once.
-    2. **Gaps** — missing sequence numbers within a detected series.
-
-    Out-of-order date checks are intentionally omitted: real filings often
-    have non-monotonic dates within a series and that path previously
-    flooded results with thousands of false positives.
-
-    Series are auto-detected by splitting each invoice number into
-    ``(prefix, numeric_part)`` via regex. Different prefixes form
-    independent series — gaps are never flagged across series.
+    1. **Authoritative sequence continuity**: The Sales Register / books is the
+       authoritative source for invoice continuity. When SR is provided, series
+       gap analysis is performed ONLY on SR (GSTR-1 is not scanned for series
+       gaps because aggregate sections like B2CS omit individual invoice numbers).
+    2. **Duplicates**: GSTR-1 is checked for duplicate invoice entries.
+    3. **Document types**: Credit notes, debit notes, and regular invoices form
+       separate, independent series.
     """
     results: list[MismatchResult] = []
-    results.extend(
-        _analyse_series_gaps_and_duplicates(
-            sr_records or [], source_label="sales_register",
+
+    if sr_records:
+        results.extend(
+            _analyse_series_gaps_and_duplicates(
+                sr_records,
+                source_label="sales_register",
+                min_gap_run_length=min_gap_run_length,
+                check_gaps=True,
+            )
         )
-    )
-    # GSTR-1 gap detection catches unfiled consecutive blocks (e.g. INV1500–1504)
-    # that are still present in the Sales Register.
-    g1_gaps = _analyse_series_gaps_and_duplicates(
-        gstr1_records or [], source_label="gstr1",
-    )
-    # Prefer GSTR-1 gap reports when the same prefix already appeared from SR
-    # with an identical missing set (dedupe). Keep unique gaps from either side.
-    seen_gap_keys: set[tuple[str, tuple[int, ...]]] = set()
-    for r in results:
-        if r.details.get("issue_type") == "gap":
-            key = (
-                str(r.details.get("series_prefix") or ""),
-                tuple(r.details.get("missing_numbers") or ()),
+        if gstr1_records:
+            results.extend(
+                _analyse_series_gaps_and_duplicates(
+                    gstr1_records,
+                    source_label="gstr1",
+                    check_gaps=False,
+                )
             )
-            seen_gap_keys.add(key)
-    for r in g1_gaps:
-        if r.details.get("issue_type") == "gap":
-            key = (
-                str(r.details.get("series_prefix") or ""),
-                tuple(r.details.get("missing_numbers") or ()),
+    elif gstr1_records:
+        results.extend(
+            _analyse_series_gaps_and_duplicates(
+                gstr1_records,
+                source_label="gstr1",
+                min_gap_run_length=min_gap_run_length,
+                check_gaps=True,
             )
-            if key in seen_gap_keys:
-                continue
-            seen_gap_keys.add(key)
-        results.append(r)
+        )
 
     _sev_order = {
         MismatchSeverity.CRITICAL: 0,
         MismatchSeverity.HIGH: 1,
         MismatchSeverity.MEDIUM: 2,
         MismatchSeverity.LOW: 3,
+        MismatchSeverity.INFO: 4,
     }
     results.sort(key=lambda r: _sev_order.get(r.severity, 99))
 
@@ -2502,6 +2519,7 @@ def reconcile_hsn_summary(
     gstr1_records_all: Sequence[Mapping[str, Any]],
     outward_records: Sequence[Mapping[str, Any]] | None = None,
     *,
+    return_period: str | None = None,
     tolerance_paise: int = AMOUNT_TOLERANCE_PAISE,
 ) -> list[MismatchResult]:
     """Reconcile GSTR-1 Table 12 HSN summary against underlying transactions.

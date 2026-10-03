@@ -108,6 +108,21 @@ export type Gstr1TieOutVariance = {
   direction: "over" | "under" | string;
 };
 
+export type Gstr1TieOutCategory = {
+  gstr1_value_paise: number;
+  gstr3b_value_paise: number;
+  difference_paise: number;
+  is_clean: boolean;
+};
+
+export type Gstr1TieOutTax = {
+  igst_difference_paise: number;
+  cgst_difference_paise: number;
+  sgst_difference_paise: number;
+  cess_difference_paise: number;
+  total_tax_difference_paise: number;
+};
+
 export type Gstr1TieOut = {
   ret_period?: string;
   is_clean?: boolean;
@@ -118,6 +133,25 @@ export type Gstr1TieOut = {
   gstr1_by_rate?: Record<string, Record<string, number>>;
   variances?: Gstr1TieOutVariance[];
   mismatch_decisions?: Gstr1DecisionFields[];
+  taxable_outward?: Gstr1TieOutCategory;
+  zero_rated?: Gstr1TieOutCategory;
+  nil_exempt?: Gstr1TieOutCategory;
+  non_gst?: Gstr1TieOutCategory;
+  tax?: Gstr1TieOutTax;
+  unexplained_difference_paise?: number;
+  unexplained_difference?: number;
+  reclassification_difference_paise?: number;
+  reclassification_difference?: number;
+  statutory_reconciliation?: {
+    taxable_outward?: Gstr1TieOutCategory;
+    zero_rated?: Gstr1TieOutCategory;
+    nil_exempt?: Gstr1TieOutCategory;
+    non_gst?: Gstr1TieOutCategory;
+    tax?: Gstr1TieOutTax;
+    unexplained_difference_paise?: number;
+    reclassification_difference_paise?: number;
+    is_clean?: boolean;
+  };
 };
 
 export type Gstr1ParseDiagnostics = {
@@ -155,6 +189,13 @@ export type Gstr1ReconcileSummary = {
   /** Aggregate rows (HSN/nil/advances) excluded from invoice matching. */
   gstr1_metadata_record_count?: number;
   matched_count: number;
+  invoice_level_match_count?: number;
+  aggregate_source_invoice_count?: number;
+  aggregate_group_count?: number;
+  accounted_source_invoice_count?: number;
+  unaccounted_source_invoice_count?: number;
+  coverage_percentage?: number;
+  b2cs_reconciliation_status?: string;
   unmatched_sr_count: number;
   unmatched_gstr1_count: number;
   mismatch_count: number;
@@ -169,6 +210,31 @@ export type Gstr1ReconcileSummary = {
   gstr1_filed_date?: string | null;
   gstr3b_filed_date?: string | null;
   gstr1a_window?: Gstr1aWindow | null;
+};
+
+export type Gstr1B2CSGroup = {
+  dimension: { pos: string; rate: number | null; supply_type: string };
+  group_label: string;
+  status: "MATCHED" | "MISMATCH";
+  sr_invoices_count: number;
+  sr_taxable_paise: number;
+  sr_total_tax_paise: number;
+  gstr1_taxable_paise: number;
+  gstr1_total_tax_paise: number;
+  taxable_diff_paise: number;
+  tax_diff_paise: number;
+};
+
+export type Gstr1B2CSReconciliation = {
+  status: string;
+  source_invoice_count: number;
+  group_count: number;
+  matched_group_count: number;
+  accounted_invoice_count: number;
+  unaccounted_invoice_count: number;
+  groups: Gstr1B2CSGroup[];
+  matches?: Gstr1MatchedRow[];
+  mismatch_count: number;
 };
 
 export type Gstr1DocumentsIssuedSeries = {
@@ -214,6 +280,7 @@ export type Gstr1ReconcileResult = {
   unmatched_sr: Gstr1UnmatchedRow[];
   unmatched_gstr1: Gstr1UnmatchedRow[];
   mismatches: Gstr1DecisionFields[];
+  b2cs_reconciliation?: Gstr1B2CSReconciliation;
   /** G1M10 Table 13 period-level documents issued summary. */
   documents_issued?: Gstr1DocumentsIssued;
   tie_out: Gstr1TieOut;

@@ -1262,6 +1262,7 @@ def _parse_nil_section(
                 pos="",
                 reverse_charge=False,
                 items=[],
+                invoice_level_paise={"taxable_value_paise": val_paise},
                 normalization_notes={},
                 supply_type=supply_type or None,
             )
