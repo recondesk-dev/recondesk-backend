@@ -44,6 +44,14 @@ from app.models.return_reconciliation import (
     Gstr2aDeltaResult,
     Gstr9AuditOverride,
 )
+from app.models.integrations import (
+    ClientEinvoiceCredential,
+    EinvoiceReconResult,
+    GstFetchLog,
+    ImsActionSubmission,
+    TallyBridgeKey,
+    TallyLedgerMaster,
+)
 
 __all__ = [
     "Base",
@@ -81,5 +89,11 @@ __all__ = [
     "Gstr1aPeriodAction",
     "Gstr2aDeltaResult",
     "Gstr9AuditOverride",
+    "TallyBridgeKey",
+    "TallyLedgerMaster",
+    "ClientEinvoiceCredential",
+    "EinvoiceReconResult",
+    "GstFetchLog",
+    "ImsActionSubmission",
 ]
 
