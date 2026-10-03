@@ -526,34 +526,70 @@ def _extract_b2cs_dimensions(rec: Mapping[str, Any], supplier_state: str = "") -
     m_pos = re.match(r"^(\d{2})", pos_raw)
     pos = m_pos.group(1) if m_pos else (supplier_state or "")
 
-    rate_raw = rec.get("rate") if "rate" in rec else rec.get("rt")
+    # 1. Group using explicit GST rate (rt) only
     rate: float | None = None
-    if rate_raw is not None:
-        try:
-            rate = round(float(rate_raw), 2)
-        except (TypeError, ValueError):
-            rate = None
+    for k in ("rt", "rate", "tax_rate", "gst_rate"):
+        if k in rec and rec[k] is not None:
+            try:
+                rate = round(float(rec[k]), 2)
+                break
+            except (TypeError, ValueError):
+                pass
 
     if rate is None:
         # Check items if present
         items = rec.get("items")
         if isinstance(items, list) and items:
-            it_rates = [it.get("tax_rate") for it in items if it.get("tax_rate") is not None]
-            if it_rates:
-                rate = round(float(it_rates[0]), 2)
+            for it in items:
+                for k in ("tax_rate", "rate", "rt", "gst_rate"):
+                    if k in it and it[k] is not None:
+                        try:
+                            rate = round(float(it[k]), 2)
+                            break
+                        except (TypeError, ValueError):
+                            pass
+                if rate is not None:
+                    break
 
     if rate is None:
-        # Infer rate from tax and taxable if available
-        txval = _safe_int(rec.get("taxable_amount_paise"))
-        tot_tax = _safe_int(rec.get("total_tax_paise"))
-        if tot_tax == 0:
-            tot_tax = (
-                _safe_int(rec.get("igst_paise"))
-                + _safe_int(rec.get("cgst_paise"))
-                + _safe_int(rec.get("sgst_paise"))
+        # Check explicit component rates (e.g. igst_rate or cgst_rate + sgst_rate)
+        try:
+            if rec.get("igst_rate") is not None:
+                rate = round(float(rec["igst_rate"]), 2)
+            elif rec.get("cgst_rate") is not None and rec.get("sgst_rate") is not None:
+                rate = round(float(rec["cgst_rate"]) + float(rec["sgst_rate"]), 2)
+        except (TypeError, ValueError):
+            pass
+
+    # 2. Check if cess is present
+    has_cess = (
+        _safe_int(rec.get("cess_paise")) > 0
+        or _safe_int(rec.get("cess")) > 0
+        or _safe_int(rec.get("csamt")) > 0
+        or rec.get("cess_rate") is not None
+        or (
+            isinstance(rec.get("items"), list)
+            and any(
+                _safe_int(it.get("cess_paise")) > 0
+                or _safe_int(it.get("csamt")) > 0
+                or it.get("cess_rate") is not None
+                for it in rec.get("items", [])
             )
-        if txval > 0 and tot_tax >= 0:
-            raw_calc = (tot_tax / txval) * 100.0
+        )
+    )
+
+    # 3. CRITICAL: Never derive the B2CS GST rate from total tax / taxable value when cess is present.
+    # Group using explicit GST rate (rt) only. Cess must remain a separate dimension/value
+    # and must not be added to CGST/SGST/IGST rate.
+    if rate is None and not has_cess:
+        txval = _safe_int(rec.get("taxable_amount_paise"))
+        gst_tax = (
+            _safe_int(rec.get("igst_paise"))
+            + _safe_int(rec.get("cgst_paise"))
+            + _safe_int(rec.get("sgst_paise"))
+        )
+        if txval > 0 and gst_tax >= 0:
+            raw_calc = (gst_tax / txval) * 100.0
             common_rates = [0.0, 0.1, 0.25, 1.5, 3.0, 5.0, 6.0, 12.0, 18.0, 28.0]
             matched_rate = min(common_rates, key=lambda r: abs(r - raw_calc))
             if abs(matched_rate - raw_calc) < 0.25:
@@ -630,6 +666,7 @@ def reconcile_b2cs_aggregate(
     group_details: list[dict[str, Any]] = []
     accounted_source_invoices = 0
     matched_groups_count = 0
+    matched_dims: set[tuple[str, float | None, str]] = set()
 
     # If both sides are single un-dimensioned aggregates (e.g. flat totals in tests)
     has_dimensions = any(d[0] or d[1] is not None for d in all_dims)
@@ -648,18 +685,28 @@ def reconcile_b2cs_aggregate(
         sr_cgst = sum(_safe_int(r.get("cgst_paise")) for r in sr_list)
         sr_sgst = sum(_safe_int(r.get("sgst_paise")) for r in sr_list)
         sr_cess = sum(_safe_int(r.get("cess_paise")) for r in sr_list)
-        sr_tot_tax = sr_igst + sr_cgst + sr_sgst + sr_cess
+        sr_gst_tax = sr_igst + sr_cgst + sr_sgst
+        sr_tot_tax = sr_gst_tax + sr_cess
 
         g1_txval = sum(_safe_int(r.get("taxable_amount_paise")) for r in g1_list)
         g1_igst = sum(_safe_int(r.get("igst_paise")) for r in g1_list)
         g1_cgst = sum(_safe_int(r.get("cgst_paise")) for r in g1_list)
         g1_sgst = sum(_safe_int(r.get("sgst_paise")) for r in g1_list)
         g1_cess = sum(_safe_int(r.get("cess_paise")) for r in g1_list)
-        g1_tot_tax = g1_igst + g1_cgst + g1_sgst + g1_cess
+        g1_gst_tax = g1_igst + g1_cgst + g1_sgst
+        g1_tot_tax = g1_gst_tax + g1_cess
 
         txval_diff = abs(sr_txval - g1_txval)
-        tax_diff = abs(sr_tot_tax - g1_tot_tax)
-        is_group_matched = txval_diff <= tolerance_paise and tax_diff <= tolerance_paise
+        gst_tax_diff = abs(sr_gst_tax - g1_gst_tax)
+        cess_diff = abs(sr_cess - g1_cess)
+        tot_tax_diff = abs(sr_tot_tax - g1_tot_tax)
+
+        # Match condition: Cess must remain a separate dimension/value and must not be added to CGST/SGST/IGST
+        is_group_matched = (
+            txval_diff <= tolerance_paise
+            and gst_tax_diff <= tolerance_paise
+            and cess_diff <= tolerance_paise
+        )
 
         group_label = f"POS {pos or 'NA'} · {rate if rate is not None else 'NA'}% · {sply_ty}"
 
@@ -669,15 +716,22 @@ def reconcile_b2cs_aggregate(
             "status": "MATCHED" if is_group_matched else "MISMATCH",
             "sr_invoices_count": len(sr_list),
             "sr_taxable_paise": sr_txval,
+            "sr_gst_tax_paise": sr_gst_tax,
+            "sr_cess_paise": sr_cess,
             "sr_total_tax_paise": sr_tot_tax,
             "gstr1_taxable_paise": g1_txval,
+            "gstr1_gst_tax_paise": g1_gst_tax,
+            "gstr1_cess_paise": g1_cess,
             "gstr1_total_tax_paise": g1_tot_tax,
             "taxable_diff_paise": txval_diff,
-            "tax_diff_paise": tax_diff,
+            "gst_tax_diff_paise": gst_tax_diff,
+            "cess_diff_paise": cess_diff,
+            "tax_diff_paise": tot_tax_diff,
         }
         group_details.append(group_info)
 
         if is_group_matched:
+            matched_dims.add(dim)
             matched_groups_count += 1
             accounted_source_invoices += len(sr_list)
             sr_synth = {
@@ -723,6 +777,8 @@ def reconcile_b2cs_aggregate(
                 "discrepancies": [],
                 "compared_fields": [
                     {"field": "taxable_amount", "status": "exact"},
+                    {"field": "gst_tax", "status": "exact"},
+                    {"field": "cess", "status": "exact"},
                     {"field": "total_tax", "status": "exact"},
                 ],
             }
@@ -746,19 +802,28 @@ def reconcile_b2cs_aggregate(
                     details={
                         "invoice_number": "B2CS-AGGREGATE",
                         "dimension": {"pos": pos, "rate": rate, "supply_type": sply_ty},
+                        "sr_invoices_count": len(sr_list),
                         "sr_taxable": sr_txval,
                         "gstr1_taxable": g1_txval,
                         "taxable_diff": txval_diff,
+                        "sr_gst_tax": sr_gst_tax,
+                        "gstr1_gst_tax": g1_gst_tax,
+                        "gst_tax_diff": gst_tax_diff,
+                        "sr_cess": sr_cess,
+                        "gstr1_cess": g1_cess,
+                        "cess_diff": cess_diff,
                         "sr_tax": sr_tot_tax,
                         "gstr1_tax": g1_tot_tax,
-                        "tax_diff": tax_diff,
+                        "tax_diff": tot_tax_diff,
                         "issue_type": "b2cs_aggregate_mismatch",
                     },
                 )
             )
 
     overall_status = "MATCHED" if len(mismatches) == 0 else "MISMATCH"
-    unaccounted_invoices = len(sr_b2cs_records) - accounted_source_invoices
+    # Ensure unaccounted_invoice_count counts actual source invoices belonging to mismatched dimensions,
+    # NOT the number of mismatched aggregate dimensions!
+    unaccounted_invoices = sum(len(sr_dim_groups.get(dim, [])) for dim in dims_to_evaluate if dim not in matched_dims)
 
     return B2CSReconciliationResult(
         matched=matched,
@@ -1308,10 +1373,7 @@ async def _run_pipeline(
             "aggregate_source_invoice_count": b2cs_recon.source_invoice_count,
             "aggregate_group_count": b2cs_recon.group_count,
             "accounted_source_invoice_count": len(matched_pairs) + b2cs_recon.accounted_invoice_count,
-            "unaccounted_source_invoice_count": max(
-                0,
-                len(sr_records) - (len(matched_pairs) + b2cs_recon.accounted_invoice_count),
-            ),
+            "unaccounted_source_invoice_count": len(unmatched_sr) + b2cs_recon.unaccounted_invoice_count,
             "coverage_percentage": round(
                 100.0 * (len(matched_pairs) + b2cs_recon.accounted_invoice_count) / len(sr_records),
                 2,
