@@ -23,6 +23,9 @@ B2CL_THRESHOLD_FROM_PAISE = 10_000_000   # ₹1,00,000
 # May 2025 cutover for B2B vs B2C Table 12 HSN reporting
 HSN_BIFURCATION_CUTOVER_PERIOD = "2025-05"
 
+# Canonical invoice date tolerance for GSTR-1 matching (2 days)
+GSTR1_INVOICE_DATE_TOLERANCE_DAYS: int = 2
+
 
 @dataclass(frozen=True)
 class GSTR1Rules:
@@ -32,6 +35,7 @@ class GSTR1Rules:
     b2cl_threshold_rupees: float
     hsn_bifurcation_active: bool
     b2cs_aggregation_dimensions: tuple[str, ...] = ("pos", "rate", "sply_ty")
+    invoice_date_tolerance_days: int = GSTR1_INVOICE_DATE_TOLERANCE_DAYS
 
     def is_b2cl(
         self,

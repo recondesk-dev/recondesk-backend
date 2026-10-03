@@ -71,6 +71,8 @@ from app.services.vendor_name_matcher import (
     l1_vendor_name_ok,
     vendor_name_similarity,
 )
+from app.rules.gstr1_rules import GSTR1_INVOICE_DATE_TOLERANCE_DAYS
+
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -129,6 +131,9 @@ class MatchFieldsConfig:
     # instead of forcing missing+extra double-counts.
     allow_gstin_mismatch: bool = False
 
+    # Authoritative L1 date tolerance window in days
+    date_tolerance_days: int = 3
+
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Pre-built configs
@@ -158,6 +163,7 @@ PURCHASE_MATCH_CONFIG = MatchFieldsConfig(
     financial_mismatch_next=(
         "Contact supplier to issue credit/debit note or verify correct invoice"
     ),
+    date_tolerance_days=DATE_TOLERANCE_L1_DAYS,
 )
 
 SALES_MATCH_CONFIG = MatchFieldsConfig(
@@ -187,6 +193,7 @@ SALES_MATCH_CONFIG = MatchFieldsConfig(
         "Review invoice details and amend GSTR-1 filing if needed"
     ),
     allow_gstin_mismatch=True,
+    date_tolerance_days=GSTR1_INVOICE_DATE_TOLERANCE_DAYS,
 )
 
 
@@ -325,11 +332,15 @@ def _build_discrepancies(
 
     if not skip_date and da is not None and db is not None and date_diff_days != 0:
         signed = (db - da).days
-        signed_str = f"+{signed} days" if signed > 0 else (f"{signed} days" if signed < 0 else "0 days")
-        diff_label = f"{date_diff_days} days ({signed_str})" if signed_str != f"{date_diff_days} days" else f"{date_diff_days} days"
+        signed_str = (
+            f"+{signed} day" if signed == 1
+            else f"+{signed} days" if signed > 0
+            else f"{signed} day" if signed == -1
+            else f"{signed} days"
+        )
         out.append(
             f"date: {config.a_label}={da.isoformat()}, "
-            f"{config.b_label}={db.isoformat()}, diff={diff_label}"
+            f"{config.b_label}={db.isoformat()}, diff={signed_str}"
         )
     elif skip_date and (da is not None or db is not None):
         da_s = da.isoformat() if da else "None"
@@ -482,6 +493,8 @@ def _build_compared_fields(
     dd_days, skip_d = _date_diff_days_and_skip(d_a, d_b)
     if skip_d or dd_days == 0:
         out.append(_field_entry("date", "exact"))
+    elif dd_days <= config.date_tolerance_days:
+        out.append(_field_entry("date", "tolerance"))
     elif dd_days <= DATE_TOLERANCE_L3_DAYS:
         closeness = max(0.0, 1.0 - (dd_days / float(DATE_TOLERANCE_L3_DAYS)))
         out.append(_field_entry("date", "fuzzy", int(round(closeness * 100))))
@@ -643,8 +656,8 @@ def generic_match_pair(
     a_total = _invoice_total_paise(rec_a)
     b_total = _invoice_total_paise(rec_b)
     total_diff = abs(abs(a_total) - abs(b_total))
-    a_is_igst = _safe_paise_field(rec_a, "igst_paise") > 0
-    b_is_igst = _safe_paise_field(rec_b, "igst_paise") > 0
+    a_is_igst = abs(_safe_paise_field(rec_a, "igst_paise")) > 0
+    b_is_igst = abs(_safe_paise_field(rec_b, "igst_paise")) > 0
     both_have_tax_breakdown = (
         _has_component_tax_breakdown(rec_a)
         and _has_component_tax_breakdown(rec_b)
@@ -703,7 +716,7 @@ def generic_match_pair(
     amount_within_l2 = skip_amount or (amount_pct <= AMOUNT_TOLERANCE_L2_PCT)
     amount_within_l3 = skip_amount or (amount_pct <= AMOUNT_TOLERANCE_L3_PCT)
 
-    date_within_l1 = skip_date or (date_diff_days <= DATE_TOLERANCE_L1_DAYS)
+    date_within_l1 = skip_date or (date_diff_days <= config.date_tolerance_days)
     date_within_l2 = skip_date or (date_diff_days <= DATE_TOLERANCE_L2_DAYS)
     date_within_l3 = skip_date or (date_diff_days <= DATE_TOLERANCE_L3_DAYS)
 
@@ -810,12 +823,12 @@ def generic_match_pair(
                     decision_what="Matched within date tolerance",
                     decision_why=(
                         f"Invoice number and amount align; date difference is {delta_str} "
-                        f"(within {DATE_TOLERANCE_L1_DAYS}-day tolerance)"
+                        f"(within {config.date_tolerance_days}-day tolerance)"
                     ),
                     decision_next="No action required",
                     discrepancies=discrepancies,
                     identity_confidence="High", financial_status="Exact",
-                    review_reason=None,
+                    review_reason="DATE_TOLERANCE_MATCH",
                 )
             return _ret(
                 level=1, matched=True, confidence=100,
@@ -832,7 +845,7 @@ def generic_match_pair(
             if (skip_date or date_diff_days == 0)
             else (
                 f"Invoice numbers match after normalization or format variant; amounts align; "
-                f"date difference is {delta_str} (within {DATE_TOLERANCE_L1_DAYS}-day tolerance)"
+                f"date difference is {delta_str} (within {config.date_tolerance_days}-day tolerance)"
             )
         )
         what_text = (
@@ -850,7 +863,7 @@ def generic_match_pair(
             ),
             discrepancies=discrepancies,
             identity_confidence="High", financial_status="Exact",
-            review_reason=None,
+            review_reason="DATE_TOLERANCE_MATCH" if not skip_date and date_diff_days != 0 else None,
         )
 
     # ══════════════════════════════════════════════════════════════════════
@@ -873,11 +886,12 @@ def generic_match_pair(
                     decision_what="Matched within date tolerance",
                     decision_why=(
                         f"Invoice number and amount align; date difference is {delta_str} "
-                        f"(within {DATE_TOLERANCE_L1_DAYS}-day tolerance)"
+                        f"(within {config.date_tolerance_days}-day tolerance)"
                     ),
                     decision_next="No action required",
                     discrepancies=discrepancies,
                     identity_confidence="High", financial_status=financial_status,
+                    review_reason="DATE_TOLERANCE_MATCH",
                 )
             return _ret(
                 level=1, matched=True, confidence=100,
@@ -887,36 +901,88 @@ def generic_match_pair(
                 decision_next="No action required",
                 discrepancies=discrepancies,
                 identity_confidence="High", financial_status=financial_status,
+                review_reason=None,
             )
         # Same raw invoice + identity ok + vendor ok but financial mismatch —
         # fall through to L2/L3 for human review.
+
+    # ══════════════════════════════════════════════════════════════════════
+    # DATE OUTSIDE TOLERANCE — Invoice & financial align, but date > tolerance
+    # (Does not cross return period; those are handled by period boundary check)
+    # ══════════════════════════════════════════════════════════════════════
+    if (
+        identity_ok
+        and (inv_ok or format_variant)
+        and _name_ok
+        and amount_within_l1
+        and l12_finance_ok
+        and not date_within_l1
+    ):
+        delta_days = (db - da).days if (da and db) else date_diff_days
+        delta_str = (
+            f"+{delta_days} day" if delta_days == 1
+            else f"+{delta_days} days" if delta_days > 0
+            else f"{delta_days} day" if delta_days == -1
+            else f"{delta_days} days"
+        )
+        return _ret(
+            level=2,
+            matched=True,
+            confidence=85,
+            requires_human_review=True,
+            decision_what=f"Invoice date difference outside tolerance ({delta_str})",
+            decision_why=(
+                f"Invoice number and amount align; date difference is {delta_str} "
+                f"(exceeds {config.date_tolerance_days}-day tolerance). "
+                f"Review required before filing."
+            ),
+            decision_next="Verify correct invoice date between books and return, and amend if needed.",
+            discrepancies=discrepancies,
+            identity_confidence="High",
+            financial_status=financial_status,
+            review_reason="DATE_OUTSIDE_TOLERANCE",
+        )
 
     # ══════════════════════════════════════════════════════════════════════
     # TIER 2 — Identity OK + normalised invoice match
     # ══════════════════════════════════════════════════════════════════════
     if identity_ok and inv_ok:
         if amount_within_l2 and date_within_l2 and tax_structure_match:
+            delta_days = (db - da).days if (da and db) else date_diff_days
+            delta_str = (
+                f"+{delta_days} day" if delta_days == 1
+                else f"+{delta_days} days" if delta_days > 0
+                else f"{delta_days} day" if delta_days == -1
+                else f"{delta_days} days"
+            )
+            if not date_within_l1:
+                rr = "DATE_OUTSIDE_TOLERANCE"
+                what_msg = f"Invoice date difference outside tolerance ({delta_str})"
+                why_msg = (
+                    f"Same invoice and GSTIN, amount aligns within tolerance, but date difference is {delta_str} "
+                    f"(exceeds {config.date_tolerance_days}-day tolerance). Review required before filing."
+                )
+            else:
+                rr = "Amount/Date mismatch"
+                what_msg = "Invoice matched with normalized invoice and minor amount difference"
+                why_msg = "Same normalized invoice and GSTIN, amount within acceptable tolerance"
             return _ret(
                 level=2, matched=True, confidence=90,
                 requires_human_review=True,
-                decision_what=(
-                    "Invoice matched with normalized invoice and minor "
-                    "amount difference"
-                ),
-                decision_why=(
-                    "Same normalized invoice and GSTIN, amount within "
-                    "acceptable tolerance"
-                ),
+                decision_what=what_msg,
+                decision_why=why_msg,
                 decision_next="Verify if needed",
                 discrepancies=discrepancies,
                 identity_confidence="High", financial_status=financial_status,
-                review_reason="Amount/Date mismatch",
+                review_reason=rr,
             )
 
         # Identity ok + same normalised invoice but amount or date exceeds
         # L2 — link as L3 review. Exact invoice identity is never rejected.
         if not tax_structure_match or not l12_finance_ok or not amount_within_l2:
             rr = "AMOUNT_MISMATCH"
+        elif not date_within_l1:
+            rr = "DATE_OUTSIDE_TOLERANCE"
         else:
             rr = "Amount Mismatch or Date mismatch"
         return _ret(

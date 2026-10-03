@@ -21,7 +21,7 @@ purchase-side API response shape.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import json
 import logging
 import re
@@ -155,7 +155,7 @@ def _categorize_mismatch(mr: MismatchResult) -> str:
         return "info_notice"
     if mtype in ("G1M8_INVOICE_SERIES_ISSUE", "G1M10_DOCUMENTS_ISSUED_SUMMARY"):
         return "compliance_warning"
-    if mtype == "G1M3_AMOUNT_MISMATCH" or mr.details.get("requires_review"):
+    if mtype in ("G1M3_AMOUNT_MISMATCH", "G1M12_DATE_OUTSIDE_TOLERANCE") or mr.details.get("requires_review"):
         return "review_required"
     return "reconciliation_mismatch"
 
@@ -510,6 +510,7 @@ class B2CSReconciliationResult:
     accounted_invoice_count: int        # source invoices covered by matched groups
     unaccounted_invoice_count: int
     groups: list[dict[str, Any]]
+    unaccounted_invoice_numbers: list[str] = field(default_factory=list)
 
     def __iter__(self):
         """Allows legacy unpacking as `matched, mismatches = reconcile_b2cs_aggregate(...)`."""
@@ -523,6 +524,7 @@ class B2CSReconciliationResult:
             "matched_group_count": self.matched_group_count,
             "accounted_invoice_count": self.accounted_invoice_count,
             "unaccounted_invoice_count": self.unaccounted_invoice_count,
+            "unaccounted_invoice_numbers": self.unaccounted_invoice_numbers,
             "groups": self.groups,
             "matches": [
                 {
@@ -742,6 +744,11 @@ def reconcile_b2cs_aggregate(
             "gst_tax_diff_paise": gst_tax_diff,
             "cess_diff_paise": cess_diff,
             "tax_diff_paise": tot_tax_diff,
+            "unaccounted_invoice_numbers": (
+                [str(r.get("invoice_number")) for r in sr_list if r.get("invoice_number")]
+                if not is_group_matched
+                else []
+            ),
         }
         group_details.append(group_info)
 
@@ -831,6 +838,9 @@ def reconcile_b2cs_aggregate(
                         "gstr1_tax": g1_tot_tax,
                         "tax_diff": tot_tax_diff,
                         "issue_type": "b2cs_aggregate_mismatch",
+                        "unaccounted_invoice_numbers": [
+                            str(r.get("invoice_number")) for r in sr_list if r.get("invoice_number")
+                        ],
                     },
                 )
             )
@@ -839,6 +849,12 @@ def reconcile_b2cs_aggregate(
     # Ensure unaccounted_invoice_count counts actual source invoices belonging to mismatched dimensions,
     # NOT the number of mismatched aggregate dimensions!
     unaccounted_invoices = sum(len(sr_dim_groups.get(dim, [])) for dim in dims_to_evaluate if dim not in matched_dims)
+    unaccounted_invoice_numbers = [
+        str(r.get("invoice_number"))
+        for dim in dims_to_evaluate if dim not in matched_dims
+        for r in sr_dim_groups.get(dim, [])
+        if r.get("invoice_number")
+    ]
 
     return B2CSReconciliationResult(
         matched=matched,
@@ -850,6 +866,7 @@ def reconcile_b2cs_aggregate(
         accounted_invoice_count=accounted_source_invoices,
         unaccounted_invoice_count=unaccounted_invoices,
         groups=group_details,
+        unaccounted_invoice_numbers=unaccounted_invoice_numbers,
     )
 
 
