@@ -334,3 +334,87 @@ class SupabaseImsActionStore:
             payload.get("invoice_id"),
         )
         return payload
+
+
+class AuroraImsActionStore:
+    """Production Aurora PostgreSQL implementation of ImsActionStore.
+
+    Uses AuroraIntegrationsRepository with optional non-blocking fallback to SupabaseImsActionStore.
+    """
+
+    def __init__(self, sb: Any = None) -> None:
+        from app.repositories.integrations import get_integrations_repository
+        self._repo = get_integrations_repository()
+        self._fallback_store = SupabaseImsActionStore(sb) if sb is not None else None
+
+    def find_non_failed(
+        self,
+        *,
+        invoice_id: str,
+        period: str,
+        gstin: str,
+    ) -> dict[str, Any] | None:
+        try:
+            row = self._repo.find_non_failed_ims_submission(
+                invoice_id=invoice_id,
+                period=normalize_period(period),
+                gstin=normalize_gstin(gstin),
+            )
+            if row is not None:
+                return row
+        except Exception as exc:
+            _log.warning("Aurora find_non_failed ims_submission failed: %s", exc)
+            if self._fallback_store:
+                return self._fallback_store.find_non_failed(
+                    invoice_id=invoice_id,
+                    period=period,
+                    gstin=gstin,
+                )
+        return None
+
+    def try_claim_submission(
+        self,
+        *,
+        invoice_id: str,
+        period: str,
+        gstin: str,
+        chosen_action: str,
+        recommended_action: str | None = None,
+        submit_mode: str = "confirm_recommendation",
+        run_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        try:
+            return self._repo.try_claim_ims_submission(
+                invoice_id=invoice_id,
+                period=normalize_period(period),
+                gstin=normalize_gstin(gstin),
+                chosen_action=chosen_action,
+                recommended_action=recommended_action,
+                submit_mode=submit_mode,
+                run_id=run_id,
+            )
+        except Exception as exc:
+            _log.warning("Aurora try_claim_ims_submission failed: %s", exc)
+            if self._fallback_store:
+                return self._fallback_store.try_claim_submission(
+                    invoice_id=invoice_id,
+                    period=period,
+                    gstin=gstin,
+                    chosen_action=chosen_action,
+                    recommended_action=recommended_action,
+                    submit_mode=submit_mode,
+                    run_id=run_id,
+                )
+            raise ImsClaimRpcError(
+                f"claim_ims_action_submission failed for invoice_id={invoice_id}: {exc}"
+            ) from exc
+
+    def upsert_submission(self, row: dict[str, Any]) -> dict[str, Any]:
+        try:
+            return self._repo.upsert_ims_submission(row)
+        except Exception as exc:
+            _log.warning("Aurora upsert_submission failed: %s", exc)
+            if self._fallback_store:
+                return self._fallback_store.upsert_submission(row)
+            raise
+

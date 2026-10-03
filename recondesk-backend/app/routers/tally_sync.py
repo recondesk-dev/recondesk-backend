@@ -396,12 +396,19 @@ async def tally_sync_purchase_register(
 
     # ── 6. Update last_synced_at on the bridge key ────────────────────────
     if len(body.rows) > 0:
-        try:
-            sb.table("tally_bridge_keys").update(
-                {"last_synced_at": datetime.now(timezone.utc).isoformat()}
-            ).eq("id", str(key_row.get("id"))).execute()
-        except Exception:
-            pass
+        kid = key_row.get("id")
+        if kid:
+            try:
+                from app.repositories.integrations import get_integrations_repository
+                repo = get_integrations_repository()
+                repo.update_tally_bridge_key_last_synced(key_id=str(kid))
+            except Exception:
+                try:
+                    sb.table("tally_bridge_keys").update(
+                        {"last_synced_at": datetime.now(timezone.utc).isoformat()}
+                    ).eq("id", str(kid)).execute()
+                except Exception:
+                    pass
 
     return {"run_id": run_id, "status": "importing"}
 
@@ -577,12 +584,19 @@ def tally_sync_sales_register(
 
     # ── 6. Update last_synced_at on the bridge key ────────────────────────
     if len(body.rows) > 0:
-        try:
-            sb.table("tally_bridge_keys").update(
-                {"last_synced_at": datetime.now(timezone.utc).isoformat()}
-            ).eq("id", str(key_row.get("id"))).execute()
-        except Exception:
-            pass
+        kid = key_row.get("id")
+        if kid:
+            try:
+                from app.repositories.integrations import get_integrations_repository
+                repo = get_integrations_repository()
+                repo.update_tally_bridge_key_last_synced(key_id=str(kid))
+            except Exception:
+                try:
+                    sb.table("tally_bridge_keys").update(
+                        {"last_synced_at": datetime.now(timezone.utc).isoformat()}
+                    ).eq("id", str(kid)).execute()
+                except Exception:
+                    pass
 
     return {"run_id": run_id, "status": "importing"}
 
@@ -593,38 +607,49 @@ async def tally_bridge_status(
 ):
     """Dashboard: last sync + whether a key exists for this firm."""
     account_id = _account_id_for_user(current_user)
-    sb = get_supabase()
+    rows = None
     try:
-        res = (
-            sb.table("tally_bridge_keys")
-            .select("id, company_name, last_synced_at, created_at, revoked_at")
-            .eq("account_id", account_id)
-            .is_("revoked_at", "null")
-            .order("created_at", desc=True)
-            .limit(5)
-            .execute()
-        )
-    except Exception as exc:
-        _log.exception("tally_bridge status failed account_id=%s", account_id)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="failed to load tally bridge status",
-        ) from exc
-    rows = res.data or []
+        from app.repositories.integrations import get_integrations_repository
+        repo = get_integrations_repository()
+        all_keys = repo.list_tally_bridge_keys_for_account(account_id, limit=5)
+        rows = [k for k in all_keys if not k.get("revoked_at")]
+    except Exception as a_exc:
+        _log.warning("Aurora query of tally_bridge_keys status failed, attempting Supabase fallback: %s", a_exc)
+
+    if rows is None:
+        sb = get_supabase()
+        try:
+            res = (
+                sb.table("tally_bridge_keys")
+                .select("id, company_name, last_synced_at, created_at, revoked_at")
+                .eq("account_id", account_id)
+                .is_("revoked_at", "null")
+                .order("created_at", desc=True)
+                .limit(5)
+                .execute()
+            )
+            rows = res.data or []
+        except Exception as exc:
+            _log.exception("tally_bridge status failed account_id=%s", account_id)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="failed to load tally bridge status",
+            ) from exc
+
     latest = rows[0] if rows else None
     return {
         "account_id": account_id,
         "has_key": bool(rows),
         "keys": [
             {
-                "id": r.get("id"),
+                "id": str(r.get("id")) if r.get("id") else None,
                 "company_name": r.get("company_name") or "",
-                "last_synced_at": r.get("last_synced_at"),
-                "created_at": r.get("created_at"),
+                "last_synced_at": r.get("last_synced_at").isoformat() if hasattr(r.get("last_synced_at"), "isoformat") else r.get("last_synced_at"),
+                "created_at": r.get("created_at").isoformat() if hasattr(r.get("created_at"), "isoformat") else r.get("created_at"),
             }
             for r in rows
         ],
-        "last_synced_at": (latest or {}).get("last_synced_at"),
+        "last_synced_at": (latest or {}).get("last_synced_at").isoformat() if hasattr((latest or {}).get("last_synced_at"), "isoformat") else (latest or {}).get("last_synced_at"),
     }
 
 
@@ -637,28 +662,45 @@ async def tally_bridge_create_key(
     account_id = _account_id_for_user(current_user)
     api_key = generate_tally_bridge_api_key()
     company_name = (body.company_name or "").strip()
-    payload = {
-        "api_key": api_key,
-        "account_id": account_id,
-        "company_name": company_name,
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    }
-    sb = get_supabase()
+    created_row = None
     try:
-        res = sb.table("tally_bridge_keys").insert(payload).execute()
-    except Exception as exc:
-        _log.exception("tally_bridge_keys insert failed account_id=%s", account_id)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="failed to create api key",
-        ) from exc
-    row = (res.data or [payload])[0]
+        from app.repositories.integrations import get_integrations_repository
+        repo = get_integrations_repository()
+        created_row = repo.create_tally_bridge_key(
+            account_id=account_id,
+            api_key=api_key,
+            company_name=company_name,
+        )
+    except Exception as a_exc:
+        _log.warning("Aurora creation of tally_bridge_key failed, attempting Supabase fallback: %s", a_exc)
+
+    if not created_row:
+        payload = {
+            "api_key": api_key,
+            "account_id": account_id,
+            "company_name": company_name,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+        sb = get_supabase()
+        try:
+            res = sb.table("tally_bridge_keys").insert(payload).execute()
+            created_row = (res.data or [payload])[0]
+        except Exception as exc:
+            _log.exception("tally_bridge_keys insert failed account_id=%s", account_id)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="failed to create api key",
+            ) from exc
+
+    c_at = created_row.get("created_at")
+    if hasattr(c_at, "isoformat"):
+        c_at = c_at.isoformat()
     return {
-        "id": row.get("id"),
+        "id": str(created_row.get("id")) if created_row.get("id") else None,
         "api_key": api_key,
         "account_id": account_id,
         "company_name": company_name,
-        "created_at": row.get("created_at") or payload["created_at"],
+        "created_at": c_at,
         "last_synced_at": None,
     }
 

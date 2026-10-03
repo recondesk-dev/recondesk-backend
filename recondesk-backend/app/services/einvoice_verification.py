@@ -53,17 +53,29 @@ def _assert_access(sb: Any, client_gstin_id: str, user_id: Any) -> None:
 
 
 def get_client_credentials(sb: Any, client_gstin_id: str) -> dict[str, Any] | None:
-    """Fetch client e-Invoice credentials row from Supabase."""
+    """Fetch client e-Invoice credentials row, trying Aurora primary first."""
     resolved_id = _resolve_client_gstin_id(sb, client_gstin_id)
-    res = (
-        sb.table("client_einvoice_credentials")
-        .select("*")
-        .eq("client_gstin_id", resolved_id)
-        .limit(1)
-        .execute()
-    )
-    if res.data:
-        return res.data[0]
+    try:
+        from app.repositories.integrations import get_integrations_repository
+        repo = get_integrations_repository()
+        row = repo.get_client_einvoice_credential(resolved_id)
+        if row:
+            return row
+    except Exception as a_exc:
+        logger.warning("Aurora get_client_einvoice_credential failed, attempting Supabase fallback: %s", a_exc)
+
+    try:
+        res = (
+            sb.table("client_einvoice_credentials")
+            .select("*")
+            .eq("client_gstin_id", resolved_id)
+            .limit(1)
+            .execute()
+        )
+        if res.data:
+            return res.data[0]
+    except Exception as exc:
+        logger.warning("Supabase get_client_credentials fallback failed: %s", exc)
     return None
 
 
@@ -79,9 +91,33 @@ def upsert_client_credentials(
     _assert_access(sb, resolved_id, user_id)
     enc_password = encrypt_string(password.strip())
 
+    aurora_row = None
+    try:
+        from app.repositories.integrations import get_integrations_repository
+        repo = get_integrations_repository()
+        aurora_row = repo.upsert_client_einvoice_credential(
+            client_gstin_id=resolved_id,
+            einvoice_username=username.strip(),
+            einvoice_password=enc_password,
+        )
+    except Exception as a_exc:
+        logger.warning("Aurora upsert_client_einvoice_credential failed, falling back to Supabase: %s", a_exc)
+
+    if aurora_row:
+        up_at = aurora_row.get("updated_at")
+        if hasattr(up_at, "isoformat"):
+            up_at = up_at.isoformat()
+        return {
+            "id": str(aurora_row.get("id")),
+            "client_gstin_id": str(aurora_row.get("client_gstin_id")),
+            "einvoice_username": aurora_row.get("einvoice_username"),
+            "has_credentials": True,
+            "updated_at": up_at,
+        }
+
+    # Fallback to Supabase
     existing = get_client_credentials(sb, resolved_id)
     now_iso = datetime.now(timezone.utc).isoformat()
-
     payload = {
         "client_gstin_id": resolved_id,
         "einvoice_username": username.strip(),
@@ -142,14 +178,34 @@ def get_valid_session_token(sb: Any, creds_row: dict[str, Any], gstin: str) -> s
     else:
         exp_iso = str(expiry)
 
-    # Cache token in DB
-    sb.table("client_einvoice_credentials").update(
-        {
-            "session_token": new_token,
-            "session_token_expiry": exp_iso,
-            "updated_at": datetime.now(timezone.utc).isoformat(),
-        }
-    ).eq("id", creds_row["id"]).execute()
+    # Cache token in DB (Aurora primary first)
+    aurora_cached = False
+    try:
+        from app.repositories.integrations import get_integrations_repository
+        repo = get_integrations_repository()
+        client_gstin_id = creds_row.get("client_gstin_id")
+        if client_gstin_id:
+            exp_datetime = datetime.fromisoformat(exp_iso.replace("Z", "+00:00")) if isinstance(exp_iso, str) else exp_iso
+            repo.update_client_einvoice_token(
+                client_gstin_id=client_gstin_id,
+                session_token=new_token,
+                session_token_expiry=exp_datetime,
+            )
+            aurora_cached = True
+    except Exception as a_exc:
+        logger.warning("Aurora update_client_einvoice_token failed: %s", a_exc)
+
+    if not aurora_cached and creds_row.get("id"):
+        try:
+            sb.table("client_einvoice_credentials").update(
+                {
+                    "session_token": new_token,
+                    "session_token_expiry": exp_iso,
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                }
+            ).eq("id", creds_row["id"]).execute()
+        except Exception:
+            pass
 
     return new_token
 
@@ -165,17 +221,25 @@ def verify_irn_missing_row(
     - Updates verification_source to 'irp_verified_missing' if confirmed missing (404).
     - Raises error on API/auth failure without modifying row.
     """
-    res = (
-        sb.table("einvoice_recon_results")
-        .select("*")
-        .eq("id", result_id)
-        .limit(1)
-        .execute()
-    )
-    if not res.data:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, f"E-Invoice result record not found: {result_id}")
+    row = None
+    try:
+        from app.repositories.integrations import get_integrations_repository
+        repo = get_integrations_repository()
+        row = repo.get_einvoice_recon_result_by_id(result_id)
+    except Exception as a_exc:
+        logger.warning("Aurora lookup of einvoice_recon_results failed: %s", a_exc)
 
-    row = res.data[0]
+    if not row:
+        res = (
+            sb.table("einvoice_recon_results")
+            .select("*")
+            .eq("id", result_id)
+            .limit(1)
+            .execute()
+        )
+        if not res.data:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, f"E-Invoice result record not found: {result_id}")
+        row = res.data[0]
     client_id = row.get("client_gstin_id")
     _assert_access(sb, client_id, user_id)
 
@@ -271,17 +335,24 @@ def verify_irn_missing_row(
         updated_details["verification_source"] = "irp_verified_missing"
         updated_fields["details"] = updated_details
 
-    up_res = (
-        sb.table("einvoice_recon_results")
-        .update(updated_fields)
-        .eq("id", result_id)
-        .execute()
-    )
+    res_row = None
+    try:
+        from app.repositories.integrations import get_integrations_repository
+        repo = get_integrations_repository()
+        res_row = repo.update_einvoice_recon_result(result_id, updated_fields)
+    except Exception as a_exc:
+        logger.warning("Aurora update of einvoice_recon_results failed: %s", a_exc)
 
-    if not up_res.data:
-        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "Failed to update verification status")
-
-    res_row = up_res.data[0]
+    if not res_row:
+        up_res = (
+            sb.table("einvoice_recon_results")
+            .update(updated_fields)
+            .eq("id", result_id)
+            .execute()
+        )
+        if not up_res.data:
+            raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "Failed to update verification status")
+        res_row = up_res.data[0]
     return {
         "id": res_row.get("id"),
         "invoice_number": res_row.get("invoice_number"),

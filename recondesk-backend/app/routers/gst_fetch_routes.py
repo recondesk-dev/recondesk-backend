@@ -95,14 +95,24 @@ def _log_section_row(
         "fetched_at": datetime.now(timezone.utc).isoformat(),
         "error_message": error_message,
     }
+    aurora_saved = False
     try:
-        sb.table("gst_fetch_log").insert(row).execute()
-    except Exception:
-        _log.exception(
-            "gst_fetch_log insert failed client_id=%s section=%s",
-            client_id,
-            section,
-        )
+        from app.repositories.integrations import get_integrations_repository
+        repo = get_integrations_repository()
+        repo.insert_gst_fetch_log(row)
+        aurora_saved = True
+    except Exception as a_exc:
+        _log.warning("Aurora insert_gst_fetch_log failed, attempting Supabase fallback: %s", a_exc)
+
+    if not aurora_saved:
+        try:
+            sb.table("gst_fetch_log").insert(row).execute()
+        except Exception:
+            _log.exception(
+                "gst_fetch_log insert failed client_id=%s section=%s",
+                client_id,
+                section,
+            )
 
 
 @router.post("/{return_type}")

@@ -29,7 +29,11 @@ from app.ims.ims_offline_export import (
     format_gstn_period,
 )
 from app.ims.ims_run_service import build_recommendations_for_run
-from app.ims.ims_action_store import ImsClaimRpcError, SupabaseImsActionStore
+from app.ims.ims_action_store import (
+    AuroraImsActionStore,
+    ImsClaimRpcError,
+    SupabaseImsActionStore,
+)
 from app.ims.ims_writeback_client import (
     ConfirmedInvoiceAction,
     confirm_ims_actions,
@@ -225,7 +229,7 @@ async def confirm_ims_actions_route(
             buyer_gstin=buyer_gstin,
             period=period,
             actions=actions,
-            store=SupabaseImsActionStore(sb),
+            store=AuroraImsActionStore(sb),
             run_id=str(run_row.get("id") or run_id),
         )
     except ValueError as exc:

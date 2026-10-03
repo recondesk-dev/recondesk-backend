@@ -207,10 +207,20 @@ async def run_einvoice_recon(
             )
 
         if db_rows:
+            aurora_inserted = False
             try:
-                sb.table("einvoice_recon_results").insert(db_rows).execute()
-            except Exception as exc:
-                logger.warning("Failed to insert einvoice_recon_results: %s", exc)
+                from app.repositories.integrations import get_integrations_repository
+                repo = get_integrations_repository()
+                repo.insert_einvoice_recon_results(db_rows)
+                aurora_inserted = True
+            except Exception as a_exc:
+                logger.warning("Aurora insert einvoice_recon_results failed, falling back to Supabase: %s", a_exc)
+
+            if not aurora_inserted:
+                try:
+                    sb.table("einvoice_recon_results").insert(db_rows).execute()
+                except Exception as exc:
+                    logger.warning("Failed to insert einvoice_recon_results into Supabase: %s", exc)
 
         return {
             "status": "COMPLETED",
@@ -240,27 +250,36 @@ async def get_einvoice_recon_results(
     user_id: str = Depends(get_current_user_id),
 ):
     """Retrieve categorized E-Invoice reconciliation results for a run_id."""
-    sb = get_supabase()
+    rows = None
+    try:
+        from app.repositories.integrations import get_integrations_repository
+        repo = get_integrations_repository()
+        aurora_rows = repo.get_einvoice_recon_results_by_run_or_client(run_id)
+        if aurora_rows:
+            rows = aurora_rows
+    except Exception as a_exc:
+        logger.warning("Aurora query of einvoice_recon_results failed, falling back to Supabase: %s", a_exc)
 
-    res = (
-        sb.table("einvoice_recon_results")
-        .select("*")
-        .eq("run_id", run_id)
-        .execute()
-    )
-
-    rows = res.data or []
-    if not rows:
-        # Check if run_id is actually an id or client_gstin_id
-        res_by_client = (
+    if rows is None:
+        sb = get_supabase()
+        res = (
             sb.table("einvoice_recon_results")
             .select("*")
-            .eq("client_gstin_id", run_id)
-            .order("created_at", desc=True)
-            .limit(200)
+            .eq("run_id", run_id)
             .execute()
         )
-        rows = res_by_client.data or []
+        rows = res.data or []
+        if not rows:
+            # Check if run_id is actually an id or client_gstin_id
+            res_by_client = (
+                sb.table("einvoice_recon_results")
+                .select("*")
+                .eq("client_gstin_id", run_id)
+                .order("created_at", desc=True)
+                .limit(200)
+                .execute()
+            )
+            rows = res_by_client.data or []
 
     if not rows:
         raise HTTPException(
@@ -337,20 +356,33 @@ async def get_credentials_status(
     sb = get_supabase()
     _assert_access(client_id, user_id)
 
-    res = (
-        sb.table("client_einvoice_credentials")
-        .select("id, client_gstin_id, einvoice_username, updated_at")
-        .eq("client_gstin_id", client_id)
-        .limit(1)
-        .execute()
-    )
+    row = None
+    try:
+        from app.repositories.integrations import get_integrations_repository
+        repo = get_integrations_repository()
+        row = repo.get_client_einvoice_credential(client_id)
+    except Exception as a_exc:
+        logger.warning("Aurora get_client_einvoice_credential failed: %s", a_exc)
 
-    if res.data:
-        row = res.data[0]
+    if not row:
+        res = (
+            sb.table("client_einvoice_credentials")
+            .select("id, client_gstin_id, einvoice_username, updated_at")
+            .eq("client_gstin_id", client_id)
+            .limit(1)
+            .execute()
+        )
+        if res.data:
+            row = res.data[0]
+
+    if row:
+        up_at = row.get("updated_at")
+        if hasattr(up_at, "isoformat"):
+            up_at = up_at.isoformat()
         return {
             "has_credentials": True,
             "username": row.get("einvoice_username"),
-            "updated_at": row.get("updated_at"),
+            "updated_at": up_at,
         }
 
     return {"has_credentials": False, "username": None, "updated_at": None}

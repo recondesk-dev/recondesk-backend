@@ -90,6 +90,15 @@ def party_clears_autosettle_gate(
 
 def _load_tally_ledger_gstin_map(sb: Client, account_id: str) -> dict[str, str]:
     try:
+        from app.repositories.integrations import get_integrations_repository
+        repo = get_integrations_repository()
+        m = repo.load_tally_ledger_gstin_map(account_id)
+        if m:
+            return m
+    except Exception as a_exc:
+        _log.warning("Aurora load_tally_ledger_gstin_map failed, falling back to Supabase: %s", a_exc)
+
+    try:
         res = (
             sb.table("tally_ledger_masters")
             .select("name, gstin")
@@ -367,6 +376,18 @@ def _sync_tally_ledgers(
 ) -> int:
     if not ledgers:
         return 0
+
+    aurora_count = None
+    try:
+        from app.repositories.integrations import get_integrations_repository
+        repo = get_integrations_repository()
+        aurora_count = repo.upsert_tally_ledgers(account_id, company_name, ledgers)
+    except Exception as a_exc:
+        _log.warning("Aurora upsert_tally_ledgers failed, falling back to Supabase: %s", a_exc)
+
+    if aurora_count is not None:
+        return aurora_count
+
     now_iso = datetime.now(timezone.utc).isoformat()
     rows = []
     for leg in ledgers:
@@ -664,19 +685,29 @@ def apply_tally_bridge_sync(
         or len(needs_manual_confirmation) > 0
     )
     if rows_imported:
+        aurora_updated = False
         try:
-            q = sb.table("tally_bridge_keys").update({"last_synced_at": now_iso})
-            if key_id:
-                q = q.eq("id", key_id)
-            else:
-                q = q.eq("account_id", account_id)
-                if company_name:
-                    q = q.eq("company_name", company_name)
-            q.execute()
-        except Exception:
-            _log.exception(
-                "tally_bridge: failed updating last_synced_at account_id=%s", account_id
-            )
+            from app.repositories.integrations import get_integrations_repository
+            repo = get_integrations_repository()
+            repo.update_tally_bridge_key_last_synced(key_id=key_id, account_id=account_id)
+            aurora_updated = True
+        except Exception as a_exc:
+            _log.warning("Aurora update_tally_bridge_key_last_synced failed: %s", a_exc)
+
+        if not aurora_updated:
+            try:
+                q = sb.table("tally_bridge_keys").update({"last_synced_at": now_iso})
+                if key_id:
+                    q = q.eq("id", key_id)
+                else:
+                    q = q.eq("account_id", account_id)
+                    if company_name:
+                        q = q.eq("company_name", company_name)
+                q.execute()
+            except Exception:
+                _log.exception(
+                    "tally_bridge: failed updating last_synced_at account_id=%s", account_id
+                )
 
     return {
         "open_candidates": len(open_rows) + len(claimed),

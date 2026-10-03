@@ -78,20 +78,31 @@ def _build_status_map_from_submissions(
     run_id: str,
 ) -> dict[ImsStatusKey, str]:
     """Build status map from confirmed rows in ims_action_submissions for this run."""
+    rows = []
     try:
-        res = (
-            sb.table("ims_action_submissions")
-            .select("chosen_action, writeback_payload, gstin, status")
-            .eq("run_id", run_id)
-            .in_("status", ["confirmed", "pending", "claiming"])
-            .execute()
-        )
-    except Exception as exc:
-        _log.warning("Failed to query ims_action_submissions for run_id=%s: %s", run_id, exc)
-        return {}
+        from app.repositories.integrations import get_integrations_repository
+        repo = get_integrations_repository()
+        all_rows = repo.list_ims_submissions_for_run(run_id, status=None)
+        rows = [r for r in all_rows if r.get("status") in ("confirmed", "pending", "claiming")]
+    except Exception as a_exc:
+        _log.warning("Aurora query ims_action_submissions for run_id=%s failed: %s", run_id, a_exc)
+
+    if not rows and sb is not None:
+        try:
+            res = (
+                sb.table("ims_action_submissions")
+                .select("chosen_action, writeback_payload, gstin, status")
+                .eq("run_id", run_id)
+                .in_("status", ["confirmed", "pending", "claiming"])
+                .execute()
+            )
+            rows = res.data or []
+        except Exception as exc:
+            _log.warning("Failed to query ims_action_submissions for run_id=%s: %s", run_id, exc)
+            return {}
 
     mapping: dict[ImsStatusKey, str] = {}
-    for row in res.data or []:
+    for row in rows:
         chosen = str(row.get("chosen_action") or "").strip().lower()
         target_status = _ACTION_TO_IMS_STATUS.get(chosen)
         if not target_status:

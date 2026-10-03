@@ -19,6 +19,10 @@ from app.repositories.return_reconciliation import (
     get_return_reconciliation_repository,
     set_return_reconciliation_repository,
 )
+from app.repositories.integrations import (
+    AuroraIntegrationsRepository,
+    get_integrations_repository,
+)
 
 __all__ = [
     "AuroraComplianceRepository",
@@ -32,4 +36,6 @@ __all__ = [
     "AuroraReturnReconciliationRepository",
     "get_return_reconciliation_repository",
     "set_return_reconciliation_repository",
+    "AuroraIntegrationsRepository",
+    "get_integrations_repository",
 ]
