@@ -1,30 +1,19 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import Razorpay from "razorpay";
+import { getPlanCycleConfig } from "@/lib/pricing-data";
 
 type PlanPricing = {
   monthly: { priceInr: number; gstinLimit: number; periodDays: number; overagePerGstin?: number };
   yearly: { priceInr: number; gstinLimit: number; periodDays: number; overagePerGstin?: number };
 };
 
-const PLAN_CATALOG: Record<string, PlanPricing> = {
-  solo: {
-    monthly: { priceInr: 799, gstinLimit: 25, periodDays: 30 },
-    yearly: { priceInr: 4999, gstinLimit: 25, periodDays: 365 },
-  },
-  firm: {
-    monthly: { priceInr: 1199, gstinLimit: 75, periodDays: 30 },
-    yearly: { priceInr: 7999, gstinLimit: 75, periodDays: 365 },
-  },
-  large_firm: {
-    monthly: { priceInr: 1899, gstinLimit: 150, periodDays: 30 },
-    yearly: { priceInr: 11999, gstinLimit: 150, periodDays: 365 },
-  },
+// Legacy aliases for backward compatibility with older plans
+const LEGACY_ALIASES: Record<string, PlanPricing> = {
   "large-firm": {
     monthly: { priceInr: 1899, gstinLimit: 150, periodDays: 30 },
     yearly: { priceInr: 11999, gstinLimit: 150, periodDays: 365 },
   },
-  // Legacy aliases for backward compatibility
   starter: {
     monthly: { priceInr: 799, gstinLimit: 25, periodDays: 30 },
     yearly: { priceInr: 4999, gstinLimit: 25, periodDays: 365 },
@@ -75,14 +64,19 @@ export async function POST(request: Request) {
     }
 
     const planNameLower = plan_name.toLowerCase();
-    const tierConfig = PLAN_CATALOG[planNameLower];
+    const cycleKey = billing_cycle === "monthly" ? "monthly" : "yearly";
 
-    if (!tierConfig) {
-      return NextResponse.json({ error: "Invalid plan selected" }, { status: 400 });
+    // 1. Resolve canonical plans from lib/pricing-data.ts (Single Source of Truth)
+    let cycleConfig = getPlanCycleConfig(planNameLower, cycleKey);
+
+    // 2. If not canonical, resolve legacy aliases
+    if (!cycleConfig && LEGACY_ALIASES[planNameLower]) {
+      cycleConfig = LEGACY_ALIASES[planNameLower][cycleKey];
     }
 
-    const cycleKey = billing_cycle === "monthly" ? "monthly" : "yearly";
-    const cycleConfig = tierConfig[cycleKey];
+    if (!cycleConfig) {
+      return NextResponse.json({ error: "Invalid plan selected" }, { status: 400 });
+    }
 
     const baseAmountInr = cycleConfig.priceInr;
     const gstinLimit = cycleConfig.gstinLimit;

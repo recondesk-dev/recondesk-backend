@@ -5,9 +5,9 @@ from app.config import settings
 _client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
 
 PLAN_PRICES = {
-    "solo": {"monthly": 799_00, "yearly": 4999_00},
-    "firm": {"monthly": 1199_00, "yearly": 7999_00},
-    "large_firm": {"monthly": 1899_00, "yearly": 11999_00},
+    "solo": {"monthly": 899_00, "yearly": 8999_00},
+    "firm": {"monthly": 1499_00, "yearly": 14999_00},
+    "large_firm": {"monthly": 1899_00, "yearly": 18999_00},
     "large firm": {"monthly": 1899_00, "yearly": 11999_00},
     # Legacy aliases
     "starter": {"monthly": 799_00, "yearly": 4999_00},

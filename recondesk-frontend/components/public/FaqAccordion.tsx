@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { ChevronDown } from "lucide-react";
+import { PRICING_PLANS } from "@/lib/pricing-data";
 
 type FaqCategory = "all" | "pricing" | "statutory" | "privacy";
 
@@ -12,6 +13,11 @@ interface FaqItem {
   q: string;
   a: string;
 }
+
+const planSummary = PRICING_PLANS.map((p) => {
+  if (p.isFree) return `${p.name} up to ${p.gstinCapacity} (₹0)`;
+  return `${p.name} up to ${p.gstinCapacity} (₹${p.priceMonthly.toLocaleString("en-IN")}/mo · ₹${p.priceYearly.toLocaleString("en-IN")}/yr)`;
+}).join(", ");
 
 const FAQ_ITEMS: FaqItem[] = [
   {
@@ -26,7 +32,7 @@ const FAQ_ITEMS: FaqItem[] = [
     category: "pricing",
     categoryLabel: "Pricing & Capacity",
     q: "How is pricing structured for CA firms?",
-    a: "Plans are based strictly on active client GSTIN capacity with unlimited staff seats and unlimited reconciliation runs — 60-Day Free Trial up to 2 GSTINs (₹0), Solo up to 25 GSTINs (₹799/mo · ₹4,999/yr), Firm up to 75 GSTINs (₹1,199/mo · ₹7,999/yr), and Large Firm up to 150 GSTINs (₹1,899/mo · ₹11,999/yr). Every plan includes 100% full product access with zero feature gating.",
+    a: `Plans are based strictly on active client GSTIN capacity with unlimited staff seats and unlimited reconciliation runs — ${planSummary}. Every plan includes 100% full product access with zero feature gating.`,
   },
   {
     id: "rule-88d-notice",

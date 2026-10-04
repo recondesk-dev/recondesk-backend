@@ -45,6 +45,10 @@ export function PricingGrid({
   // Annual is the default/hero toggle
   const [cycle, setCycle] = useState<BillingCycle>("yearly");
 
+  // Representative savings percent across paid plans (e.g., Solo/Firm/Large Firm save ~17%)
+  const paidPlan = PRICING_PLANS.find((p) => !p.isFree && p.savingsPercent > 0);
+  const savePercent = paidPlan?.savingsPercent ?? 17;
+
   return (
     <div className="space-y-8">
       {/* Monthly / Annual Billing Toggle Switch */}
@@ -64,13 +68,22 @@ export function PricingGrid({
           <button
             type="button"
             onClick={() => setCycle("yearly")}
-            className={`relative rounded-full px-5 py-1.5 text-sm font-semibold transition-all duration-200 ${
+            className={`relative inline-flex items-center gap-1.5 rounded-full px-5 py-1.5 text-sm font-semibold transition-all duration-200 ${
               cycle === "yearly"
                 ? "bg-[#1C1D22] text-white shadow-sm"
                 : "text-gray-600 hover:text-[var(--ink)]"
             }`}
           >
-            Annual
+            <span>Annual</span>
+            <span
+              className={`rounded-full px-2 py-0.5 text-[10px] font-bold tracking-wide uppercase transition-colors ${
+                cycle === "yearly"
+                  ? "bg-emerald-500 text-white"
+                  : "bg-emerald-100 text-emerald-800"
+              }`}
+            >
+              Save {savePercent}%
+            </span>
           </button>
         </div>
         <p className="text-xs text-[#5B6577]">
@@ -244,15 +257,11 @@ function PricingCard({
             </div>
           ) : isYearly ? (
             <div>
-              {/* Strikethrough monthly price + bold effective monthly price */}
-              <div className="flex flex-wrap items-baseline gap-1.5 sm:gap-2">
-                <span className="text-base sm:text-lg font-semibold text-gray-400 line-through tabular-nums decoration-gray-400">
-                  {formatRupeeText(`${formatInr(plan.priceMonthly)}/mo`)}
+              <div className="flex items-baseline gap-1">
+                <span className="text-4xl font-extrabold tracking-tight text-[var(--ink)] tabular-nums">
+                  {formatRupeeText(`${formatInr(plan.effectiveMonthlyPrice)}`)}
                 </span>
-                <span className="text-gray-400 font-semibold select-none">→</span>
-                <span className="text-3xl sm:text-4xl font-extrabold tracking-tight text-[var(--ink)] tabular-nums">
-                  {formatRupeeText(`${formatInr(plan.effectiveMonthlyPrice)}/mo`)}
-                </span>
+                <span className="text-sm font-medium text-gray-500">/mo</span>
               </div>
               {/* Sub-text: billed annually (₹X,XXX/yr) */}
               <div className="mt-1 flex flex-wrap items-center gap-1.5">
