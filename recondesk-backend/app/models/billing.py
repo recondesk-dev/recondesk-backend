@@ -84,6 +84,8 @@ class CompanyProfileBase(BaseModel):
     bank_name: Optional[str] = None
     invoice_number_prefix: str = ""
     invoice_number_next_seq: int = 1
+    cdn_number_prefix: Optional[str] = "CRN/"
+    cdn_number_next_seq: int = 1
     financial_year_reset: bool = True
 
 
@@ -107,6 +109,8 @@ class CompanyProfileUpdate(BaseModel):
     bank_name: Optional[str] = None
     invoice_number_prefix: Optional[str] = None
     invoice_number_next_seq: Optional[int] = None
+    cdn_number_prefix: Optional[str] = None
+    cdn_number_next_seq: Optional[int] = None
     financial_year_reset: Optional[bool] = None
 
 

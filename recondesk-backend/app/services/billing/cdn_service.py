@@ -40,6 +40,14 @@ logger = logging.getLogger(__name__)
 
 def _generate_next_cdn_number(db: Client, company_profile_id: str) -> str:
     """Generate next atomic CDN number using company profile sequence."""
+    try:
+        from app.repositories.billing_ledger import get_billing_ledger_repository
+        repo = get_billing_ledger_repository()
+        prefix, seq = repo.increment_cdn_number_seq(company_profile_id)
+        return f"{prefix}{seq:07d}"
+    except Exception as exc:
+        logger.warning("Aurora increment_cdn_number_seq failed, falling back to Supabase: %s", exc)
+
     cp_res = (
         db.table("billing_company_profiles")
         .select("cdn_number_prefix, cdn_number_next_seq")
@@ -73,21 +81,30 @@ def create_credit_debit_note(
     _assert_access(db, payload.client_gstin_id, user_or_id)
 
     # 1. Fetch & validate original invoice
-    orig_inv_res = (
-        db.table("billing_invoices")
-        .select("*")
-        .eq("id", payload.original_invoice_id)
-        .eq("client_gstin_id", payload.client_gstin_id)
-        .limit(1)
-        .execute()
-    )
-    if not orig_inv_res.data:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Original invoice not found for this client GSTIN.",
-        )
+    orig_inv = None
+    try:
+        from app.repositories.billing_ledger import get_billing_ledger_repository
+        repo = get_billing_ledger_repository()
+        orig_inv = repo.get_invoice(payload.original_invoice_id, payload.client_gstin_id)
+    except Exception as exc:
+        logger.warning("Aurora get_invoice failed, falling back to Supabase: %s", exc)
 
-    orig_inv = orig_inv_res.data[0]
+    if not orig_inv:
+        orig_inv_res = (
+            db.table("billing_invoices")
+            .select("*")
+            .eq("id", payload.original_invoice_id)
+            .eq("client_gstin_id", payload.client_gstin_id)
+            .limit(1)
+            .execute()
+        )
+        if not orig_inv_res.data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Original invoice not found for this client GSTIN.",
+            )
+        orig_inv = orig_inv_res.data[0]
+
     irp_status_str = str(orig_inv.get("irp_status") or "").lower()
     has_irn = bool(orig_inv.get("irn"))
 
@@ -125,6 +142,14 @@ def create_credit_debit_note(
         "notes": payload.notes,
     }
 
+    try:
+        from app.repositories.billing_ledger import get_billing_ledger_repository
+        repo = get_billing_ledger_repository()
+        created_cdn = repo.create_cdn(cdn_data, computed_lines)
+        return get_cdn_detail(db, created_cdn["id"], payload.client_gstin_id, user_or_id)
+    except Exception as exc:
+        logger.warning("Aurora create_cdn failed, falling back to Supabase: %s", exc)
+
     cdn_res = db.table("billing_credit_debit_notes").insert(cdn_data).execute()
     new_cdn = cdn_res.data[0]
     cdn_id = new_cdn["id"]
@@ -146,6 +171,13 @@ def list_cdns(
     if user_or_id:
         _assert_access(db, client_gstin_id, user_or_id)
 
+    try:
+        from app.repositories.billing_ledger import get_billing_ledger_repository
+        repo = get_billing_ledger_repository()
+        return repo.list_cdns(client_gstin_id, original_invoice_id)
+    except Exception as exc:
+        logger.warning("Aurora list_cdns failed, falling back to Supabase: %s", exc)
+
     query = db.table("billing_credit_debit_notes").select("*").eq("client_gstin_id", client_gstin_id)
     if original_invoice_id:
         query = query.eq("original_invoice_id", original_invoice_id)
@@ -160,6 +192,15 @@ def get_cdn_detail(
     """Get full CDN details including line items, original invoice, seller, and buyer."""
     if user_or_id:
         _assert_access(db, client_gstin_id, user_or_id)
+
+    try:
+        from app.repositories.billing_ledger import get_billing_ledger_repository
+        repo = get_billing_ledger_repository()
+        cdn = repo.get_cdn_detail(cdn_id, client_gstin_id)
+        if cdn:
+            return cdn
+    except Exception as exc:
+        logger.warning("Aurora get_cdn_detail failed, falling back to Supabase: %s", exc)
 
     cdn_res = (
         db.table("billing_credit_debit_notes")
@@ -223,6 +264,7 @@ def update_cdn(
     if payload.notes is not None:
         update_dict["notes"] = payload.notes
 
+    computed_lines = None
     if payload.line_items is not None:
         is_interstate = existing_cdn["original_invoice"]["is_interstate"]
         computed_lines = [calculate_line_item_tax(line, is_interstate) for line in payload.line_items]
@@ -233,6 +275,21 @@ def update_cdn(
         )
         update_dict["total_paise"] = sum(item["line_total_paise"] for item in computed_lines)
 
+    try:
+        from app.repositories.billing_ledger import get_billing_ledger_repository
+        repo = get_billing_ledger_repository()
+        res_cdn = repo.update_cdn(
+            cdn_id,
+            client_gstin_id,
+            update_dict,
+            computed_lines,
+        )
+        if res_cdn:
+            return res_cdn
+    except Exception as exc:
+        logger.warning("Aurora update_cdn failed, falling back to Supabase: %s", exc)
+
+    if payload.line_items is not None and computed_lines is not None:
         db.table("billing_cdn_line_items").delete().eq("cdn_id", cdn_id).execute()
         for line in computed_lines:
             line["cdn_id"] = cdn_id
@@ -256,6 +313,19 @@ def finalize_cdn(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Cannot finalize CDN in '{cdn['status']}' status.",
         )
+
+    try:
+        from app.repositories.billing_ledger import get_billing_ledger_repository
+        repo = get_billing_ledger_repository()
+        res_cdn = repo.update_cdn(
+            cdn_id,
+            client_gstin_id,
+            {"status": "finalized", "updated_at": datetime.now().isoformat()},
+        )
+        if res_cdn:
+            return res_cdn
+    except Exception as exc:
+        logger.warning("Aurora finalize_cdn failed, falling back to Supabase: %s", exc)
 
     db.table("billing_credit_debit_notes").update(
         {"status": "finalized", "updated_at": datetime.now().isoformat()}
@@ -314,11 +384,22 @@ def submit_cdn_to_irp(
             "irp_error_detail": None,
             "updated_at": datetime.now().isoformat(),
         }
-        db.table("billing_credit_debit_notes").update(update_data).eq("id", cdn_id).execute()
+        try:
+            from app.repositories.billing_ledger import get_billing_ledger_repository
+            repo = get_billing_ledger_repository()
+            repo.update_cdn(cdn_id, client_gstin_id, update_data)
+        except Exception as exc_up:
+            logger.warning("Aurora update_cdn failed, falling back to Supabase: %s", exc_up)
+            db.table("billing_credit_debit_notes").update(update_data).eq("id", cdn_id).execute()
     except (EinvoiceClientError, EinvoiceAuthError, EinvoiceDownError) as exc:
-        db.table("billing_credit_debit_notes").update(
-            {"irp_status": "irp_rejected", "irp_error_detail": str(exc), "updated_at": datetime.now().isoformat()}
-        ).eq("id", cdn_id).execute()
+        err_data = {"irp_status": "irp_rejected", "irp_error_detail": str(exc), "updated_at": datetime.now().isoformat()}
+        try:
+            from app.repositories.billing_ledger import get_billing_ledger_repository
+            repo = get_billing_ledger_repository()
+            repo.update_cdn(cdn_id, client_gstin_id, err_data)
+        except Exception as exc_up:
+            logger.warning("Aurora update_cdn failed, falling back to Supabase: %s", exc_up)
+            db.table("billing_credit_debit_notes").update(err_data).eq("id", cdn_id).execute()
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"IRP Submission Failed: {exc}")
 
     return get_cdn_detail(db, cdn_id, client_gstin_id)

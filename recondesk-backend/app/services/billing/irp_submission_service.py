@@ -337,6 +337,21 @@ def log_submission_attempt(
 ) -> None:
     """Insert immutable record into billing_irp_submission_log."""
     try:
+        from app.repositories.billing_ledger import get_billing_ledger_repository
+        repo = get_billing_ledger_repository()
+        repo.log_irp_submission(
+            invoice_id=invoice_id,
+            client_gstin_id=client_gstin_id,
+            environment=environment,
+            request_payload=request_payload,
+            response_status=response_status,
+            response_body=response_body,
+        )
+        return
+    except Exception as exc:
+        logger.warning("Aurora log_irp_submission failed, falling back to Supabase: %s", exc)
+
+    try:
         db.table("billing_irp_submission_log").insert(
             {
                 "invoice_id": invoice_id,
@@ -349,7 +364,7 @@ def log_submission_attempt(
             }
         ).execute()
     except Exception as exc:
-        logger.warning("Failed to write to billing_irp_submission_log: %s", exc)
+        logger.warning("Failed to write to billing_irp_submission_log in Supabase: %s", exc)
 
 
 # -----------------------------------------------------------------------------
@@ -431,9 +446,14 @@ def submit_to_irp(
                 response_status="rejected",
                 response_body={"error": str(retry_exc)},
             )
-            db.table("billing_invoices").update(
-                {"irp_status": "irp_rejected", "irp_error_detail": str(retry_exc), "updated_at": datetime.now(timezone.utc).isoformat()}
-            ).eq("id", invoice_id).execute()
+            retry_update = {"irp_status": "irp_rejected", "irp_error_detail": str(retry_exc), "updated_at": datetime.now(timezone.utc).isoformat()}
+            try:
+                from app.repositories.billing_ledger import get_billing_ledger_repository
+                repo = get_billing_ledger_repository()
+                repo.update_invoice(invoice_id, client_gstin_id, retry_update)
+            except Exception as exc_up:
+                logger.warning("Aurora update_invoice failed, falling back to Supabase: %s", exc_up)
+                db.table("billing_invoices").update(retry_update).eq("id", invoice_id).execute()
             raise HTTPException(status_code=400, detail=f"IRP Submission Rejected: {str(retry_exc)}")
 
     except EinvoiceDownError as exc:
@@ -471,7 +491,13 @@ def submit_to_irp(
                 "irp_error_detail": None,
                 "updated_at": datetime.now(timezone.utc).isoformat(),
             }
-            db.table("billing_invoices").update(update_data).eq("id", invoice_id).execute()
+            try:
+                from app.repositories.billing_ledger import get_billing_ledger_repository
+                repo = get_billing_ledger_repository()
+                repo.update_invoice(invoice_id, client_gstin_id, update_data)
+            except Exception as exc_up:
+                logger.warning("Aurora update_invoice failed, falling back to Supabase: %s", exc_up)
+                db.table("billing_invoices").update(update_data).eq("id", invoice_id).execute()
 
             log_submission_attempt(
                 db=db,
@@ -485,13 +511,18 @@ def submit_to_irp(
             return get_invoice_detail(db, invoice_id, client_gstin_id)
         else:
             # Confirmed missing on IRP — safe to retry later
-            db.table("billing_invoices").update(
-                {
-                    "irp_status": "irp_rejected",
-                    "irp_error_detail": "Submission timed out. Confirmed missing on IRP — safe to resubmit.",
-                    "updated_at": datetime.now(timezone.utc).isoformat(),
-                }
-            ).eq("id", invoice_id).execute()
+            down_update = {
+                "irp_status": "irp_rejected",
+                "irp_error_detail": "Submission timed out. Confirmed missing on IRP — safe to resubmit.",
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
+            try:
+                from app.repositories.billing_ledger import get_billing_ledger_repository
+                repo = get_billing_ledger_repository()
+                repo.update_invoice(invoice_id, client_gstin_id, down_update)
+            except Exception as exc_up:
+                logger.warning("Aurora update_invoice failed, falling back to Supabase: %s", exc_up)
+                db.table("billing_invoices").update(down_update).eq("id", invoice_id).execute()
 
             log_submission_attempt(
                 db=db,
@@ -517,9 +548,14 @@ def submit_to_irp(
             response_status="rejected",
             response_body={"error": str(exc)},
         )
-        db.table("billing_invoices").update(
-            {"irp_status": "irp_rejected", "irp_error_detail": str(exc), "updated_at": datetime.now(timezone.utc).isoformat()}
-        ).eq("id", invoice_id).execute()
+        client_err_update = {"irp_status": "irp_rejected", "irp_error_detail": str(exc), "updated_at": datetime.now(timezone.utc).isoformat()}
+        try:
+            from app.repositories.billing_ledger import get_billing_ledger_repository
+            repo = get_billing_ledger_repository()
+            repo.update_invoice(invoice_id, client_gstin_id, client_err_update)
+        except Exception as exc_up:
+            logger.warning("Aurora update_invoice failed, falling back to Supabase: %s", exc_up)
+            db.table("billing_invoices").update(client_err_update).eq("id", invoice_id).execute()
         raise HTTPException(status_code=400, detail=f"IRP Submission Rejected: {str(exc)}")
 
     # API Success path
@@ -538,7 +574,13 @@ def submit_to_irp(
         "irp_error_detail": None,
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
-    db.table("billing_invoices").update(update_data).eq("id", invoice_id).execute()
+    try:
+        from app.repositories.billing_ledger import get_billing_ledger_repository
+        repo = get_billing_ledger_repository()
+        repo.update_invoice(invoice_id, client_gstin_id, update_data)
+    except Exception as exc_up:
+        logger.warning("Aurora update_invoice failed, falling back to Supabase: %s", exc_up)
+        db.table("billing_invoices").update(update_data).eq("id", invoice_id).execute()
 
     log_submission_attempt(
         db=db,
@@ -624,13 +666,18 @@ def cancel_irn(
         raise HTTPException(status_code=400, detail=f"IRP Cancellation Failed: {str(exc)}")
 
     # On success
-    db.table("billing_invoices").update(
-        {
-            "irp_status": "cancelled",
-            "irp_error_detail": f"IRN Cancelled on IRP (Reason: {reason_code}, Remarks: {remarks})",
-            "updated_at": datetime.now(timezone.utc).isoformat(),
-        }
-    ).eq("id", invoice_id).execute()
+    cancel_update = {
+        "irp_status": "cancelled",
+        "irp_error_detail": f"IRN Cancelled on IRP (Reason: {reason_code}, Remarks: {remarks})",
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    try:
+        from app.repositories.billing_ledger import get_billing_ledger_repository
+        repo = get_billing_ledger_repository()
+        repo.update_invoice(invoice_id, client_gstin_id, cancel_update)
+    except Exception as exc_up:
+        logger.warning("Aurora update_invoice failed, falling back to Supabase: %s", exc_up)
+        db.table("billing_invoices").update(cancel_update).eq("id", invoice_id).execute()
 
     log_submission_attempt(
         db=db,
@@ -658,15 +705,23 @@ def get_irp_status_info(
     _assert_access(db, client_gstin_id, user_id)
     inv = get_invoice_detail(db, invoice_id, client_gstin_id)
 
-    log_res = (
-        db.table("billing_irp_submission_log")
-        .select("*")
-        .eq("invoice_id", invoice_id)
-        .order("attempted_at", desc=True)
-        .execute()
-    )
+    logs = None
+    try:
+        from app.repositories.billing_ledger import get_billing_ledger_repository
+        repo = get_billing_ledger_repository()
+        logs = repo.list_irp_logs(invoice_id)
+    except Exception as exc:
+        logger.warning("Aurora list_irp_logs failed, falling back to Supabase: %s", exc)
 
-    logs = log_res.data or []
+    if logs is None:
+        log_res = (
+            db.table("billing_irp_submission_log")
+            .select("*")
+            .eq("invoice_id", invoice_id)
+            .order("attempted_at", desc=True)
+            .execute()
+        )
+        logs = log_res.data or []
 
     # Check 24h cancel eligibility
     cancellation_eligible = False

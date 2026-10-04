@@ -909,6 +909,7 @@ class AuroraBillingLedgerRepository:
             s.flush()
 
             inserted_lines: List[BillingCdnLineItem] = []
+            valid_cdn_cols = {c.name for c in BillingCdnLineItem.__table__.columns}
             for item in line_items_data:
                 clean_item = dict(item)
                 if "id" in clean_item and clean_item["id"]:
@@ -916,8 +917,13 @@ class AuroraBillingLedgerRepository:
                 clean_item["cdn_id"] = cdn_obj.id
                 if "item_id" in clean_item and clean_item["item_id"]:
                     clean_item["item_id"] = _parse_uuid(clean_item["item_id"])
+                if "tax_rate_percent" not in clean_item:
+                    clean_item["tax_rate_percent"] = (
+                        (clean_item.get("cgst_rate_percent") or 0.0) + (clean_item.get("sgst_rate_percent") or 0.0)
+                    ) or clean_item.get("igst_rate_percent") or 18.0
+                filtered_item = {k: v for k, v in clean_item.items() if k in valid_cdn_cols}
 
-                line_obj = BillingCdnLineItem(**clean_item)
+                line_obj = BillingCdnLineItem(**filtered_item)
                 s.add(line_obj)
                 inserted_lines.append(line_obj)
 
@@ -969,6 +975,7 @@ class AuroraBillingLedgerRepository:
                         BillingCdnLineItem.cdn_id == c_id
                     )
                 )
+                valid_cdn_cols = {c.name for c in BillingCdnLineItem.__table__.columns}
                 for item in line_items_data:
                     clean_item = dict(item)
                     if "id" in clean_item and clean_item["id"]:
@@ -976,7 +983,12 @@ class AuroraBillingLedgerRepository:
                     clean_item["cdn_id"] = c_id
                     if "item_id" in clean_item and clean_item["item_id"]:
                         clean_item["item_id"] = _parse_uuid(clean_item["item_id"])
-                    s.add(BillingCdnLineItem(**clean_item))
+                    if "tax_rate_percent" not in clean_item:
+                        clean_item["tax_rate_percent"] = (
+                            (clean_item.get("cgst_rate_percent") or 0.0) + (clean_item.get("sgst_rate_percent") or 0.0)
+                        ) or clean_item.get("igst_rate_percent") or 18.0
+                    filtered_item = {k: v for k, v in clean_item.items() if k in valid_cdn_cols}
+                    s.add(BillingCdnLineItem(**filtered_item))
 
             s.flush()
             return self.get_cdn_detail(c_id, cg_id, session=s)

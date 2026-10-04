@@ -50,6 +50,15 @@ def validate_gstin_string(gstin: Optional[str], field_label: str = "GSTIN") -> s
 # Company Profiles
 # -----------------------------------------------------------------------------
 def get_company_profile(db: Client, profile_id: str, client_gstin_id: str) -> Dict[str, Any]:
+    try:
+        from app.repositories.billing_ledger import get_billing_ledger_repository
+        repo = get_billing_ledger_repository()
+        profile = repo.get_company_profile(profile_id, client_gstin_id)
+        if profile:
+            return profile
+    except Exception as exc:
+        _log.warning("Aurora get_company_profile failed, falling back to Supabase: %s", exc)
+
     res = (
         db.table("billing_company_profiles")
         .select("*")
@@ -64,6 +73,13 @@ def get_company_profile(db: Client, profile_id: str, client_gstin_id: str) -> Di
 
 
 def list_company_profiles(db: Client, client_gstin_id: str) -> List[Dict[str, Any]]:
+    try:
+        from app.repositories.billing_ledger import get_billing_ledger_repository
+        repo = get_billing_ledger_repository()
+        return repo.list_company_profiles(client_gstin_id)
+    except Exception as exc:
+        _log.warning("Aurora list_company_profiles failed, falling back to Supabase: %s", exc)
+
     res = (
         db.table("billing_company_profiles")
         .select("*")
@@ -79,6 +95,13 @@ def create_company_profile(db: Client, profile_in: CompanyProfileCreate) -> Dict
     data["gstin"] = validate_gstin_string(profile_in.gstin, "Company Profile GSTIN")
     if not data.get("state_code") and len(data["gstin"]) >= 2:
         data["state_code"] = data["gstin"][:2]
+
+    try:
+        from app.repositories.billing_ledger import get_billing_ledger_repository
+        repo = get_billing_ledger_repository()
+        return repo.create_company_profile(data)
+    except Exception as exc:
+        _log.warning("Aurora create_company_profile failed, falling back to Supabase: %s", exc)
 
     res = db.table("billing_company_profiles").insert(data).execute()
     if not res.data:
@@ -98,6 +121,16 @@ def update_company_profile(
             update_data["state_code"] = update_data["gstin"][:2]
 
     update_data["updated_at"] = datetime.now(timezone.utc).isoformat()
+
+    try:
+        from app.repositories.billing_ledger import get_billing_ledger_repository
+        repo = get_billing_ledger_repository()
+        res_profile = repo.update_company_profile(profile_id, client_gstin_id, update_data)
+        if res_profile:
+            return res_profile
+    except Exception as exc:
+        _log.warning("Aurora update_company_profile failed, falling back to Supabase: %s", exc)
+
     res = (
         db.table("billing_company_profiles")
         .update(update_data)
@@ -114,6 +147,15 @@ def update_company_profile(
 # Customers
 # -----------------------------------------------------------------------------
 def get_customer(db: Client, customer_id: str, client_gstin_id: str) -> Dict[str, Any]:
+    try:
+        from app.repositories.billing_ledger import get_billing_ledger_repository
+        repo = get_billing_ledger_repository()
+        cust = repo.get_customer(customer_id, client_gstin_id)
+        if cust:
+            return cust
+    except Exception as exc:
+        _log.warning("Aurora get_customer failed, falling back to Supabase: %s", exc)
+
     res = (
         db.table("billing_customers")
         .select("*")
@@ -128,6 +170,13 @@ def get_customer(db: Client, customer_id: str, client_gstin_id: str) -> Dict[str
 
 
 def list_customers(db: Client, client_gstin_id: str) -> List[Dict[str, Any]]:
+    try:
+        from app.repositories.billing_ledger import get_billing_ledger_repository
+        repo = get_billing_ledger_repository()
+        return repo.list_customers(client_gstin_id)
+    except Exception as exc:
+        _log.warning("Aurora list_customers failed, falling back to Supabase: %s", exc)
+
     res = (
         db.table("billing_customers")
         .select("*")
@@ -152,6 +201,13 @@ def create_customer(db: Client, customer_in: CustomerCreate) -> Dict[str, Any]:
         data["gstin"] = validate_gstin_string(gstin_val, "Customer GSTIN")
     else:
         data["gstin"] = None
+
+    try:
+        from app.repositories.billing_ledger import get_billing_ledger_repository
+        repo = get_billing_ledger_repository()
+        return repo.create_customer(data)
+    except Exception as exc:
+        _log.warning("Aurora create_customer failed, falling back to Supabase: %s", exc)
 
     res = db.table("billing_customers").insert(data).execute()
     if not res.data:
@@ -182,6 +238,16 @@ def update_customer(
         update_data["gstin"] = None
 
     update_data["updated_at"] = datetime.now(timezone.utc).isoformat()
+
+    try:
+        from app.repositories.billing_ledger import get_billing_ledger_repository
+        repo = get_billing_ledger_repository()
+        res_cust = repo.update_customer(customer_id, client_gstin_id, update_data)
+        if res_cust:
+            return res_cust
+    except Exception as exc:
+        _log.warning("Aurora update_customer failed, falling back to Supabase: %s", exc)
+
     res = (
         db.table("billing_customers")
         .update(update_data)
@@ -196,6 +262,14 @@ def update_customer(
 
 def delete_customer(db: Client, customer_id: str, client_gstin_id: str) -> bool:
     get_customer(db, customer_id, client_gstin_id)
+    try:
+        from app.repositories.billing_ledger import get_billing_ledger_repository
+        repo = get_billing_ledger_repository()
+        if repo.delete_customer(customer_id, client_gstin_id):
+            return True
+    except Exception as exc:
+        _log.warning("Aurora delete_customer failed, falling back to Supabase: %s", exc)
+
     db.table("billing_customers").delete().eq("id", customer_id).eq("client_gstin_id", client_gstin_id).execute()
     return True
 
@@ -204,6 +278,15 @@ def delete_customer(db: Client, customer_id: str, client_gstin_id: str) -> bool:
 # Items Catalog
 # -----------------------------------------------------------------------------
 def get_item(db: Client, item_id: str, client_gstin_id: str) -> Dict[str, Any]:
+    try:
+        from app.repositories.billing_ledger import get_billing_ledger_repository
+        repo = get_billing_ledger_repository()
+        item = repo.get_item(item_id, client_gstin_id)
+        if item:
+            return item
+    except Exception as exc:
+        _log.warning("Aurora get_item failed, falling back to Supabase: %s", exc)
+
     res = (
         db.table("billing_items")
         .select("*")
@@ -218,6 +301,13 @@ def get_item(db: Client, item_id: str, client_gstin_id: str) -> Dict[str, Any]:
 
 
 def list_items(db: Client, client_gstin_id: str) -> List[Dict[str, Any]]:
+    try:
+        from app.repositories.billing_ledger import get_billing_ledger_repository
+        repo = get_billing_ledger_repository()
+        return repo.list_items(client_gstin_id)
+    except Exception as exc:
+        _log.warning("Aurora list_items failed, falling back to Supabase: %s", exc)
+
     res = (
         db.table("billing_items")
         .select("*")
@@ -238,6 +328,14 @@ def create_item(db: Client, item_in: ItemCreate) -> Dict[str, Any]:
             detail=f"Invalid Unit Quantity Code (UQC) '{data.get('unit')}'. Must be an official GST UQC code (e.g. NOS, KGS, PCS, BOX, HRS, SET).",
         )
     data["unit"] = unit_val
+
+    try:
+        from app.repositories.billing_ledger import get_billing_ledger_repository
+        repo = get_billing_ledger_repository()
+        return repo.create_item(data)
+    except Exception as exc:
+        _log.warning("Aurora create_item failed, falling back to Supabase: %s", exc)
+
     res = db.table("billing_items").insert(data).execute()
     if not res.data:
         raise HTTPException(status_code=500, detail="Failed to create item")
@@ -262,6 +360,16 @@ def update_item(
         update_data["unit"] = unit_val
 
     update_data["updated_at"] = datetime.now(timezone.utc).isoformat()
+
+    try:
+        from app.repositories.billing_ledger import get_billing_ledger_repository
+        repo = get_billing_ledger_repository()
+        res_item = repo.update_item(item_id, client_gstin_id, update_data)
+        if res_item:
+            return res_item
+    except Exception as exc:
+        _log.warning("Aurora update_item failed, falling back to Supabase: %s", exc)
+
     res = (
         db.table("billing_items")
         .update(update_data)
@@ -276,6 +384,14 @@ def update_item(
 
 def delete_item(db: Client, item_id: str, client_gstin_id: str) -> bool:
     get_item(db, item_id, client_gstin_id)
+    try:
+        from app.repositories.billing_ledger import get_billing_ledger_repository
+        repo = get_billing_ledger_repository()
+        if repo.delete_item(item_id, client_gstin_id):
+            return True
+    except Exception as exc:
+        _log.warning("Aurora delete_item failed, falling back to Supabase: %s", exc)
+
     db.table("billing_items").delete().eq("id", item_id).eq("client_gstin_id", client_gstin_id).execute()
     return True
 
@@ -332,6 +448,14 @@ def calculate_line_item_tax(
 
 def _atomic_get_next_invoice_number(db: Client, profile_id: str) -> str:
     """Atomically increment sequence via DB RPC or row update returning prefix + seq."""
+    try:
+        from app.repositories.billing_ledger import get_billing_ledger_repository
+        repo = get_billing_ledger_repository()
+        prefix, seq = repo.increment_invoice_number_seq(profile_id)
+        return f"{prefix}{seq:04d}" if prefix else f"INV-{seq:04d}"
+    except Exception as exc:
+        _log.warning("Aurora increment_invoice_number_seq failed, falling back to Supabase: %s", exc)
+
     try:
         rpc_res = db.rpc("increment_invoice_number_seq", {"p_profile_id": profile_id}).execute()
         if rpc_res.data:
@@ -406,6 +530,16 @@ def create_invoice(db: Client, invoice_in: InvoiceCreateInput) -> Dict[str, Any]
         "notes": invoice_in.notes,
     }
 
+    try:
+        from app.repositories.billing_ledger import get_billing_ledger_repository
+        repo = get_billing_ledger_repository()
+        created_inv = repo.create_invoice(inv_record, computed_lines)
+        created_inv["company_profile"] = company
+        created_inv["customer"] = customer
+        return created_inv
+    except Exception as exc:
+        _log.warning("Aurora create_invoice failed, falling back to Supabase: %s", exc)
+
     res_inv = db.table("billing_invoices").insert(inv_record).execute()
     if not res_inv.data:
         raise HTTPException(status_code=500, detail="Failed to create invoice record")
@@ -435,10 +569,20 @@ def update_invoice(
         .limit(1)
         .execute()
     )
-    if not existing_inv_res.data:
+    existing_inv = None
+    if existing_inv_res.data:
+        existing_inv = existing_inv_res.data[0]
+    else:
+        try:
+            from app.repositories.billing_ledger import get_billing_ledger_repository
+            repo = get_billing_ledger_repository()
+            existing_inv = repo.get_invoice(invoice_id, client_gstin_id)
+        except Exception as exc:
+            _log.warning("Aurora get_invoice failed during update: %s", exc)
+
+    if not existing_inv:
         raise HTTPException(status_code=404, detail="Invoice not found")
 
-    existing_inv = existing_inv_res.data[0]
     if existing_inv["status"] != InvoiceStatus.DRAFT.value:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -470,6 +614,7 @@ def update_invoice(
     if invoice_in.notes is not None:
         update_payload["notes"] = invoice_in.notes
 
+    computed_lines = None
     if invoice_in.line_items is not None:
         computed_lines = [calculate_line_item_tax(line, is_interstate) for line in invoice_in.line_items]
         subtotal_paise = sum(item["taxable_value_paise"] for item in computed_lines)
@@ -483,6 +628,23 @@ def update_invoice(
         update_payload["total_tax_paise"] = total_tax_paise
         update_payload["total_paise"] = total_paise
 
+    try:
+        from app.repositories.billing_ledger import get_billing_ledger_repository
+        repo = get_billing_ledger_repository()
+        updated_inv = repo.update_invoice(
+            invoice_id,
+            client_gstin_id,
+            update_payload,
+            computed_lines,
+        )
+        if updated_inv:
+            updated_inv["company_profile"] = company
+            updated_inv["customer"] = customer
+            return updated_inv
+    except Exception as exc:
+        _log.warning("Aurora update_invoice failed, falling back to Supabase: %s", exc)
+
+    if invoice_in.line_items is not None and computed_lines is not None:
         db.table("billing_invoice_line_items").delete().eq("invoice_id", invoice_id).execute()
         for line in computed_lines:
             line["invoice_id"] = invoice_id
@@ -502,26 +664,28 @@ def update_invoice(
 
 
 def finalize_invoice(db: Client, invoice_id: str, client_gstin_id: str) -> Dict[str, Any]:
-    existing_inv_res = (
-        db.table("billing_invoices")
-        .select("*")
-        .eq("id", invoice_id)
-        .eq("client_gstin_id", client_gstin_id)
-        .limit(1)
-        .execute()
-    )
-    if not existing_inv_res.data:
-        raise HTTPException(status_code=404, detail="Invoice not found")
-
-    existing_inv = existing_inv_res.data[0]
+    existing_inv = get_invoice_detail(db, invoice_id, client_gstin_id)
     if existing_inv["status"] == InvoiceStatus.FINALIZED.value:
-        return get_invoice_detail(db, invoice_id, client_gstin_id)
+        return existing_inv
 
     if existing_inv["status"] != InvoiceStatus.DRAFT.value:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Cannot finalize invoice in status '{existing_inv['status']}'. Only draft invoices can be finalized.",
         )
+
+    try:
+        from app.repositories.billing_ledger import get_billing_ledger_repository
+        repo = get_billing_ledger_repository()
+        res_inv = repo.update_invoice(
+            invoice_id,
+            client_gstin_id,
+            {"status": InvoiceStatus.FINALIZED.value, "updated_at": datetime.now(timezone.utc).isoformat()},
+        )
+        if res_inv:
+            return res_inv
+    except Exception as exc:
+        _log.warning("Aurora finalize_invoice failed, falling back to Supabase: %s", exc)
 
     res = (
         db.table("billing_invoices")
@@ -533,6 +697,15 @@ def finalize_invoice(db: Client, invoice_id: str, client_gstin_id: str) -> Dict[
 
 
 def get_invoice_detail(db: Client, invoice_id: str, client_gstin_id: str) -> Dict[str, Any]:
+    try:
+        from app.repositories.billing_ledger import get_billing_ledger_repository
+        repo = get_billing_ledger_repository()
+        inv = repo.get_invoice_detail(invoice_id, client_gstin_id)
+        if inv:
+            return inv
+    except Exception as exc:
+        _log.warning("Aurora get_invoice_detail failed, falling back to Supabase: %s", exc)
+
     res = (
         db.table("billing_invoices")
         .select("*")
@@ -561,6 +734,50 @@ def list_invoices(
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
 ) -> List[Dict[str, Any]]:
+    try:
+        from app.repositories.billing_ledger import get_billing_ledger_repository
+        repo = get_billing_ledger_repository()
+        invoices = repo.list_invoices(client_gstin_id, status=status)
+        if start_date or end_date:
+            filtered = []
+            for inv in invoices:
+                inv_d = inv.get("invoice_date")
+                if inv_d:
+                    if isinstance(inv_d, str):
+                        try:
+                            d_val = date.fromisoformat(inv_d[:10])
+                        except ValueError:
+                            d_val = None
+                    elif isinstance(inv_d, date):
+                        d_val = inv_d
+                    else:
+                        d_val = None
+                    if d_val:
+                        if start_date and d_val < start_date:
+                            continue
+                        if end_date and d_val > end_date:
+                            continue
+                filtered.append(inv)
+            invoices = filtered
+
+        if invoices:
+            cust_ids = list({inv["customer_id"] for inv in invoices if inv.get("customer_id")})
+            if cust_ids:
+                cust_map = {}
+                for c_id in cust_ids:
+                    cust = repo.get_customer(c_id, client_gstin_id)
+                    if cust:
+                        cust_map[str(cust["id"])] = {
+                            "id": cust["id"],
+                            "name": cust["name"],
+                            "gstin": cust.get("gstin"),
+                        }
+                for inv in invoices:
+                    inv["customer"] = cust_map.get(str(inv.get("customer_id")))
+        return invoices
+    except Exception as exc:
+        _log.warning("Aurora list_invoices failed, falling back to Supabase: %s", exc)
+
     query = db.table("billing_invoices").select("*").eq("client_gstin_id", client_gstin_id)
 
     if status and status.strip():
