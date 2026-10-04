@@ -337,6 +337,45 @@ class Batch4APaymentsCreditsOrchestrator:
                         orphans += 1
         return orphans
 
+    def _seed_parent_fixtures_if_needed(
+        self,
+        session: Session,
+        source_data: dict[str, list[dict]],
+    ) -> None:
+        """Seed parent entities if running in isolated SQLite environments."""
+        is_sqlite = session.bind and session.bind.dialect.name == "sqlite"
+        if not is_sqlite:
+            return
+
+        firm_owner_ids: set[str] = set()
+        for r in source_data.get("payments", []):
+            if r.get("firm_owner_id"):
+                firm_owner_ids.add(str(r["firm_owner_id"]))
+        for r in source_data.get("run_credits", []):
+            if r.get("firm_owner_id"):
+                firm_owner_ids.add(str(r["firm_owner_id"]))
+
+        sb = self._get_supabase()
+        for fid in sorted(firm_owner_ids):
+            exists = session.get(UserProfile, UUID(fid))
+            if not exists:
+                try:
+                    resp = sb.table("user_profiles").select("*").eq("id", fid).execute()
+                    p_data = resp.data[0] if resp.data else None
+                except Exception:
+                    p_data = None
+                email = p_data.get("email") if p_data else f"firm_{fid[:8]}@recondesk.test"
+                full_name = p_data.get("full_name") if p_data else "Firm Owner"
+                session.add(UserProfile(
+                    id=UUID(fid),
+                    email=email,
+                    full_name=full_name,
+                    role="admin",
+                    is_active=True,
+                    free_runs_remaining=2,
+                ))
+        session.flush()
+
     def _insert_payments(
         self,
         session: Session,
@@ -519,6 +558,8 @@ class Batch4APaymentsCreditsOrchestrator:
             for tbl in self.TABLES:
                 model_cls = self.MODEL_MAP[tbl]
                 existing_ids[tbl] = {str(pk) for (pk,) in session.query(model_cls.id).all()}
+
+            self._seed_parent_fixtures_if_needed(session, source_data)
 
             # 1. payments
             self._insert_payments(session, source_data["payments"], existing_ids["payments"], tr_map["payments"])
