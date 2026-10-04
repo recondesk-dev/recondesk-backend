@@ -28,6 +28,11 @@ from app.repositories.filing_automation import (
     get_filing_automation_repository,
     set_filing_automation_repository,
 )
+from app.repositories.portal_and_audit import (
+    AuroraPortalAndAuditRepository,
+    get_portal_and_audit_repository,
+    set_portal_and_audit_repository,
+)
 
 __all__ = [
     "AuroraComplianceRepository",
@@ -46,4 +51,7 @@ __all__ = [
     "AuroraFilingAutomationRepository",
     "get_filing_automation_repository",
     "set_filing_automation_repository",
+    "AuroraPortalAndAuditRepository",
+    "get_portal_and_audit_repository",
+    "set_portal_and_audit_repository",
 ]

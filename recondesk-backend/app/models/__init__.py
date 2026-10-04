@@ -75,6 +75,13 @@ from app.models.billing_ledger import (
     BillingIrpSubmissionLog,
     BillingItem,
 )
+from app.models.portal_and_audit import (
+    AuditLog,
+    CommunicationLog,
+    NotificationPreference,
+    UploadedFile,
+    UploadRequest,
+)
 
 __all__ = [
     "Base",
@@ -135,6 +142,11 @@ __all__ = [
     "BillingCreditDebitNote",
     "BillingCdnLineItem",
     "BillingIrpSubmissionLog",
+    "NotificationPreference",
+    "UploadRequest",
+    "UploadedFile",
+    "CommunicationLog",
+    "AuditLog",
 ]
 
 
