@@ -65,6 +65,16 @@ from app.models.payments_credits import (
     Payment,
     RunCredit,
 )
+from app.models.billing_ledger import (
+    BillingCdnLineItem,
+    BillingCompanyProfile,
+    BillingCreditDebitNote,
+    BillingCustomer,
+    BillingInvoice,
+    BillingInvoiceLineItem,
+    BillingIrpSubmissionLog,
+    BillingItem,
+)
 
 __all__ = [
     "Base",
@@ -117,5 +127,14 @@ __all__ = [
     "Payment",
     "RunCredit",
     "IdempotencyKey",
+    "BillingCompanyProfile",
+    "BillingCustomer",
+    "BillingItem",
+    "BillingInvoice",
+    "BillingInvoiceLineItem",
+    "BillingCreditDebitNote",
+    "BillingCdnLineItem",
+    "BillingIrpSubmissionLog",
 ]
+
 
