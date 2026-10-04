@@ -42,8 +42,8 @@ class Settings(BaseSettings):
         description="Explicit AWS Aurora connection string; required for Aurora operations (does not fallback to DATABASE_URL).",
     )
     AURORA_DB_ENABLED: bool = Field(
-        default=False,
-        description="Feature flag to enable Aurora DB layer for development testing.",
+        default=True,
+        description="Primary database flag: Aurora PostgreSQL is the sole production database.",
     )
     AURORA_SSL_MODE: Optional[str] = Field(
         default=None,

@@ -432,6 +432,8 @@ def _build_record(
     shipping_port_code: str | None = None,
     diff_percent: float | None = None,
     supply_type: str | None = None,
+    inv_typ: str | None = None,
+    is_zero_rated: bool | None = None,
 ) -> dict:
     """Assemble a flat, normalised record dict."""
     # Compute aggregate tax from items
@@ -462,12 +464,29 @@ def _build_record(
         total_igst_paise + total_cgst_paise + total_sgst_paise + total_cess_paise
     )
 
+    if inv_typ is None and export_type is not None:
+        inv_typ = "EXPWP" if export_type == "WPAY" else ("EXPWOP" if export_type == "WOPAY" else export_type)
+    if is_zero_rated is None:
+        if (
+            inv_typ in ("SEZWP", "SEZWOP", "DE", "EXPWP", "EXPWOP", "WPAY", "WOPAY")
+            or export_type in ("WPAY", "WOPAY")
+            or section in ("exp", "expa")
+        ):
+            is_zero_rated = True
+        else:
+            is_zero_rated = False
+
+    if supply_type is None and inv_typ in ("SEZWP", "SEZWOP"):
+        supply_type = inv_typ
+
     record: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
         "section": section,
         "invoice_type": invoice_type,
         "doc_type": doc_type,
         "is_amendment": is_amendment,
+        "inv_typ": inv_typ,
+        "is_zero_rated": is_zero_rated,
         # Recipient
         "recipient_gstin": recipient_gstin,
         "recipient_name": recipient_name,
@@ -601,11 +620,15 @@ def _parse_b2b_invoice(
         None if item_records else _invoice_level_amount_paise(invoice)
     )
 
+    raw_inv_typ = invoice.get("inv_typ") or invoice.get("inv_type")
+    inv_typ = str(raw_inv_typ).strip().upper() if raw_inv_typ is not None and str(raw_inv_typ).strip() else None
+
     return _build_record(
         section=section,
         invoice_type="B2B",
         doc_type="INVOICE",
         is_amendment=is_amendment,
+        inv_typ=inv_typ,
         recipient_gstin=recipient_gstin,
         recipient_name=recipient_name,
         invoice_number=invoice_number,
@@ -810,11 +833,15 @@ def _parse_cdnr_invoice(
         None if item_records else _invoice_level_amount_paise(invoice)
     )
 
+    raw_inv_typ = invoice.get("inv_typ") or invoice.get("inv_type")
+    inv_typ = str(raw_inv_typ).strip().upper() if raw_inv_typ is not None and str(raw_inv_typ).strip() else None
+
     return _build_record(
         section=section,
         invoice_type=document_type,
         doc_type=document_type,
         is_amendment=is_amendment,
+        inv_typ=inv_typ,
         recipient_gstin=recipient_gstin,
         recipient_name=recipient_name,
         invoice_number=invoice_number,
@@ -897,11 +924,15 @@ def _parse_cdnur_invoice(
         None if item_records else _invoice_level_amount_paise(invoice)
     )
 
+    raw_inv_typ = invoice.get("inv_typ") or invoice.get("inv_type") or invoice.get("typ")
+    inv_typ = str(raw_inv_typ).strip().upper() if raw_inv_typ is not None and str(raw_inv_typ).strip() else None
+
     return _build_record(
         section=section,
         invoice_type=document_type,
         doc_type=document_type,
         is_amendment=is_amendment,
+        inv_typ=inv_typ,
         recipient_gstin=None,
         recipient_name="",
         invoice_number=invoice_number,
