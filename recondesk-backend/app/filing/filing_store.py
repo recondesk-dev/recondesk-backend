@@ -58,6 +58,15 @@ def find_gstr3b_offset_lock(
     Queries by ``(gstin, period, return_type)`` across **all** runs — not the
     current ``run_id``. Used to hard-block a second Save or Offset attempt.
     """
+    try:
+        from app.repositories.filing_automation import get_filing_automation_repository
+        return get_filing_automation_repository().find_gstr3b_offset_lock(
+            gstin=gstin,
+            period=period,
+        )
+    except Exception as a_exc:
+        logger.warning("Aurora find_gstr3b_offset_lock failed: %s; falling back to Supabase", a_exc)
+
     g = (gstin or "").strip().upper()
     p = (period or "").strip()
     if not g or not p:
@@ -186,6 +195,18 @@ def create_session(
     client_gstin_id: str | None = None,
 ) -> dict[str, Any]:
     """Insert an active taxpayer session row; returns the inserted row."""
+    try:
+        from app.repositories.filing_automation import get_filing_automation_repository
+        return get_filing_automation_repository().create_session(
+            firm_id=firm_id,
+            gstin=gstin,
+            username=username,
+            session=session,
+            client_gstin_id=client_gstin_id,
+        )
+    except Exception as a_exc:
+        logger.warning("Aurora create_session failed: %s; falling back to Supabase", a_exc)
+
     payload: dict[str, Any] = {
         "firm_id": firm_id,
         "gstin": gstin.strip().upper(),
@@ -209,6 +230,17 @@ def update_session_token(
     session_id: str,
     session: TaxpayerSession,
 ) -> dict[str, Any]:
+    try:
+        from app.repositories.filing_automation import get_filing_automation_repository
+        res = get_filing_automation_repository().update_session_token(
+            session_id=session_id,
+            session=session,
+        )
+        if res is not None:
+            return res
+    except Exception as a_exc:
+        logger.warning("Aurora update_session_token failed: %s; falling back to Supabase", a_exc)
+
     payload = {
         "session_token": session.access_token,
         "token_expires_at": _iso(session.token_expires_at),
@@ -222,6 +254,13 @@ def update_session_token(
 
 def mark_session_logged_out(sb, session_id: str) -> None:
     """Mark local session logged_out even if Sandbox Logout returned TEC4002."""
+    try:
+        from app.repositories.filing_automation import get_filing_automation_repository
+        get_filing_automation_repository().mark_session_logged_out(session_id=session_id)
+        return
+    except Exception as a_exc:
+        logger.warning("Aurora mark_session_logged_out failed: %s; falling back to Supabase", a_exc)
+
     now = _iso(datetime.now(timezone.utc))
     sb.table(SESSIONS).update(
         {
@@ -239,6 +278,15 @@ def get_active_session(
     gstin: str,
 ) -> dict[str, Any] | None:
     """Latest active session for firm+gstin that is not past token_expires_at."""
+    try:
+        from app.repositories.filing_automation import get_filing_automation_repository
+        return get_filing_automation_repository().get_active_session(
+            firm_id=firm_id,
+            gstin=gstin,
+        )
+    except Exception as a_exc:
+        logger.warning("Aurora get_active_session failed: %s; falling back to Supabase", a_exc)
+
     now = datetime.now(timezone.utc).isoformat()
     res = (
         sb.table(SESSIONS)
@@ -255,6 +303,12 @@ def get_active_session(
 
 
 def get_session_by_id(sb, session_id: str) -> dict[str, Any] | None:
+    try:
+        from app.repositories.filing_automation import get_filing_automation_repository
+        return get_filing_automation_repository().get_session_by_id(session_id=session_id)
+    except Exception as a_exc:
+        logger.warning("Aurora get_session_by_id failed: %s; falling back to Supabase", a_exc)
+
     res = sb.table(SESSIONS).select("*").eq("id", session_id).limit(1).execute()
     return res.data[0] if res.data else None
 
@@ -271,6 +325,21 @@ def create_run(
     client_gstin_id: str | None = None,
     save_payload: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    try:
+        from app.repositories.filing_automation import get_filing_automation_repository
+        return get_filing_automation_repository().create_run(
+            firm_id=firm_id,
+            gstin=gstin,
+            period=period,
+            return_type=return_type,
+            status=status,
+            filing_session_id=filing_session_id,
+            client_gstin_id=client_gstin_id,
+            save_payload=save_payload,
+        )
+    except Exception as a_exc:
+        logger.warning("Aurora create_run failed: %s; falling back to Supabase", a_exc)
+
     payload: dict[str, Any] = {
         "firm_id": firm_id,
         "gstin": gstin.strip().upper(),
@@ -307,6 +376,27 @@ def update_run(
     offset_completed_at: str | None = None,
     tx_pmt_snapshot: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    try:
+        from app.repositories.filing_automation import get_filing_automation_repository
+        res = get_filing_automation_repository().update_run(
+            run_id,
+            status=status,
+            reference_id=reference_id,
+            ack_number=ack_number,
+            save_payload=save_payload,
+            raw_response=raw_response,
+            error_code=error_code,
+            error_message=error_message,
+            clear_error=clear_error,
+            offset_payload=offset_payload,
+            offset_completed_at=offset_completed_at,
+            tx_pmt_snapshot=tx_pmt_snapshot,
+        )
+        if res is not None:
+            return res
+    except Exception as a_exc:
+        logger.warning("Aurora update_run failed: %s; falling back to Supabase", a_exc)
+
     payload: dict[str, Any] = {
         "updated_at": _iso(datetime.now(timezone.utc)),
     }
@@ -338,6 +428,12 @@ def update_run(
 
 
 def get_run(sb, run_id: str) -> dict[str, Any] | None:
+    try:
+        from app.repositories.filing_automation import get_filing_automation_repository
+        return get_filing_automation_repository().get_run(run_id)
+    except Exception as a_exc:
+        logger.warning("Aurora get_run failed: %s; falling back to Supabase", a_exc)
+
     res = sb.table(RUNS).select("*").eq("id", run_id).limit(1).execute()
     return res.data[0] if res.data else None
 
@@ -460,6 +556,18 @@ def create_batch(
     return_type: str = "gstr-1",
 ) -> dict[str, Any]:
     """Create a new filing_batches row along with its filing_batch_items."""
+    try:
+        from app.repositories.filing_automation import get_filing_automation_repository
+        return get_filing_automation_repository().create_batch(
+            firm_id=firm_id,
+            created_by=created_by,
+            period=period,
+            client_gstin_ids=client_gstin_ids,
+            return_type=return_type,
+        )
+    except Exception as a_exc:
+        logger.warning("Aurora create_batch failed: %s; falling back to Supabase", a_exc)
+
     p = period.strip()
     batch_payload = {
         "firm_id": firm_id,
@@ -505,22 +613,40 @@ def create_batch(
 
 
 def get_batch(sb, batch_id: str) -> dict[str, Any] | None:
-    res = sb.table(BATCHES).select("*").eq("id", batch_id).limit(1).execute()
-    if not res.data:
+    try:
+        from app.repositories.filing_automation import get_filing_automation_repository
+        res = get_filing_automation_repository().get_batch(batch_id)
+        if res is not None:
+            return res
+    except Exception as a_exc:
+        logger.warning("Aurora get_batch failed: %s; falling back to Supabase", a_exc)
+
+    try:
+        res = sb.table(BATCHES).select("*").eq("id", batch_id).limit(1).execute()
+        if not res.data:
+            return None
+        batch = res.data[0]
+        items_res = (
+            sb.table(BATCH_ITEMS)
+            .select("*, client_gstins(trade_name, legal_name)")
+            .eq("batch_id", batch_id)
+            .order("created_at")
+            .execute()
+        )
+        batch["items"] = items_res.data or []
+        return batch
+    except Exception as s_exc:
+        logger.warning("Supabase get_batch failed: %s", s_exc)
         return None
-    batch = res.data[0]
-    items_res = (
-        sb.table(BATCH_ITEMS)
-        .select("*, client_gstins(trade_name, legal_name)")
-        .eq("batch_id", batch_id)
-        .order("created_at")
-        .execute()
-    )
-    batch["items"] = items_res.data or []
-    return batch
 
 
 def list_batches(sb, firm_id: str, limit: int = 50) -> list[dict[str, Any]]:
+    try:
+        from app.repositories.filing_automation import get_filing_automation_repository
+        return get_filing_automation_repository().list_batches(firm_id, limit=limit)
+    except Exception as a_exc:
+        logger.warning("Aurora list_batches failed: %s; falling back to Supabase", a_exc)
+
     res = (
         sb.table(BATCHES)
         .select("*")
@@ -541,6 +667,20 @@ def update_batch_item(
     error_code: str | None = None,
     error_detail: str | None = None,
 ) -> dict[str, Any]:
+    try:
+        from app.repositories.filing_automation import get_filing_automation_repository
+        res = get_filing_automation_repository().update_batch_item(
+            item_id,
+            status=status,
+            filing_run_id=filing_run_id,
+            error_code=error_code,
+            error_detail=error_detail,
+        )
+        if res is not None:
+            return res
+    except Exception as a_exc:
+        logger.warning("Aurora update_batch_item failed: %s; falling back to Supabase", a_exc)
+
     payload: dict[str, Any] = {
         "updated_at": _iso(datetime.now(timezone.utc)),
     }
@@ -559,6 +699,14 @@ def update_batch_item(
 
 def recalculate_batch_status(sb, batch_id: str) -> dict[str, Any]:
     """Aggregate item statuses and update filing_batches summary counts & overall status."""
+    try:
+        from app.repositories.filing_automation import get_filing_automation_repository
+        res = get_filing_automation_repository().recalculate_batch_status(batch_id)
+        if res is not None:
+            return res
+    except Exception as a_exc:
+        logger.warning("Aurora recalculate_batch_status failed: %s; falling back to Supabase", a_exc)
+
     items_res = (
         sb.table(BATCH_ITEMS)
         .select("status")
@@ -595,4 +743,47 @@ def recalculate_batch_status(sb, batch_id: str) -> dict[str, Any]:
     }
     b_res = sb.table(BATCHES).update(payload).eq("id", batch_id).execute()
     return (b_res.data or [payload])[0]
+
+
+def update_batch_status(sb, batch_id: str, status: str) -> dict[str, Any]:
+    """Update batch status directly (Aurora PRIMARY with Supabase fallback)."""
+    try:
+        from app.repositories.filing_automation import get_filing_automation_repository
+        res = get_filing_automation_repository().update_batch_status(batch_id, status=status)
+        if res is not None:
+            return res
+    except Exception as a_exc:
+        logger.warning("Aurora update_batch_status failed: %s; falling back to Supabase", a_exc)
+
+    now = _iso(datetime.now(timezone.utc))
+    payload = {
+        "status": status,
+        "updated_at": now,
+    }
+    b_res = sb.table(BATCHES).update(payload).eq("id", batch_id).execute()
+    return (b_res.data or [payload])[0]
+
+
+def get_filing_history(sb, *, gstin: str, limit: int = 100) -> list[dict[str, Any]]:
+    """Retrieve filing history for a gstin (Aurora PRIMARY with Supabase fallback)."""
+    try:
+        from app.repositories.filing_automation import get_filing_automation_repository
+        return get_filing_automation_repository().get_filing_history(gstin=gstin, limit=limit)
+    except Exception as a_exc:
+        logger.warning("Aurora get_filing_history failed: %s; falling back to Supabase", a_exc)
+
+    g = (gstin or "").strip().upper()
+    runs = (
+        sb.table(RUNS)
+        .select(
+            "id, return_type, period, status, reference_id, arn, filing_method, "
+            "created_at, updated_at, offset_completed_at, filed_at"
+        )
+        .eq("gstin", g)
+        .order("created_at", desc=True)
+        .limit(limit)
+        .execute()
+    )
+    return runs.data or []
+
 

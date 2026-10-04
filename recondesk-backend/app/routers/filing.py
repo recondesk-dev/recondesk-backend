@@ -2006,21 +2006,11 @@ def filing_history(
     _firm_id(sb, current_user)
     client_row = _assert_client_access(sb, current_user, client_gstin_id.strip())
     gstin = str(client_row["gstin"]).strip().upper()
-    runs = (
-        sb.table("filing_runs")
-        .select(
-            "id, return_type, period, status, reference_id, arn, filing_method, "
-            "created_at, updated_at, offset_completed_at, filed_at"
-        )
-        .eq("gstin", gstin)
-        .order("created_at", desc=True)
-        .limit(100)
-        .execute()
-    )
+    runs = filing_store.get_filing_history(sb, gstin=gstin, limit=100)
     return {
         "gstin": gstin,
         "client_gstin_id": client_gstin_id.strip(),
-        "filings": runs.data or [],
+        "filings": runs,
     }
 
 

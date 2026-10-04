@@ -39,6 +39,7 @@ from app.models.filing_automation import (
     SalesRegisterRun,
     SrRecord,
 )
+from app.filing.filing_store import Gstr3bPeriodLockedError
 
 _log = logging.getLogger("recondesk.aurora.filing_automation")
 
@@ -48,25 +49,6 @@ GSTR3B_OFFSET_LOCKED_STATUSES: frozenset[str] = frozenset({
     "filed",
 })
 RETURN_TYPE_GSTR3B = "gstr-3b"
-
-
-class Gstr3bPeriodLockedError(Exception):
-    """Save or Offset refused because Offset already completed for this period."""
-
-    def __init__(
-        self,
-        message: str,
-        *,
-        action: str,
-        gstin: str,
-        period: str,
-        locking_run: dict[str, Any],
-    ) -> None:
-        super().__init__(message)
-        self.action = action
-        self.gstin = gstin
-        self.period = period
-        self.locking_run = locking_run
 
 
 _fallback_sessionmaker: Optional[sessionmaker[Session]] = None
@@ -145,9 +127,10 @@ class AuroraFilingAutomationRepository:
         firm_id: str,
         gstin: str,
         username: str,
-        session_token: str,
-        token_expires_at: datetime | str,
+        session_token: Optional[str] = None,
+        token_expires_at: Optional[datetime | str] = None,
         session_expires_at: Optional[datetime | str] = None,
+        session: Optional[Any] = None,
         client_gstin_id: Optional[str] = None,
         status: str = "active",
     ) -> dict[str, Any]:
@@ -156,13 +139,21 @@ class AuroraFilingAutomationRepository:
         if not f_uuid:
             raise ValueError(f"Invalid firm_id: {firm_id}")
 
+        if session is not None:
+            session_token = getattr(session, "access_token", session_token)
+            token_expires_at = getattr(session, "token_expires_at", token_expires_at)
+            session_expires_at = getattr(session, "session_expires_at", session_expires_at)
+
+        if not session_token:
+            raise ValueError("session_token or session object with access_token required")
+
         c_uuid = _parse_uuid(client_gstin_id) if client_gstin_id else None
         t_exp = _parse_datetime(token_expires_at)
         if not t_exp:
             raise ValueError("token_expires_at must be a valid datetime")
         s_exp = _parse_datetime(session_expires_at) if session_expires_at else None
 
-        with self._get_session() as session:
+        with self._get_session() as session_ctx:
             row = FilingSession(
                 firm_id=f_uuid,
                 client_gstin_id=c_uuid,
@@ -173,9 +164,9 @@ class AuroraFilingAutomationRepository:
                 session_expires_at=s_exp,
                 status=status,
             )
-            session.add(row)
-            session.commit()
-            session.refresh(row)
+            session_ctx.add(row)
+            session_ctx.commit()
+            session_ctx.refresh(row)
             _log.info(
                 "Created filing_sessions id=%s for gstin=%s (firm=%s)",
                 row.id, row.gstin, row.firm_id,
@@ -186,18 +177,28 @@ class AuroraFilingAutomationRepository:
         self,
         session_id: str,
         *,
-        session_token: str,
-        token_expires_at: datetime | str,
+        session_token: Optional[str] = None,
+        token_expires_at: Optional[datetime | str] = None,
         session_expires_at: Optional[datetime | str] = None,
+        session: Optional[Any] = None,
         status: str = "active",
     ) -> Optional[dict[str, Any]]:
         s_uuid = _parse_uuid(session_id)
         if not s_uuid:
             return None
+
+        if session is not None:
+            session_token = getattr(session, "access_token", session_token)
+            token_expires_at = getattr(session, "token_expires_at", token_expires_at)
+            session_expires_at = getattr(session, "session_expires_at", session_expires_at)
+
+        if not session_token:
+            raise ValueError("session_token or session object with access_token required")
+
         t_exp = _parse_datetime(token_expires_at)
         s_exp = _parse_datetime(session_expires_at) if session_expires_at else None
 
-        with self._get_session() as session:
+        with self._get_session() as session_ctx:
             stmt = (
                 update(FilingSession)
                 .where(FilingSession.id == s_uuid)
@@ -209,9 +210,9 @@ class AuroraFilingAutomationRepository:
                     updated_at=datetime.now(timezone.utc),
                 )
             )
-            session.execute(stmt)
-            session.commit()
-            row = session.get(FilingSession, s_uuid)
+            session_ctx.execute(stmt)
+            session_ctx.commit()
+            row = session_ctx.get(FilingSession, s_uuid)
             return row.to_dict(redact_token=False) if row else None
 
     def mark_session_logged_out(self, session_id: str) -> None:
@@ -808,6 +809,99 @@ class AuroraFilingAutomationRepository:
                 inserted += 1
             session.commit()
             return inserted
+
+    def update_batch_status(self, batch_id: str, status: str) -> Optional[dict[str, Any]]:
+        """Update overall status of a filing batch."""
+        b_uuid = _parse_uuid(batch_id)
+        if not b_uuid:
+            return None
+        with self._get_session() as session:
+            stmt = (
+                update(FilingBatch)
+                .where(FilingBatch.id == b_uuid)
+                .values(
+                    status=status,
+                    updated_at=datetime.now(timezone.utc),
+                )
+            )
+            session.execute(stmt)
+            session.commit()
+            batch = session.get(FilingBatch, b_uuid)
+            return batch.to_dict() if batch else None
+
+    def delete_session(self, session_id: str) -> bool:
+        """Delete a filing session by id (cascading to dependent runs if configured)."""
+        s_uuid = _parse_uuid(session_id)
+        if not s_uuid:
+            return False
+        with self._get_session() as session:
+            row = session.get(FilingSession, s_uuid)
+            if not row:
+                return False
+            session.delete(row)
+            session.commit()
+            return True
+
+    def delete_run(self, run_id: str) -> bool:
+        """Delete a filing run by id."""
+        r_uuid = _parse_uuid(run_id)
+        if not r_uuid:
+            return False
+        with self._get_session() as session:
+            row = session.get(FilingRun, r_uuid)
+            if not row:
+                return False
+            session.delete(row)
+            session.commit()
+            return True
+
+    def delete_batch(self, batch_id: str) -> bool:
+        """Delete a filing batch and its child batch items."""
+        b_uuid = _parse_uuid(batch_id)
+        if not b_uuid:
+            return False
+        with self._get_session() as session:
+            row = session.get(FilingBatch, b_uuid)
+            if not row:
+                return False
+            session.delete(row)
+            session.commit()
+            return True
+
+    def get_sr_records(
+        self,
+        *,
+        client_gstin_id: str,
+        period: str,
+    ) -> list[dict[str, Any]]:
+        """Fetch parsed sales register records by client_gstin_id and period."""
+        return self.fetch_sales_register_records(client_gstin_id, period)
+
+    def delete_sales_register_run(self, run_id: str) -> bool:
+        """Delete a sales register run by id (cascading to sr_records)."""
+        r_uuid = _parse_uuid(run_id)
+        if not r_uuid:
+            return False
+        with self._get_session() as session:
+            row = session.get(SalesRegisterRun, r_uuid)
+            if not row:
+                return False
+            # Explicit delete of child records for engines without FK cascade (like SQLite in tests)
+            session.execute(delete(SrRecord).where(SrRecord.run_id == r_uuid))
+            session.delete(row)
+            session.commit()
+            return True
+
+    def delete_sr_records(self, run_id: str) -> int:
+        """Delete all sr_records associated with a run_id."""
+        r_uuid = _parse_uuid(run_id)
+        if not r_uuid:
+            return 0
+        with self._get_session() as session:
+            stmt = delete(SrRecord).where(SrRecord.run_id == r_uuid)
+            res = session.execute(stmt)
+            session.commit()
+            return res.rowcount or 0
 
 
 _global_filing_repo: Optional[AuroraFilingAutomationRepository] = None

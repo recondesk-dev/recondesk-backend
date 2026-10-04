@@ -29,6 +29,7 @@ from sqlalchemy import (
     func,
 )
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.orm import relationship
 
 from app.models.schema_base import Base, GUID
 
@@ -366,6 +367,14 @@ class SalesRegisterRun(Base):
         nullable=True,
         default=lambda: datetime.now(timezone.utc),
         onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    # Relationships
+    records = relationship(
+        "SrRecord",
+        backref="run",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
     )
 
     __table_args__ = (

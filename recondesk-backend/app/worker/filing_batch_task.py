@@ -30,18 +30,32 @@ POLL_MAX_DELAY_SEC = 10.0
 
 
 def fetch_sales_register_records(sb, client_gstin_id: str, period: str) -> list[dict[str, Any]]:
-    """Fetch parsed sales register records from sr_records table."""
-    res = (
-        sb.table("sr_records")
-        .select("record_data")
-        .eq("client_gstin_id", str(client_gstin_id).strip())
-        .eq("period", period.strip())
-        .execute()
-    )
-    if res.data:
-        records = [r.get("record_data") for r in res.data if isinstance(r.get("record_data"), dict)]
+    """Fetch parsed sales register records from sr_records (Aurora PRIMARY with Supabase fallback)."""
+    try:
+        from app.repositories.filing_automation import get_filing_automation_repository
+        records = get_filing_automation_repository().fetch_sales_register_records(
+            client_gstin_id=client_gstin_id,
+            period=period,
+        )
         if records:
             return records
+    except Exception as exc:
+        _log.warning("Aurora sr_records fetch failed: %s; falling back to Supabase", exc)
+
+    try:
+        res = (
+            sb.table("sr_records")
+            .select("record_data")
+            .eq("client_gstin_id", str(client_gstin_id).strip())
+            .eq("period", period.strip())
+            .execute()
+        )
+        if res.data:
+            records = [r.get("record_data") for r in res.data if isinstance(r.get("record_data"), dict)]
+            if records:
+                return records
+    except Exception as exc:
+        _log.warning("Supabase fallback sr_records fetch failed: %s", exc)
 
     return []
 
@@ -71,10 +85,7 @@ def process_filing_batch(batch_id: str) -> dict[str, Any]:
     items = batch.get("items") or []
 
     # Update overall batch status to in_progress
-    sb.table(filing_store.BATCHES).update({
-        "status": "in_progress",
-        "updated_at": filing_store._iso(filing_store.datetime.now(filing_store.timezone.utc)),
-    }).eq("id", batch_id).execute()
+    filing_store.update_batch_status(sb, batch_id=batch_id, status="in_progress")
 
     for item in items:
         item_id = str(item["id"])
