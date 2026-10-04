@@ -450,7 +450,9 @@ def submit_to_irp(
             try:
                 from app.repositories.billing_ledger import get_billing_ledger_repository
                 repo = get_billing_ledger_repository()
-                repo.update_invoice(invoice_id, client_gstin_id, retry_update)
+                res_up = repo.update_invoice(invoice_id, client_gstin_id, retry_update)
+                if not res_up:
+                    db.table("billing_invoices").update(retry_update).eq("id", invoice_id).execute()
             except Exception as exc_up:
                 logger.warning("Aurora update_invoice failed, falling back to Supabase: %s", exc_up)
                 db.table("billing_invoices").update(retry_update).eq("id", invoice_id).execute()
@@ -494,7 +496,9 @@ def submit_to_irp(
             try:
                 from app.repositories.billing_ledger import get_billing_ledger_repository
                 repo = get_billing_ledger_repository()
-                repo.update_invoice(invoice_id, client_gstin_id, update_data)
+                res_up = repo.update_invoice(invoice_id, client_gstin_id, update_data)
+                if not res_up:
+                    db.table("billing_invoices").update(update_data).eq("id", invoice_id).execute()
             except Exception as exc_up:
                 logger.warning("Aurora update_invoice failed, falling back to Supabase: %s", exc_up)
                 db.table("billing_invoices").update(update_data).eq("id", invoice_id).execute()
@@ -519,7 +523,9 @@ def submit_to_irp(
             try:
                 from app.repositories.billing_ledger import get_billing_ledger_repository
                 repo = get_billing_ledger_repository()
-                repo.update_invoice(invoice_id, client_gstin_id, down_update)
+                res_up = repo.update_invoice(invoice_id, client_gstin_id, down_update)
+                if not res_up:
+                    db.table("billing_invoices").update(down_update).eq("id", invoice_id).execute()
             except Exception as exc_up:
                 logger.warning("Aurora update_invoice failed, falling back to Supabase: %s", exc_up)
                 db.table("billing_invoices").update(down_update).eq("id", invoice_id).execute()
@@ -552,7 +558,9 @@ def submit_to_irp(
         try:
             from app.repositories.billing_ledger import get_billing_ledger_repository
             repo = get_billing_ledger_repository()
-            repo.update_invoice(invoice_id, client_gstin_id, client_err_update)
+            res_up = repo.update_invoice(invoice_id, client_gstin_id, client_err_update)
+            if not res_up:
+                db.table("billing_invoices").update(client_err_update).eq("id", invoice_id).execute()
         except Exception as exc_up:
             logger.warning("Aurora update_invoice failed, falling back to Supabase: %s", exc_up)
             db.table("billing_invoices").update(client_err_update).eq("id", invoice_id).execute()
@@ -577,7 +585,9 @@ def submit_to_irp(
     try:
         from app.repositories.billing_ledger import get_billing_ledger_repository
         repo = get_billing_ledger_repository()
-        repo.update_invoice(invoice_id, client_gstin_id, update_data)
+        res_up = repo.update_invoice(invoice_id, client_gstin_id, update_data)
+        if not res_up:
+            db.table("billing_invoices").update(update_data).eq("id", invoice_id).execute()
     except Exception as exc_up:
         logger.warning("Aurora update_invoice failed, falling back to Supabase: %s", exc_up)
         db.table("billing_invoices").update(update_data).eq("id", invoice_id).execute()
@@ -674,7 +684,9 @@ def cancel_irn(
     try:
         from app.repositories.billing_ledger import get_billing_ledger_repository
         repo = get_billing_ledger_repository()
-        repo.update_invoice(invoice_id, client_gstin_id, cancel_update)
+        res_up = repo.update_invoice(invoice_id, client_gstin_id, cancel_update)
+        if not res_up:
+            db.table("billing_invoices").update(cancel_update).eq("id", invoice_id).execute()
     except Exception as exc_up:
         logger.warning("Aurora update_invoice failed, falling back to Supabase: %s", exc_up)
         db.table("billing_invoices").update(cancel_update).eq("id", invoice_id).execute()
