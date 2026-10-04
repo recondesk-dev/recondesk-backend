@@ -60,6 +60,11 @@ from app.models.filing_automation import (
     SalesRegisterRun,
     SrRecord,
 )
+from app.models.payments_credits import (
+    IdempotencyKey,
+    Payment,
+    RunCredit,
+)
 
 __all__ = [
     "Base",
@@ -109,5 +114,8 @@ __all__ = [
     "FilingBatchItem",
     "SalesRegisterRun",
     "SrRecord",
+    "Payment",
+    "RunCredit",
+    "IdempotencyKey",
 ]
 
