@@ -187,6 +187,42 @@ class AuroraPaymentsCreditsRepository:
             rows = session.scalars(stmt).all()
             return [r.to_dict(redact_sensitive=False) for r in rows]
 
+    def get_payment_by_payment_id(self, razorpay_payment_id: str) -> Optional[dict[str, Any]]:
+        """Retrieve payment by Razorpay payment ID."""
+        if not razorpay_payment_id:
+            return None
+        with self._get_session() as session:
+            stmt = select(Payment).where(Payment.razorpay_payment_id == str(razorpay_payment_id).strip())
+            p = session.scalars(stmt).first()
+            return p.to_dict(redact_sensitive=False) if p else None
+
+    def list_paid_payments(self, limit: int = 1000) -> list[dict[str, Any]]:
+        """Retrieve paid payments for statutory export / reporting."""
+        with self._get_session() as session:
+            stmt = (
+                select(Payment)
+                .where(Payment.status == "paid")
+                .order_by(sa_desc(Payment.created_at))
+                .limit(limit)
+            )
+            rows = session.scalars(stmt).all()
+            return [r.to_dict(redact_sensitive=False) for r in rows]
+
+    def count_payments_today(self) -> int:
+        """Count captured/paid payments created today (UTC)."""
+        now = datetime.now(timezone.utc)
+        start_of_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        with self._get_session() as session:
+            stmt = (
+                select(func.count())
+                .select_from(Payment)
+                .where(
+                    Payment.created_at >= start_of_day,
+                    Payment.status.in_(["paid", "captured"]),
+                )
+            )
+            return int(session.scalar(stmt) or 0)
+
     def delete_payment(self, payment_id: str) -> bool:
         """Delete payment by ID (cascading to dependent run_credits)."""
         p_uuid = _parse_uuid(payment_id)
@@ -303,6 +339,36 @@ class AuroraPaymentsCreditsRepository:
             session.commit()
             return consumed
 
+    def forfeit_expired_credit_batches(self, firm_owner_id: str) -> tuple[int, int]:
+        """Zero remaining runs on expired batches and calculate active remaining balance."""
+        f_uuid = _parse_uuid(firm_owner_id)
+        if not f_uuid:
+            return 0, 0
+        now = datetime.now(timezone.utc)
+        forfeited = 0
+        active_bal = 0
+        with self._get_session() as session:
+            stmt = select(RunCredit).where(
+                RunCredit.firm_owner_id == f_uuid,
+                RunCredit.runs_remaining > 0,
+            ).with_for_update()
+            batches = session.scalars(stmt).all()
+            for b in batches:
+                exp = b.expires_at
+                if exp.tzinfo is None:
+                    exp = exp.replace(tzinfo=timezone.utc)
+                if exp <= now:
+                    forfeited += b.runs_remaining
+                    b.runs_remaining = 0
+                else:
+                    active_bal += b.runs_remaining
+            session.commit()
+            return forfeited, active_bal
+
+    def decrement_oldest_credit_batch(self, firm_owner_id: str) -> bool:
+        """Decrement 1 run from the oldest active batch by expires_at."""
+        return self.consume_run_credit(firm_owner_id, runs_to_consume=1) > 0
+
     def delete_run_credit(self, credit_id: str) -> bool:
         """Delete run credit batch by ID."""
         c_uuid = _parse_uuid(credit_id)
@@ -321,7 +387,7 @@ class AuroraPaymentsCreditsRepository:
     # =========================================================================
 
     def get_idempotency_response(
-        self, *, idempotency_key: str, user_id: str
+        self, *, idempotency_key: str, user_id: str, since: Optional[datetime] = None
     ) -> Optional[dict[str, Any]]:
         """Look up existing idempotency record."""
         k = str(idempotency_key).strip()
@@ -331,6 +397,8 @@ class AuroraPaymentsCreditsRepository:
                 IdempotencyKey.idempotency_key == k,
                 IdempotencyKey.user_id == u,
             )
+            if since:
+                stmt = stmt.where(IdempotencyKey.created_at >= since)
             record = session.scalars(stmt).first()
             return record.to_dict() if record else None
 

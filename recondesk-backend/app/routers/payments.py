@@ -210,23 +210,32 @@ async def payments_verify(
         )
 
     pay_id = payload.payment_id.strip()
-    existing = (
-        db.table("payments")
-        .select(
-            "id, run_id, firm_owner_id, plan, runs_purchased, total_amount_paise, amount_paise"
+    existing_row = None
+    try:
+        from app.repositories.payments_credits import get_payments_credits_repository
+        repo = get_payments_credits_repository()
+        existing_row = repo.get_payment_by_payment_id(pay_id)
+    except Exception as exc:
+        _log.warning("Aurora payment check failed, falling back: %s", exc)
+        existing = (
+            db.table("payments")
+            .select(
+                "id, run_id, firm_owner_id, plan, runs_purchased, total_amount_paise, amount_paise"
+            )
+            .eq("razorpay_payment_id", pay_id)
+            .limit(1)
+            .execute()
         )
-        .eq("razorpay_payment_id", pay_id)
-        .limit(1)
-        .execute()
-    )
-    if existing.data:
-        owner_for_bal = str(existing.data[0].get("firm_owner_id") or "").strip()
+        existing_row = existing.data[0] if existing.data else None
+
+    if existing_row:
+        owner_for_bal = str(existing_row.get("firm_owner_id") or "").strip()
         if owner_for_bal and not user_can_access_firm(db, current_user, owner_for_bal):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
         prof = get_user_profile(owner_for_bal or resolve_firm_owner_for_billing(db, current_user)) or {}
         return {
             "success": True,
-            "plan": existing.data[0].get("plan") or plan,
+            "plan": existing_row.get("plan") or plan,
             "gstin_limit": int(prof.get("gstin_limit") or 0),
             "subscription_ends_at": prof.get("subscription_ends_at"),
             "idempotent": True,
@@ -289,27 +298,54 @@ async def payments_verify(
         "sgst_paise": sgst_paise,
         "igst_paise": igst_paise,
     }
+    payment_rec = None
     try:
-        ins = db.table("payments").insert(pay_row).execute()
+        from app.repositories.payments_credits import get_payments_credits_repository
+        repo = get_payments_credits_repository()
+        payment_rec = repo.create_payment(
+            firm_owner_id=firm_owner,
+            run_id=run_id,
+            razorpay_order_id=payload.order_id.strip(),
+            razorpay_payment_id=pay_id,
+            amount_paise=int(details["total_paise"]),
+            status="paid",
+            plan=details["plan"],
+            runs_purchased=0,
+            base_amount_paise=int(details["base_paise"]),
+            gst_paise=gst_val,
+            total_amount_paise=int(details["total_paise"]),
+            customer_gstin=cust_gstin,
+            customer_trade_name=cust_name,
+            customer_city=cust_city,
+            customer_state_code=cust_state_code,
+            tax_type=tax_type,
+            cgst_paise=cgst_paise,
+            sgst_paise=sgst_paise,
+            igst_paise=igst_paise,
+        )
     except Exception as exc:
-        _log.warning("payments insert with v2 fields failed, falling back: %s", exc)
-        fallback_row = {
-            "firm_owner_id": firm_owner,
-            "run_id": run_id,
-            "razorpay_order_id": payload.order_id.strip(),
-            "razorpay_payment_id": pay_id,
-            "amount_paise": int(details["total_paise"]),
-            "status": "paid",
-            "plan": details["plan"],
-            "runs_purchased": 0,
-            "base_amount_paise": int(details["base_paise"]),
-            "gst_paise": gst_val,
-            "total_amount_paise": int(details["total_paise"]),
-        }
-        ins = db.table("payments").insert(fallback_row).execute()
+        _log.warning("Aurora payment insert failed, falling back to Supabase: %s", exc)
+        try:
+            ins = db.table("payments").insert(pay_row).execute()
+        except Exception as exc2:
+            _log.warning("payments insert with v2 fields failed, falling back: %s", exc2)
+            fallback_row = {
+                "firm_owner_id": firm_owner,
+                "run_id": run_id,
+                "razorpay_order_id": payload.order_id.strip(),
+                "razorpay_payment_id": pay_id,
+                "amount_paise": int(details["total_paise"]),
+                "status": "paid",
+                "plan": details["plan"],
+                "runs_purchased": 0,
+                "base_amount_paise": int(details["base_paise"]),
+                "gst_paise": gst_val,
+                "total_amount_paise": int(details["total_paise"]),
+            }
+            ins = db.table("payments").insert(fallback_row).execute()
+        payment_rec = (ins.data or [{}])[0]
 
-    payment_rec = (ins.data or [{}])[0]
-    payment_uuid = str(payment_rec.get("id", ""))
+    payment_uuid = str(payment_rec.get("id", "")) if payment_rec else ""
 
     try:
         prof_updates: dict[str, Any] = {}
@@ -455,18 +491,27 @@ async def payments_history(
     if not user_can_access_firm(db, current_user, firm_owner):
         raise HTTPException(status_code=403, detail="Access denied")
 
-    res = (
-        db.table("payments")
-        .select(
-            "id, created_at, plan, runs_purchased, base_amount_paise, gst_paise, "
-            "total_amount_paise, amount_paise, status, razorpay_payment_id, run_id"
+    payments_data = []
+    try:
+        from app.repositories.payments_credits import get_payments_credits_repository
+        repo = get_payments_credits_repository()
+        payments_data = repo.list_payments_for_firm(firm_owner, limit=100)
+    except Exception as exc:
+        _log.warning("Aurora list_payments_for_firm failed, falling back: %s", exc)
+        res = (
+            db.table("payments")
+            .select(
+                "id, created_at, plan, runs_purchased, base_amount_paise, gst_paise, "
+                "total_amount_paise, amount_paise, status, razorpay_payment_id, run_id"
+            )
+            .eq("firm_owner_id", firm_owner)
+            .order("created_at", desc=True)
+            .execute()
         )
-        .eq("firm_owner_id", firm_owner)
-        .order("created_at", desc=True)
-        .execute()
-    )
+        payments_data = res.data or []
+
     rows_out: list[dict[str, Any]] = []
-    for p in res.data or []:
+    for p in payments_data:
         rid = p.get("run_id")
         trade_name: str | None = None
         period: str | None = None
@@ -523,16 +568,27 @@ async def payments_receipt(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail="invalid payment_id") from exc
 
-    pres = (
-        db.table("payments")
-        .select("*")
-        .eq("id", payment_id.strip())
-        .limit(1)
-        .execute()
-    )
-    if not pres.data:
+    pay = None
+    try:
+        from app.repositories.payments_credits import get_payments_credits_repository
+        repo = get_payments_credits_repository()
+        pay = repo.get_payment_by_id(payment_id.strip())
+    except Exception as exc:
+        _log.warning("Aurora payment receipt lookup failed, falling back: %s", exc)
+
+    if not pay:
+        pres = (
+            db.table("payments")
+            .select("*")
+            .eq("id", payment_id.strip())
+            .limit(1)
+            .execute()
+        )
+        if pres.data:
+            pay = pres.data[0]
+
+    if not pay:
         raise HTTPException(status_code=404, detail="payment not found")
-    pay = pres.data[0]
     owner = str(pay.get("firm_owner_id", "")).strip()
     if not owner or not user_can_access_firm(db, current_user, owner):
         raise HTTPException(status_code=403, detail="Access denied")
@@ -569,17 +625,27 @@ async def payments_export_gstr1(
     if not user_can_access_firm(db, current_user, firm_owner):
         raise HTTPException(status_code=403, detail="Access denied")
 
-    query = (
-        db.table("payments")
-        .select("*")
-        .eq("status", "paid")
-        .order("created_at", desc=True)
-    )
-    if current_user.get("role") != "admin":
-        query = query.eq("firm_owner_id", firm_owner)
-
-    res = query.execute()
-    payments_data = res.data or []
+    payments_data = []
+    try:
+        from app.repositories.payments_credits import get_payments_credits_repository
+        repo = get_payments_credits_repository()
+        all_paid = repo.list_paid_payments(limit=2000)
+        if current_user.get("role") != "admin":
+            payments_data = [p for p in all_paid if str(p.get("firm_owner_id", "")) == firm_owner]
+        else:
+            payments_data = all_paid
+    except Exception as exc:
+        _log.warning("Aurora export-gstr1 query failed, falling back: %s", exc)
+        query = (
+            db.table("payments")
+            .select("*")
+            .eq("status", "paid")
+            .order("created_at", desc=True)
+        )
+        if current_user.get("role") != "admin":
+            query = query.eq("firm_owner_id", firm_owner)
+        res = query.execute()
+        payments_data = res.data or []
 
     if year or month:
         filtered = []
@@ -677,20 +743,27 @@ async def billing_status(
     gstins_used = count_gstins_toward_limit(db, firm_owner)
     subscription_ends_at = prof.get("subscription_ends_at")
 
-    batches_res = (
-        db.table("run_credits")
-        .select(
-            "plan, runs_purchased, runs_remaining, expires_at, purchased_at"
+    batches_data = []
+    try:
+        from app.repositories.payments_credits import get_payments_credits_repository
+        repo = get_payments_credits_repository()
+        batches_data = repo.list_active_run_credits_fifo(firm_owner)
+    except Exception as exc:
+        _log.warning("Aurora list_active_run_credits_fifo failed, falling back: %s", exc)
+        batches_res = (
+            db.table("run_credits")
+            .select("plan, runs_purchased, runs_remaining, expires_at, purchased_at")
+            .eq("firm_owner_id", firm_owner)
+            .order("expires_at", desc=False)
+            .execute()
         )
-        .eq("firm_owner_id", firm_owner)
-        .order("expires_at", desc=False)
-        .execute()
-    )
+        batches_data = batches_res.data or []
+
     now = datetime.now(timezone.utc)
     soon = now + timedelta(days=7)
     credit_batches: list[dict[str, Any]] = []
     expiring_soon: list[dict[str, Any]] = []
-    for b in batches_res.data or []:
+    for b in batches_data:
         exp = _parse_ts(b.get("expires_at"))
         rem = int(b.get("runs_remaining") or 0)
         batch = {
@@ -711,14 +784,23 @@ async def billing_status(
             batch["status"] = "Active"
         credit_batches.append(batch)
 
-    paid = (
-        db.table("payments")
-        .select("total_amount_paise, amount_paise, status")
-        .eq("firm_owner_id", firm_owner)
-        .execute()
-    )
+    paid_data = []
+    try:
+        from app.repositories.payments_credits import get_payments_credits_repository
+        repo = get_payments_credits_repository()
+        paid_data = repo.list_payments_for_firm(firm_owner, limit=500)
+    except Exception as exc:
+        _log.warning("Aurora list_payments_for_firm in billing_status failed, falling back: %s", exc)
+        paid = (
+            db.table("payments")
+            .select("total_amount_paise, amount_paise, status")
+            .eq("firm_owner_id", firm_owner)
+            .execute()
+        )
+        paid_data = paid.data or []
+
     total_spent = 0
-    for row in paid.data or []:
+    for row in paid_data:
         if str(row.get("status") or "").lower() != "paid":
             continue
         total_spent += int(
@@ -754,12 +836,26 @@ async def payments_send_receipt(
 ):
     """Trigger a payment receipt email for a specific payment ID, if preferences allow."""
     payment_id = _parse_uuid(payload.payment_id, "payment_id")
+    payment = None
     try:
-        res = db.table("payments").select("*").eq("id", payment_id).limit(1).execute()
-        if not res.data:
-            raise HTTPException(status_code=404, detail="Payment not found")
+        from app.repositories.payments_credits import get_payments_credits_repository
+        repo = get_payments_credits_repository()
+        payment = repo.get_payment_by_id(payment_id)
+    except Exception as exc:
+        _log.warning("Aurora send-receipt payment lookup failed, falling back: %s", exc)
 
-        payment = res.data[0]
+    if not payment:
+        try:
+            res = db.table("payments").select("*").eq("id", payment_id).limit(1).execute()
+            if res.data:
+                payment = res.data[0]
+        except Exception as exc:
+            _log.warning("Supabase fallback send-receipt payment lookup failed: %s", exc)
+
+    if not payment:
+        raise HTTPException(status_code=404, detail="Payment not found")
+
+    try:
         firm_owner = payment.get("firm_owner_id")
 
         if firm_owner and not user_can_access_firm(db, current_user, firm_owner):
@@ -791,4 +887,83 @@ async def payments_send_receipt(
     except Exception as exc:
         _log.exception("Failed to send receipt email for payment %s", payment_id)
         raise HTTPException(status_code=500, detail=str(exc))
+
+
+class RecordOrderInternalBody(BaseModel):
+    firm_owner_id: str
+    razorpay_order_id: str
+    amount_paise: int
+    plan: Optional[str] = None
+    runs_purchased: Optional[int] = 0
+    base_amount_paise: Optional[int] = None
+    gst_paise: Optional[int] = None
+    total_amount_paise: Optional[int] = None
+    customer_gstin: Optional[str] = None
+    customer_trade_name: Optional[str] = None
+    customer_city: Optional[str] = None
+    customer_state_code: Optional[str] = None
+    tax_type: Optional[str] = "intra"
+    cgst_paise: Optional[int] = 0
+    sgst_paise: Optional[int] = 0
+    igst_paise: Optional[int] = 0
+    status: Optional[str] = "created"
+
+
+class MarkPaidInternalBody(BaseModel):
+    payment_id: str
+    razorpay_payment_id: str
+
+
+@payments_router.post("/internal/record-order")
+async def payments_internal_record_order(payload: RecordOrderInternalBody):
+    """Internal helper for frontend billing checkout to record order in Aurora primary."""
+    from app.repositories.payments_credits import get_payments_credits_repository
+    repo = get_payments_credits_repository()
+    rec = repo.create_payment(
+        firm_owner_id=payload.firm_owner_id,
+        amount_paise=payload.amount_paise,
+        status=payload.status or "created",
+        razorpay_order_id=payload.razorpay_order_id,
+        plan=payload.plan,
+        runs_purchased=payload.runs_purchased,
+        base_amount_paise=payload.base_amount_paise,
+        gst_paise=payload.gst_paise,
+        total_amount_paise=payload.total_amount_paise,
+        customer_gstin=payload.customer_gstin,
+        customer_trade_name=payload.customer_trade_name,
+        customer_city=payload.customer_city,
+        customer_state_code=payload.customer_state_code,
+        tax_type=payload.tax_type or "intra",
+        cgst_paise=payload.cgst_paise or 0,
+        sgst_paise=payload.sgst_paise or 0,
+        igst_paise=payload.igst_paise or 0,
+    )
+    return rec
+
+
+@payments_router.get("/internal/by-order/{order_id}")
+async def payments_internal_by_order(order_id: str):
+    """Internal helper for frontend billing checkout to look up order from Aurora primary."""
+    from app.repositories.payments_credits import get_payments_credits_repository
+    repo = get_payments_credits_repository()
+    rec = repo.get_payment_by_order_id(order_id)
+    if not rec:
+        raise HTTPException(status_code=404, detail="Order not found")
+    return rec
+
+
+@payments_router.post("/internal/mark-paid")
+async def payments_internal_mark_paid(payload: MarkPaidInternalBody):
+    """Internal helper for frontend billing checkout to mark payment captured in Aurora primary."""
+    from app.repositories.payments_credits import get_payments_credits_repository
+    repo = get_payments_credits_repository()
+    rec = repo.update_payment_status(
+        payload.payment_id,
+        status="paid",
+        razorpay_payment_id=payload.razorpay_payment_id,
+    )
+    if not rec:
+        raise HTTPException(status_code=404, detail="Payment not found")
+    return rec
+
 

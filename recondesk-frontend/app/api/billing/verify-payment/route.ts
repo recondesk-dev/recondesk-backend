@@ -44,16 +44,32 @@ export async function POST(request: Request) {
     }
 
     const adminDb = createAdminClient();
+    const backendUrl = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/$/, "");
 
-    const { data: order, error: orderError } = await adminDb
-      .from("payments")
-      .select("*")
-      .eq("razorpay_order_id", razorpay_order_id)
-      .single();
+    let order: any = null;
+    let loadedFromAurora = false;
+    try {
+      const res = await fetch(`${backendUrl}/api/payments/internal/by-order/${encodeURIComponent(razorpay_order_id)}`);
+      if (res.ok) {
+        order = await res.json();
+        loadedFromAurora = true;
+      }
+    } catch (backendErr) {
+      console.warn("Aurora lookup by-order via backend failed, trying Supabase fallback:", backendErr);
+    }
 
-    if (orderError || !order) {
-      console.error("Order lookup failed:", orderError);
-      return NextResponse.json({ error: "Order not found" }, { status: 404 });
+    if (!order) {
+      const { data: sbOrder, error: orderError } = await adminDb
+        .from("payments")
+        .select("*")
+        .eq("razorpay_order_id", razorpay_order_id)
+        .single();
+
+      if (orderError || !sbOrder) {
+        console.error("Order lookup failed:", orderError);
+        return NextResponse.json({ error: "Order not found" }, { status: 404 });
+      }
+      order = sbOrder;
     }
 
     if (order.firm_owner_id !== user.id) {
@@ -71,14 +87,35 @@ export async function POST(request: Request) {
     const periodDays = cycle === "monthly" ? 30 : 365;
     const gstinLimit = orderRec.gstin_limit || DEFAULT_TIER_LIMITS[plan] || 25;
 
-    const { error: updateOrderError } = await adminDb
-      .from("payments")
-      .update({ status: "paid", razorpay_payment_id: razorpay_payment_id })
-      .eq("id", order.id);
+    let updatedInAurora = false;
+    if (loadedFromAurora) {
+      try {
+        const uRes = await fetch(`${backendUrl}/api/payments/internal/mark-paid`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            payment_id: order.id,
+            razorpay_payment_id: razorpay_payment_id,
+          }),
+        });
+        if (uRes.ok) {
+          updatedInAurora = true;
+        }
+      } catch (backendErr) {
+        console.warn("Aurora mark-paid via backend failed, trying Supabase fallback:", backendErr);
+      }
+    }
 
-    if (updateOrderError) {
-      console.error("Failed to update payment status:", updateOrderError);
-      return NextResponse.json({ error: "Failed to update payment status" }, { status: 500 });
+    if (!updatedInAurora) {
+      const { error: updateOrderError } = await adminDb
+        .from("payments")
+        .update({ status: "paid", razorpay_payment_id: razorpay_payment_id })
+        .eq("id", order.id);
+
+      if (updateOrderError) {
+        console.error("Failed to update payment status:", updateOrderError);
+        return NextResponse.json({ error: "Failed to update payment status" }, { status: 500 });
+      }
     }
 
     const { data: profile, error: profileFetchError } = await adminDb

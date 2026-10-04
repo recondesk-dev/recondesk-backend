@@ -51,14 +51,25 @@ async def admin_digest(
         "reconciliation_run",
         lambda q: q.in_("status", ["FAILED", "failed"]).gte("updated_at", iso),
     )
-    pay_rows = (
-        db.table("payments")
-        .select("total_amount_paise, amount_paise")
-        .eq("status", "paid")
-        .gte("created_at", iso)
-        .execute()
-    )
-    pdata = pay_rows.data or []
+    pdata = []
+    try:
+        from app.repositories.payments_credits import get_payments_credits_repository
+        repo = get_payments_credits_repository()
+        paid_payments = repo.list_paid_payments(limit=1000)
+        pdata = [
+            p for p in paid_payments
+            if p.get("created_at") and str(p["created_at"]) >= iso
+        ]
+    except Exception as exc:
+        _log.warning("Aurora admin payments query failed, falling back: %s", exc)
+        pay_rows = (
+            db.table("payments")
+            .select("total_amount_paise, amount_paise")
+            .eq("status", "paid")
+            .gte("created_at", iso)
+            .execute()
+        )
+        pdata = pay_rows.data or []
     payments_today = len(pdata)
     revenue_today_paise = sum(
         int(

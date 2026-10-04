@@ -175,22 +175,39 @@ export async function POST(request: Request) {
       status: "created" as const,
     };
 
-    const { error: dbError } = await (adminDb.from("payments") as any).insert(paymentRow);
+    let recordedInAurora = false;
+    try {
+      const backendUrl = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/$/, "");
+      const res = await fetch(`${backendUrl}/api/payments/internal/record-order`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(paymentRow),
+      });
+      if (res.ok) {
+        recordedInAurora = true;
+      }
+    } catch (backendErr) {
+      console.warn("Aurora record-order via backend failed, trying Supabase fallback:", backendErr);
+    }
 
-    if (dbError) {
-      console.warn("Database insert with B2B fields failed, falling back to core columns:", dbError);
-      const fallbackRow = {
-        firm_owner_id: user.id,
-        razorpay_order_id: razorpayOrder.id,
-        plan: planNameLower,
-        runs_purchased: 0,
-        base_amount_paise: baseAmountPaise,
-        gst_paise: gstPaise,
-        total_amount_paise: totalAmountPaise,
-        amount_paise: totalAmountPaise,
-        status: "created" as const,
-      };
-      await (adminDb.from("payments") as any).insert(fallbackRow);
+    if (!recordedInAurora) {
+      const { error: dbError } = await (adminDb.from("payments") as any).insert(paymentRow);
+
+      if (dbError) {
+        console.warn("Database insert with B2B fields failed, falling back to core columns:", dbError);
+        const fallbackRow = {
+          firm_owner_id: user.id,
+          razorpay_order_id: razorpayOrder.id,
+          plan: planNameLower,
+          runs_purchased: 0,
+          base_amount_paise: baseAmountPaise,
+          gst_paise: gstPaise,
+          total_amount_paise: totalAmountPaise,
+          amount_paise: totalAmountPaise,
+          status: "created" as const,
+        };
+        await (adminDb.from("payments") as any).insert(fallbackRow);
+      }
     }
 
     if (custGstin || custName || custCity) {

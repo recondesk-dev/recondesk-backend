@@ -184,7 +184,19 @@ def resolve_firm_owner_for_billing(sb: Client, current_user: dict) -> str:
 
 
 def forfeit_expired_credit_batches(sb: Client, firm_owner_id: str) -> None:
-    """Zero remaining runs on expired batches and realign runs_balance."""
+    """Zero remaining runs on expired batches and realign runs_balance (Aurora Primary)."""
+    try:
+        from app.repositories.payments_credits import get_payments_credits_repository
+        repo = get_payments_credits_repository()
+        forfeited, active_total = repo.forfeit_expired_credit_batches(firm_owner_id)
+        try:
+            sb.table("user_profiles").update({"runs_balance": active_total}).eq("id", firm_owner_id).execute()
+        except Exception:
+            pass
+        return
+    except Exception as exc:
+        _log.warning("Aurora forfeit_expired_credit_batches failed, falling back: %s", exc)
+
     now = _utcnow()
     res = (
         sb.table("run_credits")
@@ -273,6 +285,14 @@ def count_successful_reconciliation_runs(sb: Client, firm_owner_id: str) -> int:
 
 
 def _decrement_oldest_credit_batch(sb: Client, firm_owner_id: str) -> bool:
+    try:
+        from app.repositories.payments_credits import get_payments_credits_repository
+        repo = get_payments_credits_repository()
+        if repo.decrement_oldest_credit_batch(firm_owner_id):
+            return True
+    except Exception as exc:
+        _log.warning("Aurora decrement credit batch failed, trying Supabase fallback: %s", exc)
+
     batches = (
         sb.table("run_credits")
         .select("id, runs_remaining, expires_at")
@@ -625,6 +645,29 @@ async def consume_run_credit(user_id: str) -> dict[str, Any]:
     if balance <= 0:
         raise RuntimeError("no credits available")
 
+    # 1. Aurora PostgreSQL Primary (Atomic FIFO with row locks)
+    try:
+        from app.repositories.payments_credits import get_payments_credits_repository
+        repo = get_payments_credits_repository()
+        consumed = repo.consume_run_credit(user_id, runs_to_consume=1)
+        if consumed > 0:
+            new_bal = max(0, balance - 1)
+            try:
+                sb.table("user_profiles").update({"runs_balance": new_bal}).eq("id", user_id).execute()
+            except Exception:
+                pass
+            await log_action(
+                user_id,
+                "CREDIT_RUN_USED",
+                "run_credit",
+                user_id,
+                {"runs_remaining_after": new_bal, "runs_balance_after": new_bal},
+            )
+            return {"consumed": "credit", "credit_id": user_id}
+    except Exception as exc:
+        _log.warning("Aurora consume_run_credit failed, trying Supabase fallback: %s", exc)
+
+    # 2. Supabase Fallback
     batches = (
         sb.table("run_credits")
         .select("id, runs_remaining, expires_at")
