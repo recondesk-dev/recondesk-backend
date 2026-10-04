@@ -14,7 +14,12 @@ from app.database import get_db
 router = APIRouter()
 
 
-def _parse_iso_datetime(value: str, param: str) -> str:
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+def _parse_iso_datetime(value: str, param: str) -> datetime:
     raw = (value or "").strip()
     if not raw:
         raise HTTPException(
@@ -26,7 +31,7 @@ def _parse_iso_datetime(value: str, param: str) -> str:
         dt = datetime.fromisoformat(normalized)
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
-        return dt.isoformat()
+        return dt
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -54,6 +59,40 @@ async def list_audit_logs(
             detail="Cannot view another firm's audit logs",
         )
 
+    parsed_from = _parse_iso_datetime(from_date, "from_date") if isinstance(from_date, str) and from_date.strip() else None
+    parsed_to = _parse_iso_datetime(to_date, "to_date") if isinstance(to_date, str) and to_date.strip() else None
+    user_id_val = user_id.strip() if isinstance(user_id, str) and user_id.strip() else None
+    action_val = action.strip() if isinstance(action, str) and action.strip() else None
+    limit_val = limit if isinstance(limit, int) else 50
+    offset_val = offset if isinstance(offset, int) else 0
+
+    # 1. Primary: AWS Aurora PostgreSQL repository
+    try:
+        from app.repositories.portal_and_audit import get_portal_and_audit_repository
+        repo = get_portal_and_audit_repository()
+        rows, total = repo.list_audit_logs(
+            firm_id=effective_firm,
+            user_id=user_id_val,
+            action=action_val,
+            from_date=parsed_from,
+            to_date=parsed_to,
+            limit=limit_val,
+            offset=offset_val,
+        )
+        return {
+            "data": rows,
+            "total": total,
+            "limit": limit_val,
+            "offset": offset_val,
+        }
+    except Exception as aurora_exc:
+        logger.warning(
+            "Aurora list_audit_logs failed firm_id=%s: %s; falling back to Supabase",
+            effective_firm,
+            aurora_exc,
+        )
+
+    # 2. Supabase Fallback (temporary, non-blocking)
     q = (
         db.table("audit_logs")
         .select(
@@ -65,23 +104,23 @@ async def list_audit_logs(
         .order("created_at", desc=True)
     )
 
-    if user_id:
-        q = q.eq("user_id", user_id.strip())
-    if action:
-        q = q.eq("action", action.strip())
-    if from_date:
-        q = q.gte("created_at", _parse_iso_datetime(from_date, "from_date"))
-    if to_date:
-        q = q.lte("created_at", _parse_iso_datetime(to_date, "to_date"))
+    if user_id_val:
+        q = q.eq("user_id", user_id_val)
+    if action_val:
+        q = q.eq("action", action_val)
+    if parsed_from:
+        q = q.gte("created_at", parsed_from.isoformat())
+    if parsed_to:
+        q = q.lte("created_at", parsed_to.isoformat())
 
-    end = offset + limit - 1
-    res = q.range(offset, end).execute()
+    end = offset_val + limit_val - 1
+    res = q.range(offset_val, end).execute()
     rows: list[dict[str, Any]] = list(res.data or [])
     total = int(res.count or len(rows))
 
     return {
         "data": rows,
         "total": total,
-        "limit": limit,
-        "offset": offset,
+        "limit": limit_val,
+        "offset": offset_val,
     }

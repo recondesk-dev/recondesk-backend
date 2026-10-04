@@ -355,22 +355,48 @@ export default function UploadPageClient({ token }: { token: string }) {
           xhr.onload = async () => {
             if (xhr.status >= 200 && xhr.status < 300) {
               try {
-                const supabase = getSupabaseClient();
-                const fileInsert: UploadedFileInsert = {
-                  upload_request_id: uploadRequestId,
-                  filename: item.file.name,
-                  file_size: item.file.size,
-                  mime_type: contentType,
-                  public_url: presignData.public_url,
-                };
-                const { error: insertError } = await supabase
-                  .from("uploaded_files")
-                  .insert(fileInsert);
+                let recorded = false;
 
-                if (insertError) {
-                  resolve({ ok: false, error: insertError.message });
-                  return;
+                // 1. Primary: backend API (Aurora PRIMARY)
+                try {
+                  const recordRes = await fetch(`${API_URL}/upload/record-file`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      upload_request_id: uploadRequestId,
+                      filename: item.file.name,
+                      file_size: item.file.size,
+                      mime_type: contentType,
+                      public_url: presignData.public_url,
+                    }),
+                  });
+                  if (recordRes.ok) {
+                    recorded = true;
+                  }
+                } catch (recErr) {
+                  console.warn("Backend /upload/record-file failed, falling back to Supabase", recErr);
                 }
+
+                // 2. Supabase Fallback (temporary, non-blocking)
+                if (!recorded) {
+                  const supabase = getSupabaseClient();
+                  const fileInsert: UploadedFileInsert = {
+                    upload_request_id: uploadRequestId,
+                    filename: item.file.name,
+                    file_size: item.file.size,
+                    mime_type: contentType,
+                    public_url: presignData.public_url,
+                  };
+                  const { error: insertError } = await supabase
+                    .from("uploaded_files")
+                    .insert(fileInsert);
+
+                  if (insertError) {
+                    resolve({ ok: false, error: insertError.message });
+                    return;
+                  }
+                }
+
                 onProgress(100);
                 resolve({ ok: true, error: null });
               } catch (e) {

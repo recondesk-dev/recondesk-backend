@@ -317,21 +317,48 @@ async def log_audit(
             except (TypeError, ValueError):
                 meta_obj = {"_note": "metadata_not_serializable"}
 
-        row: dict[str, Any] = {
-            "firm_id": firm_id,
-            "user_id": uid,
-            "user_name": user_name,
-            "role": role or None,
-            "action": action,
-            "entity_type": entity_type,
-            "entity_id": entity_id,
-            "entity_label": entity_label,
-            "metadata": meta_obj,
-            "ip_address": _client_ip_for_insert(ip_address),
-            "correlation_id": get_correlation_id(),
-            "created_at": datetime.now(timezone.utc).isoformat(),
-        }
-        db.table("audit_logs").insert(row).execute()
+        # 1. Primary: AWS Aurora PostgreSQL repository
+        try:
+            from app.repositories.portal_and_audit import get_portal_and_audit_repository
+            repo = get_portal_and_audit_repository()
+            repo.insert_audit_log(
+                action=action,
+                user_id=uid,
+                entity_type=entity_type,
+                entity_id=entity_id,
+                metadata=meta_obj,
+                ip_address=ip_address,
+                correlation_id=get_correlation_id(),
+                firm_id=firm_id,
+                user_name=user_name,
+                role=role or None,
+                entity_label=entity_label,
+            )
+            return  # Successful Aurora primary write; do not dual-write to Supabase
+        except Exception as aurora_exc:  # noqa: BLE001
+            logger.warning(
+                "Aurora audit_log insert failed action=%s: %s; falling back to Supabase",
+                action,
+                aurora_exc,
+            )
+
+        # 2. Supabase Fallback (temporary, non-blocking)
+        if db is not None and hasattr(db, "table"):
+            row: dict[str, Any] = {
+                "firm_id": firm_id,
+                "user_id": uid,
+                "user_name": user_name,
+                "role": role or None,
+                "action": action,
+                "entity_type": entity_type,
+                "entity_id": entity_id,
+                "entity_label": entity_label,
+                "metadata": meta_obj,
+                "ip_address": _client_ip_for_insert(ip_address),
+                "correlation_id": get_correlation_id(),
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            }
+            db.table("audit_logs").insert(row).execute()
     except Exception as exc:  # noqa: BLE001
         print(  # noqa: T201
             f"audit log insert failed action={action}: {exc}", file=sys.stderr
@@ -339,7 +366,7 @@ async def log_audit(
 
 
 def log_audit_sync(
-    db: Client,
+    db: Optional[Client],
     user: Mapping[str, Any] | dict,
     action: str,
     entity_type: str,
@@ -385,14 +412,17 @@ async def log_action(
     """Backward-compatible wrapper around :func:`log_audit`."""
     user: dict[str, Any] = {"id": user_id}
     if user_id:
-        prof = get_user_profile(user_id)
-        if prof:
-            user = {**prof, "id": user_id}
+        try:
+            prof = get_user_profile(user_id)
+            if prof:
+                user = {**prof, "id": user_id}
+        except Exception:
+            pass
+    sb = None
     try:
         sb = get_supabase()
     except Exception as exc:
-        logger.warning("Supabase client unavailable for audit logging action=%s: %s", action, exc)
-        return
+        logger.debug("Supabase client unavailable for audit logging action=%s: %s", action, exc)
     await log_audit(
         sb,
         user,
@@ -418,14 +448,17 @@ def log_action_sync(
     """Backward-compatible sync wrapper around :func:`log_audit`."""
     user: dict[str, Any] = {"id": user_id}
     if user_id:
-        prof = get_user_profile(user_id)
-        if prof:
-            user = {**prof, "id": user_id}
+        try:
+            prof = get_user_profile(user_id)
+            if prof:
+                user = {**prof, "id": user_id}
+        except Exception:
+            pass
+    sb = None
     try:
         sb = get_supabase()
     except Exception as exc:
-        logger.warning("Supabase client unavailable for sync audit logging action=%s: %s", action, exc)
-        return
+        logger.debug("Supabase client unavailable for sync audit logging action=%s: %s", action, exc)
     log_audit_sync(
         sb,
         user,

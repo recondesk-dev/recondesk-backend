@@ -141,54 +141,83 @@ export default function GenerateUploadLinkModal({
     setErrorMessage("");
 
     try {
-      const supabase = getSupabaseClient();
       const token = generateToken();
       const expiresAt = expiryDate.trim() ? dateInputToIso(expiryDate) : null;
 
-      const uploadInsert: UploadRequestInsert = {
-        client_id: clientId,
-        organization_id: organizationId,
-        token,
-        title: trimmedTitle,
-        description: description.trim() || null,
-        expires_at: expiresAt,
-        created_by_user_id: createdByUserId,
-      };
+      let createdId: string | null = null;
 
-      const { data, error } = await supabase
-        .from("upload_requests")
-        .insert(uploadInsert)
-        .select("id")
-        .single();
-
-      if (error) {
-        throw new Error(error.message);
+      // 1. Primary: backend API (Aurora PRIMARY)
+      try {
+        const res = await fetch("/api/upload/request", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            client_id: clientId,
+            organization_id: organizationId,
+            token,
+            title: trimmedTitle,
+            description: description.trim() || null,
+            expires_at: expiresAt,
+          }),
+        });
+        if (res.ok) {
+          const resData = await res.json();
+          if (resData?.id) {
+            createdId = String(resData.id);
+          }
+        }
+      } catch (backendErr) {
+        console.warn("Backend /api/upload/request call failed, falling back to Supabase", backendErr);
       }
 
-      const created = data as { id: string } | null;
-      if (!created?.id) {
-        throw new Error("Upload request was created but no ID was returned.");
-      }
+      // 2. Supabase Fallback (temporary, non-blocking)
+      if (!createdId) {
+        const supabase = getSupabaseClient();
+        const uploadInsert: UploadRequestInsert = {
+          client_id: clientId,
+          organization_id: organizationId,
+          token,
+          title: trimmedTitle,
+          description: description.trim() || null,
+          expires_at: expiresAt,
+          created_by_user_id: createdByUserId,
+        };
 
-      const logInsert: CommunicationLogInsert = {
-        template_type: "upload_request",
-        message_content: `Upload request created: ${trimmedTitle}`,
-        sent_via: "upload_request",
-        client_id: clientId,
-        organization_id: organizationId,
-        sent_by_user_id: createdByUserId,
-      };
+        const { data, error } = await supabase
+          .from("upload_requests")
+          .insert(uploadInsert)
+          .select("id")
+          .single();
 
-      const { error: logError } = await supabase.from("communication_logs").insert(logInsert);
+        if (error) {
+          throw new Error(error.message);
+        }
 
-      if (logError) {
-        throw new Error(logError.message);
+        const created = data as { id: string } | null;
+        if (!created?.id) {
+          throw new Error("Upload request was created but no ID was returned.");
+        }
+        createdId = created.id;
+
+        const logInsert: CommunicationLogInsert = {
+          template_type: "upload_request",
+          message_content: `Upload request created: ${trimmedTitle}`,
+          sent_via: "upload_request",
+          client_id: clientId,
+          organization_id: organizationId,
+          sent_by_user_id: createdByUserId,
+        };
+
+        const { error: logError } = await supabase.from("communication_logs").insert(logInsert);
+        if (logError) {
+          console.warn("Supabase communication log fallback insert failed:", logError.message);
+        }
       }
 
       const url = `${window.location.origin}/upload/${token}`;
       setShareableUrl(url);
       setModalState("success");
-      onSuccess(created.id);
+      onSuccess(createdId);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Something went wrong";
       setErrorMessage(message);

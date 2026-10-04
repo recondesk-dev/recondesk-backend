@@ -24,6 +24,21 @@ def should_send_notification(user_id: str, category: str) -> bool:
         logger.warning("Unknown notification category %s — defaulting to True", category)
         return True
 
+    # 1. Primary: AWS Aurora PostgreSQL repository
+    try:
+        from app.repositories.portal_and_audit import get_portal_and_audit_repository
+        repo = get_portal_and_audit_repository()
+        pref = repo.get_notification_preferences(user_id)
+        if pref is not None:
+            return bool(pref.get(category, True))
+    except Exception as aurora_exc:
+        logger.warning(
+            "Aurora fetch notification preferences failed user %s: %s; falling back to Supabase",
+            user_id,
+            aurora_exc,
+        )
+
+    # 2. Supabase Fallback (temporary, non-blocking)
     try:
         client = get_supabase()
         res = (

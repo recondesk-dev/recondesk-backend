@@ -5,7 +5,8 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
+from typing import Optional
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile, status
 from pydantic import BaseModel, Field
 
 from app.auth import get_current_active_user
@@ -156,21 +157,40 @@ def _validate_client_upload(payload: ClientPresignedUrlRequest) -> tuple[str, st
 
 
 def _get_upload_request_by_token(token: str) -> dict:
-    supabase = get_supabase()
-    result = (
-        supabase.table("upload_requests")
-        .select("id, client_id, created_by_user_id, title, description, expires_at, created_at")
-        .eq("token", token)
-        .limit(1)
-        .execute()
-    )
-    rows = result.data or []
-    if not rows:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Upload link not found",
+    clean_token = token.strip()
+    # 1. Primary: AWS Aurora PostgreSQL repository
+    try:
+        from app.repositories.portal_and_audit import get_portal_and_audit_repository
+        repo = get_portal_and_audit_repository()
+        row = repo.get_upload_request_by_token(clean_token)
+        if row:
+            return row
+    except Exception as aurora_exc:
+        logger.warning(
+            "Aurora _get_upload_request_by_token failed: %s; falling back to Supabase",
+            aurora_exc,
         )
-    return rows[0]
+
+    # 2. Supabase Fallback (temporary, non-blocking)
+    try:
+        supabase = get_supabase()
+        result = (
+            supabase.table("upload_requests")
+            .select("id, client_id, created_by_user_id, title, description, expires_at, created_at")
+            .eq("token", clean_token)
+            .limit(1)
+            .execute()
+        )
+        rows = result.data or []
+        if rows:
+            return rows[0]
+    except Exception as exc:
+        logger.warning("Supabase fallback for upload_requests token failed: %s", exc)
+
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail="Upload link not found",
+    )
 
 
 @public_router.get("/info/{token}", response_model=UploadRequestInfoResponse)
@@ -481,3 +501,284 @@ async def upload_purchase_register(
         ip_address=(request.client.host if request.client else None),
     )
     return parse_result
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Client Portal & Communication Endpoints — Batch 4C Cutover (Aurora PRIMARY)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class RecordFilePayload(BaseModel):
+    upload_request_id: str
+    filename: str
+    file_size: int
+    mime_type: str
+    public_url: str
+
+
+class CreateUploadRequestPayload(BaseModel):
+    client_id: str
+    organization_id: str
+    token: str
+    title: str
+    description: Optional[str] = None
+    expires_at: Optional[str] = None
+
+
+class CreateCommunicationLogPayload(BaseModel):
+    client_id: str
+    organization_id: str
+    template_type: str
+    message_content: str
+    sent_via: str
+    notes: Optional[str] = None
+
+
+@public_router.post("/record-file")
+@router.post("/record-file")
+async def record_uploaded_file(payload: RecordFilePayload):
+    """Record an uploaded file metadata against an upload request. Public endpoint called by upload page."""
+    # 1. Primary: AWS Aurora PostgreSQL repository
+    try:
+        from app.repositories.portal_and_audit import get_portal_and_audit_repository
+        repo = get_portal_and_audit_repository()
+        rec = repo.create_uploaded_file(
+            upload_request_id=payload.upload_request_id,
+            filename=payload.filename,
+            file_size=payload.file_size,
+            mime_type=payload.mime_type,
+            public_url=payload.public_url,
+        )
+        return rec
+    except Exception as aurora_exc:
+        logger.warning("Aurora record_uploaded_file failed: %s; falling back to Supabase", aurora_exc)
+
+    # 2. Supabase Fallback (temporary, non-blocking)
+    try:
+        sb = get_supabase()
+        res = (
+            sb.table("uploaded_files")
+            .insert({
+                "upload_request_id": payload.upload_request_id,
+                "filename": payload.filename,
+                "file_size": payload.file_size,
+                "mime_type": payload.mime_type,
+                "public_url": payload.public_url,
+            })
+            .execute()
+        )
+        if res.data:
+            return res.data[0]
+        return {"status": "ok"}
+    except Exception as sb_exc:
+        logger.error("Supabase record_uploaded_file fallback failed: %s", sb_exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to record uploaded file: {sb_exc}",
+        )
+
+
+@router.post("/request")
+async def create_upload_request_endpoint(
+    payload: CreateUploadRequestPayload,
+    current_user: dict = Depends(get_current_active_user),
+):
+    """Create an upload request and audit communication log."""
+    uid = str(current_user["id"])
+    dt_exp = _parse_expires_at(payload.expires_at) if payload.expires_at else None
+
+    # 1. Primary: AWS Aurora PostgreSQL repository
+    try:
+        from app.repositories.portal_and_audit import get_portal_and_audit_repository
+        repo = get_portal_and_audit_repository()
+        created = repo.create_upload_request(
+            client_id=payload.client_id,
+            organization_id=payload.organization_id,
+            token=payload.token,
+            title=payload.title,
+            description=payload.description,
+            expires_at=dt_exp,
+            created_by_user_id=uid,
+        )
+        # Create communication log in Aurora
+        try:
+            repo.create_communication_log(
+                client_id=payload.client_id,
+                organization_id=payload.organization_id,
+                template_type="upload_request",
+                message_content=f"Upload request created: {payload.title}",
+                sent_via="upload_request",
+                sent_by_user_id=uid,
+            )
+        except Exception as cl_exc:
+            logger.warning("Aurora communication log creation failed: %s", cl_exc)
+
+        return created
+    except Exception as aurora_exc:
+        logger.warning("Aurora create_upload_request failed: %s; falling back to Supabase", aurora_exc)
+
+    # 2. Supabase Fallback (temporary, non-blocking)
+    try:
+        sb = get_supabase()
+        res = (
+            sb.table("upload_requests")
+            .insert({
+                "client_id": payload.client_id,
+                "organization_id": payload.organization_id,
+                "token": payload.token,
+                "title": payload.title,
+                "description": payload.description,
+                "expires_at": dt_exp.isoformat() if dt_exp else None,
+                "created_by_user_id": uid,
+            })
+            .execute()
+        )
+        try:
+            sb.table("communication_logs").insert({
+                "client_id": payload.client_id,
+                "organization_id": payload.organization_id,
+                "template_type": "upload_request",
+                "message_content": f"Upload request created: {payload.title}",
+                "sent_via": "upload_request",
+                "sent_by_user_id": uid,
+            }).execute()
+        except Exception:
+            pass
+        if res.data:
+            return res.data[0]
+        raise HTTPException(status_code=500, detail="Failed to create upload request")
+    except Exception as sb_exc:
+        raise HTTPException(status_code=500, detail=str(sb_exc))
+
+
+@router.get("/requests/{client_id}")
+async def list_upload_requests_endpoint(
+    client_id: str,
+    limit: int = 50,
+    offset: int = 0,
+    current_user: dict = Depends(get_current_active_user),
+):
+    """List upload requests for a client."""
+    # 1. Primary: AWS Aurora PostgreSQL repository
+    try:
+        from app.repositories.portal_and_audit import get_portal_and_audit_repository
+        repo = get_portal_and_audit_repository()
+        rows = repo.list_upload_requests(client_id, limit=limit, offset=offset)
+        return {"data": rows, "limit": limit, "offset": offset}
+    except Exception as aurora_exc:
+        logger.warning("Aurora list_upload_requests failed: %s; falling back to Supabase", aurora_exc)
+
+    # 2. Supabase Fallback (temporary, non-blocking)
+    sb = get_supabase()
+    res = (
+        sb.table("upload_requests")
+        .select("id, token, title, description, expires_at, created_at")
+        .eq("client_id", client_id)
+        .order("created_at", desc=True)
+        .range(offset, offset + limit - 1)
+        .execute()
+    )
+    return {"data": res.data or [], "limit": limit, "offset": offset}
+
+
+@router.get("/files")
+async def list_uploaded_files_endpoint(
+    request_ids: list[str] = Query(..., alias="request_ids"),
+    limit: int = 50,
+    offset: int = 0,
+    current_user: dict = Depends(get_current_active_user),
+):
+    """List uploaded files by request IDs."""
+    # 1. Primary: AWS Aurora PostgreSQL repository
+    try:
+        from app.repositories.portal_and_audit import get_portal_and_audit_repository
+        repo = get_portal_and_audit_repository()
+        rows = repo.list_uploaded_files_by_request_ids(request_ids, limit=limit, offset=offset)
+        return {"data": rows, "limit": limit, "offset": offset}
+    except Exception as aurora_exc:
+        logger.warning("Aurora list_uploaded_files failed: %s; falling back to Supabase", aurora_exc)
+
+    # 2. Supabase Fallback (temporary, non-blocking)
+    sb = get_supabase()
+    res = (
+        sb.table("uploaded_files")
+        .select("id, filename, file_size, mime_type, public_url, uploaded_at, upload_requests(title)")
+        .in_("upload_request_id", request_ids)
+        .order("uploaded_at", desc=True)
+        .range(offset, offset + limit - 1)
+        .execute()
+    )
+    return {"data": res.data or [], "limit": limit, "offset": offset}
+
+
+@router.get("/communication-logs/{client_id}")
+async def list_communication_logs_endpoint(
+    client_id: str,
+    limit: int = 50,
+    offset: int = 0,
+    current_user: dict = Depends(get_current_active_user),
+):
+    """List communication logs for a client."""
+    # 1. Primary: AWS Aurora PostgreSQL repository
+    try:
+        from app.repositories.portal_and_audit import get_portal_and_audit_repository
+        repo = get_portal_and_audit_repository()
+        rows = repo.list_communication_logs(client_id, limit=limit, offset=offset)
+        return {"data": rows, "limit": limit, "offset": offset}
+    except Exception as aurora_exc:
+        logger.warning("Aurora list_communication_logs failed: %s; falling back to Supabase", aurora_exc)
+
+    # 2. Supabase Fallback (temporary, non-blocking)
+    sb = get_supabase()
+    res = (
+        sb.table("communication_logs")
+        .select("id, template_type, message_content, sent_via, sent_by_user_id, notes, created_at, user_profiles(full_name)")
+        .eq("client_id", client_id)
+        .order("created_at", desc=True)
+        .range(offset, offset + limit - 1)
+        .execute()
+    )
+    return {"data": res.data or [], "limit": limit, "offset": offset}
+
+
+@router.post("/communication-logs")
+async def create_communication_log_endpoint(
+    payload: CreateCommunicationLogPayload,
+    current_user: dict = Depends(get_current_active_user),
+):
+    """Insert a communication log."""
+    uid = str(current_user["id"])
+    # 1. Primary: AWS Aurora PostgreSQL repository
+    try:
+        from app.repositories.portal_and_audit import get_portal_and_audit_repository
+        repo = get_portal_and_audit_repository()
+        rec = repo.create_communication_log(
+            client_id=payload.client_id,
+            organization_id=payload.organization_id,
+            template_type=payload.template_type,
+            message_content=payload.message_content,
+            sent_via=payload.sent_via,
+            sent_by_user_id=uid,
+            notes=payload.notes,
+        )
+        return rec
+    except Exception as aurora_exc:
+        logger.warning("Aurora create_communication_log failed: %s; falling back to Supabase", aurora_exc)
+
+    # 2. Supabase Fallback (temporary, non-blocking)
+    sb = get_supabase()
+    res = (
+        sb.table("communication_logs")
+        .insert({
+            "client_id": payload.client_id,
+            "organization_id": payload.organization_id,
+            "template_type": payload.template_type,
+            "message_content": payload.message_content,
+            "sent_via": payload.sent_via,
+            "sent_by_user_id": uid,
+            "notes": payload.notes,
+        })
+        .execute()
+    )
+    if res.data:
+        return res.data[0]
+    return {"status": "ok"}

@@ -186,29 +186,51 @@ export default function CommunicationCenter({
       }
       setUploadsError(null);
 
+      let loadedRows: UploadRequest[] | null = null;
+
+      // 1. Primary: backend API (Aurora PRIMARY)
       try {
-        const supabase = getSupabaseClient();
-        const { data, error } = await supabase
-          .from("upload_requests")
-          .select("id, token, title, description, expires_at, created_at")
-          .eq("client_id", clientId)
-          .order("created_at", { ascending: false })
-          .range(offset, offset + UPLOAD_PAGE_SIZE - 1);
-
-        if (error) {
-          throw new Error(error.message);
+        const res = await fetch(
+          `/api/upload/requests/${encodeURIComponent(clientId)}?limit=${UPLOAD_PAGE_SIZE}&offset=${offset}`
+        );
+        if (res.ok) {
+          const json = await res.json();
+          loadedRows = (json.data ?? []) as UploadRequest[];
         }
+      } catch (e) {
+        console.warn("Backend /api/upload/requests call failed, falling back to Supabase", e);
+      }
 
-        const rows = (data ?? []) as UploadRequest[];
+      // 2. Supabase Fallback (temporary, non-blocking)
+      if (loadedRows === null) {
+        try {
+          const supabase = getSupabaseClient();
+          const { data, error } = await supabase
+            .from("upload_requests")
+            .select("id, token, title, description, expires_at, created_at")
+            .eq("client_id", clientId)
+            .order("created_at", { ascending: false })
+            .range(offset, offset + UPLOAD_PAGE_SIZE - 1);
+
+          if (error) {
+            throw new Error(error.message);
+          }
+
+          loadedRows = (data ?? []) as UploadRequest[];
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : "Failed to load upload requests";
+          setUploadsError(message);
+        }
+      }
+
+      if (loadedRows !== null) {
+        const rows = loadedRows;
         setUploadRequests((prev) => (append ? [...prev, ...rows] : rows));
         setHasMoreUploads(rows.length === UPLOAD_PAGE_SIZE);
-      } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : "Failed to load upload requests";
-        setUploadsError(message);
-      } finally {
-        setUploadsLoading(false);
-        setUploadsLoadingMore(false);
       }
+
+      setUploadsLoading(false);
+      setUploadsLoadingMore(false);
     },
     [clientId]
   );
@@ -230,31 +252,57 @@ export default function CommunicationCenter({
       }
       setFilesError(null);
 
+      let loadedFiles: UploadedFile[] | null = null;
+
+      // 1. Primary: backend API (Aurora PRIMARY)
       try {
-        const supabase = getSupabaseClient();
-        const { data, error } = await supabase
-          .from("uploaded_files")
-          .select(
-            "id, filename, file_size, mime_type, public_url, uploaded_at, upload_requests(title)"
-          )
-          .in("upload_request_id", uploadRequestIds)
-          .order("uploaded_at", { ascending: false })
-          .range(offset, offset + UPLOADED_FILES_PAGE_SIZE - 1);
-
-        if (error) {
-          throw new Error(error.message);
+        const params = new URLSearchParams();
+        for (const id of uploadRequestIds) {
+          params.append("request_ids", id);
         }
+        params.set("limit", String(UPLOADED_FILES_PAGE_SIZE));
+        params.set("offset", String(offset));
+        const res = await fetch(`/api/upload/files?${params.toString()}`);
+        if (res.ok) {
+          const json = await res.json();
+          loadedFiles = (json.data ?? []) as unknown as UploadedFile[];
+        }
+      } catch (e) {
+        console.warn("Backend /api/upload/files call failed, falling back to Supabase", e);
+      }
 
-        const rows = (data ?? []) as unknown as UploadedFile[];
+      // 2. Supabase Fallback (temporary, non-blocking)
+      if (loadedFiles === null) {
+        try {
+          const supabase = getSupabaseClient();
+          const { data, error } = await supabase
+            .from("uploaded_files")
+            .select(
+              "id, filename, file_size, mime_type, public_url, uploaded_at, upload_requests(title)"
+            )
+            .in("upload_request_id", uploadRequestIds)
+            .order("uploaded_at", { ascending: false })
+            .range(offset, offset + UPLOADED_FILES_PAGE_SIZE - 1);
+
+          if (error) {
+            throw new Error(error.message);
+          }
+
+          loadedFiles = (data ?? []) as unknown as UploadedFile[];
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : "Failed to load uploaded files";
+          setFilesError(message);
+        }
+      }
+
+      if (loadedFiles !== null) {
+        const rows = loadedFiles;
         setUploadedFiles((prev) => (append ? [...prev, ...rows] : rows));
         setHasMoreFiles(rows.length === UPLOADED_FILES_PAGE_SIZE);
-      } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : "Failed to load uploaded files";
-        setFilesError(message);
-      } finally {
-        setFilesLoading(false);
-        setFilesLoadingMore(false);
       }
+
+      setFilesLoading(false);
+      setFilesLoadingMore(false);
     },
     []
   );
@@ -268,31 +316,53 @@ export default function CommunicationCenter({
       }
       setLogsError(null);
 
+      let loadedLogs: CommunicationLog[] | null = null;
+
+      // 1. Primary: backend API (Aurora PRIMARY)
       try {
-        const supabase = getSupabaseClient();
-        const { data, error } = await supabase
-          .from("communication_logs")
-          .select(
-            "id, template_type, message_content, sent_via, sent_by_user_id, notes, created_at, user_profiles(full_name)"
-          )
-          .eq("client_id", clientId)
-          .order("created_at", { ascending: false })
-          .range(offset, offset + LOG_PAGE_SIZE - 1);
-
-        if (error) {
-          throw new Error(error.message);
+        const res = await fetch(
+          `/api/upload/communication-logs/${encodeURIComponent(clientId)}?limit=${LOG_PAGE_SIZE}&offset=${offset}`
+        );
+        if (res.ok) {
+          const json = await res.json();
+          loadedLogs = (json.data ?? []) as unknown as CommunicationLog[];
         }
+      } catch (e) {
+        console.warn("Backend /api/upload/communication-logs call failed, falling back to Supabase", e);
+      }
 
-        const rows = (data ?? []) as unknown as CommunicationLog[];
+      // 2. Supabase Fallback (temporary, non-blocking)
+      if (loadedLogs === null) {
+        try {
+          const supabase = getSupabaseClient();
+          const { data, error } = await supabase
+            .from("communication_logs")
+            .select(
+              "id, template_type, message_content, sent_via, sent_by_user_id, notes, created_at, user_profiles(full_name)"
+            )
+            .eq("client_id", clientId)
+            .order("created_at", { ascending: false })
+            .range(offset, offset + LOG_PAGE_SIZE - 1);
+
+          if (error) {
+            throw new Error(error.message);
+          }
+
+          loadedLogs = (data ?? []) as unknown as CommunicationLog[];
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : "Failed to load communication log";
+          setLogsError(message);
+        }
+      }
+
+      if (loadedLogs !== null) {
+        const rows = loadedLogs;
         setCommunicationLogs((prev) => (append ? [...prev, ...rows] : rows));
         setHasMoreLogs(rows.length === LOG_PAGE_SIZE);
-      } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : "Failed to load communication log";
-        setLogsError(message);
-      } finally {
-        setLogsLoading(false);
-        setLogsLoadingMore(false);
       }
+
+      setLogsLoading(false);
+      setLogsLoadingMore(false);
     },
     [clientId]
   );

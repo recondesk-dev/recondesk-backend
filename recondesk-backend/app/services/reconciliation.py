@@ -3650,20 +3650,32 @@ def notify_reconciliation_run_completed_email_maybe(
             logger.info("Skipping run completed email for user %s per preferences", actor_user_id)
             return
 
+    # Idempotency guard: check Aurora audit_logs first (PRIMARY)
     try:
-        already = (
-            client.table("audit_logs")
-            .select("id")
-            .eq("action", "EMAIL_SENT")
-            .eq("entity_id", run_id)
-            .limit(1)
-            .execute()
-        )
-        if (already.data or []):
+        from app.repositories.portal_and_audit import get_portal_and_audit_repository
+        repo = get_portal_and_audit_repository()
+        if repo.check_audit_log_exists("EMAIL_SENT", run_id):
             return
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("audit_logs idempotency check failed run_id=%s: %s", run_id, exc)
-        return
+    except Exception as aurora_exc:  # noqa: BLE001
+        logger.warning(
+            "Aurora audit_logs idempotency check failed run_id=%s: %s; falling back to Supabase",
+            run_id,
+            aurora_exc,
+        )
+        try:
+            already = (
+                client.table("audit_logs")
+                .select("id")
+                .eq("action", "EMAIL_SENT")
+                .eq("entity_id", run_id)
+                .limit(1)
+                .execute()
+            )
+            if already.data:
+                return
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Supabase audit_logs idempotency check failed run_id=%s: %s", run_id, exc)
+            return
 
     try:
         ok = asyncio.run(
