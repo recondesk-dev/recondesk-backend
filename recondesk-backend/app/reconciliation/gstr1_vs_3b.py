@@ -328,40 +328,81 @@ class GSTR3BSummary:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Aggregation
+# Statutory GSTR-3B Classification Buckets & Canonical Mapping
 # ══════════════════════════════════════════════════════════════════════════════
 
-def _classify_gstr1_outward_record(rec: Mapping[str, Any]) -> str:
-    """Classify GSTR-1 record into statutory category:
-    'zero_rated', 'nil_exempt', 'non_gst', or 'taxable'.
+class GSTR3BBucket(str, Enum):
+    """Statutory GSTR-3B Table 3.1 classification buckets."""
+    TABLE_3_1_A_TAXABLE = "3.1(a)"
+    TABLE_3_1_B_ZERO_RATED = "3.1(b)"
+    TABLE_3_1_C_NIL_EXEMPT = "3.1(c)"
+    TABLE_3_1_E_NON_GST = "3.1(e)"
+    EXCLUDED = "excluded"
+
+
+def map_gstr1_supply_to_gstr3b_bucket(rec: Mapping[str, Any]) -> GSTR3BBucket:
+    """Classify a GSTR-1 supply record into its statutory GSTR-3B Table 3.1 bucket.
+
+    Classification is based FIRST ON NATURE OF SUPPLY, not merely tax rate.
+    Precedence:
+    1. Zero-rated: Exports (WPAY/WOPAY) and SEZ supplies (SEZWP/SEZWOP) -> 3.1(b)
+    2. Non-GST supplies -> 3.1(e)
+    3. Nil-rated / Exempt domestic supplies -> 3.1(c)
+    4. Domestic supplies with rate=0 and tax=0 (domestic nil/exempt fallback) -> 3.1(c)
+    5. Excluded informational sections (doc_issue, hsn, at, etc.) -> excluded
+    6. Default: Ordinary taxable outward supplies (B2B, B2CL, B2CS, CDN) -> 3.1(a)
     """
     section = str(rec.get("section") or "").lower().strip()
+    inv_typ = str(rec.get("inv_typ") or rec.get("inv_type") or "").upper().strip()
     inv_type = str(rec.get("invoice_type") or "").upper().strip()
-    doc_type = str(rec.get("doc_type") or "").upper().strip()
+    doc_type = str(rec.get("doc_type") or rec.get("document_type") or "").upper().strip()
+    exp_type = str(rec.get("export_type") or rec.get("exp_typ") or "").upper().strip()
+    supply_type = str(rec.get("supply_type") or rec.get("sply_ty") or "").upper().strip()
+    raw_type = str(rec.get("invoice_type_raw") or "").upper().strip()
 
+    # 1. Zero-rated: Exports & SEZ (with or without payment of tax)
+    # Never classified as nil/exempt or ordinary taxable even if rate == 0 or tax == 0.
+    zero_rated_signals = {
+        "SEZWP", "SEZWOP", "SEZ_WPAY", "SEZ_WOPAY", "SEZ_WP", "SEZ_WOP",
+        "EXPWP", "EXPWOP", "EXPORT_WPAY", "EXPORT_WOPAY", "WPAY", "WOPAY",
+        "DE", "EXPORT",
+    }
     if (
         section in _ZERO_RATED_SECTIONS
-        or rec.get("is_zero_rated")
-        or inv_type in ("EXPWP", "EXPWOP", "SEZWP", "SEZWOP", "DE", "EXPORT")
+        or rec.get("is_zero_rated") is True
+        or inv_typ in zero_rated_signals
+        or inv_type in zero_rated_signals
+        or exp_type in zero_rated_signals
+        or supply_type in zero_rated_signals
+        or ("SEZ" in inv_typ and ("WP" in inv_typ or "WOP" in inv_typ or "PAY" in inv_typ))
+        or ("SEZ" in raw_type and ("PAYMENT" in raw_type or "WP" in raw_type or "WOP" in raw_type))
+        or ("EXPORT" in raw_type and ("PAYMENT" in raw_type or "WP" in raw_type or "WOP" in raw_type))
     ):
-        return "zero_rated"
+        return GSTR3BBucket.TABLE_3_1_B_ZERO_RATED
 
-    if section == "nil":
-        if inv_type == "NON_GST" or rec.get("is_non_gst"):
-            return "non_gst"
-        return "nil_exempt"
-
-    if rec.get("is_non_gst") or inv_type == "NON_GST":
-        return "non_gst"
-
+    # 2. Non-GST supplies -> 3.1(e)
     if (
-        doc_type == "NIL_EXEMPT"
-        or inv_type in ("NIL_RATED", "EXEMPT", "NIL", "EXEMPTED")
-        or rec.get("is_nil_rated")
-        or rec.get("is_exempt")
+        rec.get("is_non_gst")
+        or inv_typ == "NON_GST"
+        or inv_type == "NON_GST"
+        or doc_type == "NON_GST"
+        or supply_type == "NON_GST"
+        or (section == "nil" and (inv_type == "NON_GST" or supply_type == "NON_GST"))
     ):
-        return "nil_exempt"
+        return GSTR3BBucket.TABLE_3_1_E_NON_GST
 
+    # 3. Nil-rated / Exempt domestic supplies -> 3.1(c)
+    if (
+        rec.get("is_nil_rated")
+        or rec.get("is_exempt")
+        or doc_type in ("NIL_EXEMPT", "EXEMPT", "NIL_RATED")
+        or inv_typ in ("NIL_RATED", "EXEMPT", "NIL", "EXEMPTED", "NIL_EXEMPT")
+        or inv_type in ("NIL_RATED", "EXEMPT", "NIL", "EXEMPTED", "NIL_EXEMPT")
+        or section == "nil"
+    ):
+        return GSTR3BBucket.TABLE_3_1_C_NIL_EXEMPT
+
+    # 4. Domestic supplies with rate=0 and tax=0 (domestic nil/exempt fallback)
     rate = rec.get("rate")
     if rate is not None:
         try:
@@ -374,10 +415,31 @@ def _classify_gstr1_outward_record(rec: Mapping[str, Any]) -> str:
                     + _safe_int(rec.get("cess_paise"))
                 )
                 if tot_tax == 0:
-                    return "nil_exempt"
+                    return GSTR3BBucket.TABLE_3_1_C_NIL_EXEMPT
         except (TypeError, ValueError):
             pass
 
+    # 5. Excluded informational sections (doc_issue, hsn, at, etc.)
+    if section in _EXCLUDED_SECTIONS:
+        return GSTR3BBucket.EXCLUDED
+
+    # 6. Default: Ordinary taxable outward supplies -> 3.1(a)
+    return GSTR3BBucket.TABLE_3_1_A_TAXABLE
+
+
+def _classify_gstr1_outward_record(rec: Mapping[str, Any]) -> str:
+    """Classify GSTR-1 record into statutory category:
+    'zero_rated', 'nil_exempt', 'non_gst', or 'taxable'.
+    """
+    bucket = map_gstr1_supply_to_gstr3b_bucket(rec)
+    if bucket == GSTR3BBucket.TABLE_3_1_B_ZERO_RATED:
+        return "zero_rated"
+    if bucket == GSTR3BBucket.TABLE_3_1_C_NIL_EXEMPT:
+        return "nil_exempt"
+    if bucket == GSTR3BBucket.TABLE_3_1_E_NON_GST:
+        return "non_gst"
+    if bucket == GSTR3BBucket.EXCLUDED:
+        return "excluded"
     return "taxable"
 
 
@@ -494,26 +556,7 @@ def aggregate_gstr1(
         samt = _safe_int(rec.get("sgst_paise"))
         csamt = _safe_int(rec.get("cess_paise"))
 
-        if cat == "zero_rated":
-            agg.zero_rated_taxable_paise += txval
-            agg.zero_rated_igst_paise += iamt
-            agg.zero_rated_cess_paise += csamt
-            if include_zero_rated:
-                agg.taxable_value_paise += txval
-                agg.igst_paise += iamt
-                agg.cess_paise += csamt
-                agg.record_count += 1
-            continue
-
-        if cat == "nil_exempt":
-            agg.nil_exempt_taxable_paise += txval
-            continue
-
-        if cat == "non_gst":
-            agg.non_gst_taxable_paise += txval
-            continue
-
-        # Standard taxable outward supplies
+        # Credit / Debit note sign handling
         if section in _CDN_SECTIONS:
             if not include_cdn:
                 continue
@@ -535,6 +578,25 @@ def aggregate_gstr1(
                 rec.get("invoice_number", "?"),
             )
             sign = 1
+
+        if cat == "zero_rated":
+            agg.zero_rated_taxable_paise += sign * txval
+            agg.zero_rated_igst_paise += sign * iamt
+            agg.zero_rated_cess_paise += sign * csamt
+            if include_zero_rated:
+                agg.taxable_value_paise += sign * txval
+                agg.igst_paise += sign * iamt
+                agg.cess_paise += sign * csamt
+                agg.record_count += 1
+            continue
+
+        if cat == "nil_exempt":
+            agg.nil_exempt_taxable_paise += sign * txval
+            continue
+
+        if cat == "non_gst":
+            agg.non_gst_taxable_paise += sign * txval
+            continue
 
         agg.taxable_value_paise += sign * txval
         agg.igst_paise += sign * iamt
@@ -1241,6 +1303,8 @@ __all__ = [
     "TieOutVarianceType",
     "FieldVariance",
     "DEFAULT_TOLERANCE_PAISE",
+    "GSTR3BBucket",
+    "map_gstr1_supply_to_gstr3b_bucket",
     "aggregate_gstr1",
     "aggregate_gstr1_by_rate",
     "gstr3b_to_summary",
