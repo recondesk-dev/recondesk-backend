@@ -339,7 +339,8 @@ def _parse_items(items_list: list) -> tuple[list[dict], list[str]]:
             raise ValueError(f"invalid_type for rt: {type(raw_rt)}")
         else:
             try:
-                tax_rate = float(raw_rt)
+                s_rt = str(raw_rt).strip().rstrip("%").strip()
+                tax_rate = float(s_rt)
             except (ValueError, TypeError):
                 raise ValueError(f"unparseable rt value: {raw_rt!r}")
 
@@ -1918,14 +1919,15 @@ def parse_gstr1(file_content, filing_period: str | None = None) -> dict:
         data = file_content
     elif isinstance(file_content, (bytes, bytearray)):
         try:
-            data = json.loads(file_content.decode("utf-8"))
+            data = json.loads(file_content.decode("utf-8-sig"))
         except json.JSONDecodeError as e:
             raise ValueError(
                 f"invalid_json at line {e.lineno}, column {e.colno}: {e.msg}"
             ) from e
     elif isinstance(file_content, str):
         try:
-            data = json.loads(file_content)
+            s_clean = file_content.lstrip("\ufeff")
+            data = json.loads(s_clean)
         except json.JSONDecodeError as e:
             raise ValueError(
                 f"invalid_json at line {e.lineno}, column {e.colno}: {e.msg}"

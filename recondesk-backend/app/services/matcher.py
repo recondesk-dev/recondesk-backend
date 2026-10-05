@@ -180,6 +180,14 @@ class InvoiceNormalizationEvidence:
     is_exact_raw: bool = False
     is_exact_normalized: bool = False
 
+    @property
+    def cumulative_risk_points(self) -> int:
+        return self.risk_points
+
+    @property
+    def risk_reasons(self) -> list[str]:
+        return self.normalization_reason_codes
+
 
 def extract_terminal_and_prefix(s: str | None) -> tuple[int | None, str]:
     """Extract terminal meaningful sequence number and prefix preceding it."""
@@ -209,6 +217,9 @@ def analyze_invoice_evidence(
     gstin_exact: bool = True,
     doc_type_compatible: bool = True,
     date_diff_days: int = 0,
+    pos_a: str | None = None,
+    pos_b: str | None = None,
+    tax_structure_match: bool = True,
 ) -> InvoiceNormalizationEvidence:
     """Analyze invoice pair transformations, OCR substitutions, prefix drift, and risk points."""
     raw_a = str(a_inv_raw or a_inv or "").strip()
@@ -311,12 +322,30 @@ def analyze_invoice_evidence(
         reasons.append("AMOUNT_DRIFT")
 
     if not doc_type_compatible:
-        risk_points += 5
+        risk_points += 10
         reasons.append("DOC_TYPE_MISMATCH")
 
     if not gstin_exact:
         risk_points += 10
         reasons.append("GSTIN_MISMATCH")
+
+    if not tax_structure_match:
+        risk_points += 4
+        reasons.append("TAX_HEAD_MISMATCH")
+
+    if pos_a and pos_b:
+        code_a = pos_a[:2] if len(pos_a) >= 2 and pos_a[:2].isdigit() else pos_a.upper()
+        code_b = pos_b[:2] if len(pos_b) >= 2 and pos_b[:2].isdigit() else pos_b.upper()
+        if code_a != code_b:
+            risk_points += 3
+            reasons.append("POS_MISMATCH")
+
+    if da and db:
+        fy_a = da.year - 1 if da.month < 4 else da.year
+        fy_b = db.year - 1 if db.month < 4 else db.year
+        if fy_a != fy_b and d_days > 60:
+            risk_points += 10
+            reasons.append("FINANCIAL_YEAR_MISMATCH")
 
     return InvoiceNormalizationEvidence(
         raw_a=raw_a,

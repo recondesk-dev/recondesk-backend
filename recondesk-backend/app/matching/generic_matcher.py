@@ -689,6 +689,72 @@ def generic_match_pair(
         config=config,
     )
 
+    # ── Observational snapshot (does NOT affect tier decisions) ───────────
+    compared = _build_compared_fields(rec_a, rec_b, config)
+
+    def _ret(**kwargs: Any) -> MatchResult:
+        kwargs.setdefault("compared_fields", compared)
+        return MatchResult(**kwargs)
+
+    # ── Document Type Compatibility ──────────────────────────────────────
+    a_is_cn = _is_credit_note(rec_a)
+    b_is_cn = _is_credit_note(rec_b)
+    a_is_dn = _is_debit_note(rec_a)
+    b_is_dn = _is_debit_note(rec_b)
+    doc_type_compatible = (a_is_cn == b_is_cn) and (a_is_dn == b_is_dn)
+    if not doc_type_compatible:
+        what = "Incompatible Document Type"
+        why = "Cannot match an Invoice with a Credit/Debit Note as they have opposite accounting/tax effects."
+        next_step = "Ensure Invoices are matched with Invoices and Credit/Debit Notes with Notes."
+        if _is_credit_note(rec_a):
+            doc_no = _extract_doc_number(rec_a) or a_inv or "Credit Note"
+            what = f"Credit Note {doc_no} is present in the Sales Register but is missing from GSTR-1."
+            why = (
+                "The Credit Note has been recorded in the Sales Register but no "
+                "corresponding Credit Note was found in the GSTR-1 data for this return period."
+            )
+            next_step = (
+                f"Verify whether Credit Note {doc_no} was reported in GSTR-1. "
+                f"If it was not reported, review the filing and amendment requirements."
+            )
+        elif _is_debit_note(rec_a):
+            doc_no = _extract_doc_number(rec_a) or a_inv or "Debit Note"
+            what = f"Debit Note {doc_no} is present in the Sales Register but is missing from GSTR-1."
+            why = (
+                "The Debit Note has been recorded in the Sales Register but no "
+                "corresponding Debit Note was found in the GSTR-1 data for this return period."
+            )
+            next_step = (
+                f"Verify whether Debit Note {doc_no} was reported in GSTR-1. "
+                f"If it was not reported, review the filing and amendment requirements."
+            )
+        return _ret(
+            level=6,
+            matched=False,
+            confidence=0,
+            requires_human_review=False,
+            decision_what=what,
+            decision_why=why,
+            decision_next=next_step,
+            discrepancies=discrepancies,
+            identity_confidence="None",
+            financial_status="None",
+            review_reason="DOC_TYPE_MISMATCH",
+        )
+
+
+
+    # ── Place of Supply (POS) Check ──────────────────────────────────────
+    pos_a = str(rec_a.get("place_of_supply") or rec_a.get("pos") or "").strip()
+    pos_b = str(rec_b.get("place_of_supply") or rec_b.get("pos") or "").strip()
+    pos_match = True
+    if pos_a and pos_b:
+        code_a = pos_a[:2] if len(pos_a) >= 2 and pos_a[:2].isdigit() else pos_a.upper()
+        code_b = pos_b[:2] if len(pos_b) >= 2 and pos_b[:2].isdigit() else pos_b.upper()
+        pos_match = (code_a == code_b)
+        if not pos_match:
+            discrepancies.append(f"pos: {config.a_label}={pos_a}, {config.b_label}={pos_b}")
+
     evidence = analyze_invoice_evidence(
         a_inv=a_inv,
         b_inv=b_inv,
@@ -701,8 +767,11 @@ def generic_match_pair(
         tax_a=_safe_paise_field(rec_a, "total_tax_paise"),
         tax_b=_safe_paise_field(rec_b, "total_tax_paise"),
         gstin_exact=identity_ok,
-        doc_type_compatible=True,
+        doc_type_compatible=doc_type_compatible,
         date_diff_days=date_diff_days,
+        pos_a=pos_a,
+        pos_b=pos_b,
+        tax_structure_match=tax_structure_match,
     )
 
     # ── Invoice identity checks ──────────────────────────────────────────
@@ -743,13 +812,6 @@ def generic_match_pair(
     crosses_return_period = (
         not skip_date and _crosses_gst_return_period(da, db)
     )
-
-    # ── Observational snapshot (does NOT affect tier decisions) ───────────
-    compared = _build_compared_fields(rec_a, rec_b, config)
-
-    def _ret(**kwargs: Any) -> MatchResult:
-        kwargs.setdefault("compared_fields", compared)
-        return MatchResult(**kwargs)
 
     # ── Financial severity classification ────────────────────────────────
     financial_status = "Exact"
@@ -810,6 +872,50 @@ def generic_match_pair(
         )
 
     # ══════════════════════════════════════════════════════════════════════
+    # FINANCIAL YEAR MISMATCH
+    # ══════════════════════════════════════════════════════════════════════
+    if da and db:
+        fy_a = da.year - 1 if da.month < 4 else da.year
+        fy_b = db.year - 1 if db.month < 4 else db.year
+        if fy_a != fy_b and abs((db - da).days) > 60:
+            if identity_ok and (inv_ok or format_variant):
+                return _ret(
+                    level=3,
+                    matched=True,
+                    confidence=70,
+                    requires_human_review=True,
+                    decision_what="Different Financial Year",
+                    decision_why=(
+                        f"Invoices belong to different financial years (FY {fy_a}-{str(fy_a+1)[-2:]} "
+                        f"vs FY {fy_b}-{str(fy_b+1)[-2:]}) with date delta of {abs((db - da).days)} days. "
+                        f"Under GST Rule 46, invoice serial numbers reset annually."
+                    ),
+                    decision_next="Verify whether these are separate annual invoices with the same serial number.",
+                    discrepancies=discrepancies,
+                    identity_confidence="High",
+                    financial_status=financial_status,
+                    review_reason="FINANCIAL_YEAR_MISMATCH",
+                )
+            else:
+                return _ret(
+                    level=6,
+                    matched=False,
+                    confidence=0,
+                    requires_human_review=False,
+                    decision_what="Different Financial Year",
+                    decision_why=(
+                        f"Invoices belong to different financial years (FY {fy_a}-{str(fy_a+1)[-2:]} "
+                        f"vs FY {fy_b}-{str(fy_b+1)[-2:]}) with date delta of {abs((db - da).days)} days. "
+                        f"Under GST Rule 46, invoice serial numbers reset annually."
+                    ),
+                    decision_next="Verify whether these are separate annual invoices with the same serial number.",
+                    discrepancies=discrepancies,
+                    identity_confidence="None",
+                    financial_status="None",
+                    review_reason="FINANCIAL_YEAR_MISMATCH",
+                )
+
+    # ══════════════════════════════════════════════════════════════════════
     # ZERO-DISCREPANCY INVARIANT
     # ══════════════════════════════════════════════════════════════════════
     a_total_tax = _safe_paise_field(rec_a, "total_tax_paise")
@@ -827,6 +933,8 @@ def generic_match_pair(
         and zero_discrepancy
         and date_within_l1
         and tax_structure_match
+        and pos_match
+        and evidence.cumulative_risk_points < 6
     ):
         delta_days = (db - da).days if (da and db) else date_diff_days
         delta_str = (
@@ -921,7 +1029,14 @@ def generic_match_pair(
     # Identity = same GSTIN, or both GSTINs blank (B2CL / Export).
     # ══════════════════════════════════════════════════════════════════════
     if identity_ok and raw_inv_ok and _name_ok:
-        if amount_within_l1 and date_within_l1 and l12_finance_ok:
+        if (
+            amount_within_l1
+            and date_within_l1
+            and l12_finance_ok
+            and pos_match
+            and tax_structure_match
+            and evidence.cumulative_risk_points < 6
+        ):
             delta_days = (db - da).days if (da and db) else date_diff_days
             delta_str = (
                 f"+{delta_days} day" if delta_days == 1
@@ -997,7 +1112,13 @@ def generic_match_pair(
     # TIER 2 — Identity OK + normalised invoice match
     # ══════════════════════════════════════════════════════════════════════
     if identity_ok and inv_ok:
-        if amount_within_l2 and date_within_l2 and tax_structure_match:
+        if (
+            amount_within_l2
+            and date_within_l2
+            and tax_structure_match
+            and pos_match
+            and evidence.cumulative_risk_points < 6
+        ):
             delta_days = (db - da).days if (da and db) else date_diff_days
             delta_str = (
                 f"+{delta_days} day" if delta_days == 1
@@ -1027,9 +1148,15 @@ def generic_match_pair(
                 review_reason=rr,
             )
 
-        # Identity ok + same normalised invoice but amount or date exceeds
+        # Identity ok + same normalised invoice but amount, date, POS or tax-head exceeds
         # L2 — link as L3 review. Exact invoice identity is never rejected.
-        if not tax_structure_match or not l12_finance_ok or not amount_within_l2:
+        if not tax_structure_match:
+            rr = "TAX_HEAD_MISMATCH"
+        elif not pos_match:
+            rr = "POS_MISMATCH"
+        elif evidence.cumulative_risk_points >= 6:
+            rr = "COMPOUND_RISK_REVIEW"
+        elif not l12_finance_ok or not amount_within_l2:
             rr = "AMOUNT_MISMATCH"
         elif not date_within_l1:
             rr = "DATE_OUTSIDE_TOLERANCE"
@@ -1040,7 +1167,7 @@ def generic_match_pair(
             requires_human_review=True,
             decision_what="Invoice matched but with differences",
             decision_why=(
-                "Same invoice number and GSTIN, but amount or date differ"
+                "Same invoice number and GSTIN, but amount, date, POS, or tax-structure differ"
             ),
             decision_next="Review differences and correct if needed",
             review_reason=rr,
@@ -1059,12 +1186,26 @@ def generic_match_pair(
             not amount_within_l1
             or not tax_structure_match
             or not l12_finance_ok
+            or not pos_match
+            or evidence.cumulative_risk_points >= 6
         )
         if has_large_date_diff and has_material_financial_diff:
             # Cannot match: weak invoice identity cannot be rescued by L3 when
             # date difference is large and amount/tax-profile difference is material.
             pass
         elif amount_within_l3 and date_within_l3:
+            if not tax_structure_match:
+                rr = "TAX_HEAD_MISMATCH"
+            elif not pos_match:
+                rr = "POS_MISMATCH"
+            elif evidence.cumulative_risk_points >= 6:
+                rr = "COMPOUND_RISK_REVIEW"
+            elif not date_within_l1:
+                rr = "DATE_OUTSIDE_TOLERANCE"
+            elif not amount_within_l1:
+                rr = "AMOUNT_MISMATCH"
+            else:
+                rr = "Amount Mismatch or Date mismatch"
             return _ret(
                 level=3, matched=True, confidence=75,
                 requires_human_review=True,
@@ -1073,7 +1214,7 @@ def generic_match_pair(
                     "Invoice format matches, amount/date within L3 tolerances"
                 ),
                 decision_next="Review differences",
-                review_reason="Amount Mismatch or Date mismatch",
+                review_reason=rr,
                 discrepancies=discrepancies,
                 identity_confidence="High", financial_status=financial_status,
             )
@@ -1087,19 +1228,26 @@ def generic_match_pair(
         and (inv_ok or format_variant)
         and amount_within_l2
     ):
-        return _ret(
-            level=4, matched=False, confidence=50,
-            requires_human_review=True,
-            decision_what="Possible GSTIN typo",
-            decision_why=(
-                "Same PAN and invoice number, but GSTIN "
-                "check-digit/state-code differs"
-            ),
-            decision_next=config.gstin_typo_next,
-            review_reason="GSTIN_MISMATCH: same PAN, different GSTIN",
-            discrepancies=discrepancies,
-            identity_confidence="Medium", financial_status=financial_status,
-        )
+        # Guard: If state code differs and POS differs, these are different state branches, NOT a typo!
+        gst_state_a = a_gst[:2] if len(a_gst) >= 2 and a_gst[:2].isdigit() else ""
+        gst_state_b = b_gst[:2] if len(b_gst) >= 2 and b_gst[:2].isdigit() else ""
+        if gst_state_a and gst_state_b and gst_state_a != gst_state_b and not pos_match:
+            # Cross-branch collision with different state and POS -> Reject (do not match)
+            pass
+        else:
+            return _ret(
+                level=4, matched=False, confidence=50,
+                requires_human_review=True,
+                decision_what="Possible GSTIN typo",
+                decision_why=(
+                    "Same PAN and invoice number, but GSTIN "
+                    "check-digit/state-code differs"
+                ),
+                decision_next=config.gstin_typo_next,
+                review_reason="GSTIN_MISMATCH: same PAN, different GSTIN",
+                discrepancies=discrepancies,
+                identity_confidence="Medium", financial_status=financial_status,
+            )
 
     # ══════════════════════════════════════════════════════════════════════
     # TIER 5 — Same GSTIN + fuzzy invoice (similarity ≥ 0.75)
@@ -1145,6 +1293,42 @@ def generic_match_pair(
                             review_reason="PREFIX_ALTERATION_REVIEW",
                             discrepancies=discrepancies,
                             identity_confidence="Medium",
+                            financial_status=financial_status,
+                        )
+                    if not pos_match:
+                        return _ret(
+                            level=3, matched=True, confidence=70,
+                            requires_human_review=True,
+                            decision_what="Fuzzy match with Place of Supply mismatch",
+                            decision_why=f"Invoice numbers match fuzzily ({inv_sim:.0%}), but Place of Supply differs ({pos_a} vs {pos_b}).",
+                            decision_next="Verify Place of Supply and tax jurisdiction before accepting.",
+                            review_reason="POS_MISMATCH",
+                            discrepancies=discrepancies,
+                            identity_confidence="Low",
+                            financial_status=financial_status,
+                        )
+                    if not tax_structure_match:
+                        return _ret(
+                            level=3, matched=True, confidence=70,
+                            requires_human_review=True,
+                            decision_what="Fuzzy match with tax structure mismatch",
+                            decision_why=f"Invoice numbers match fuzzily ({inv_sim:.0%}), but tax structure (IGST vs CGST/SGST) differs.",
+                            decision_next="Verify tax heads before accepting.",
+                            review_reason="TAX_HEAD_MISMATCH",
+                            discrepancies=discrepancies,
+                            identity_confidence="Low",
+                            financial_status=financial_status,
+                        )
+                    if evidence.cumulative_risk_points >= 6:
+                        return _ret(
+                            level=3, matched=True, confidence=65,
+                            requires_human_review=True,
+                            decision_what="Fuzzy match with compound risk",
+                            decision_why=f"Invoice numbers match fuzzily ({inv_sim:.0%}), but cumulative risk score is {evidence.cumulative_risk_points} ({', '.join(evidence.risk_reasons)}).",
+                            decision_next="Careful manual review required.",
+                            review_reason="COMPOUND_RISK_REVIEW",
+                            discrepancies=discrepancies,
+                            identity_confidence="Low",
                             financial_status=financial_status,
                         )
                     return _ret(

@@ -550,7 +550,8 @@ def _date_col_specificity(col: str) -> int:
         return 10
     if any(k in norm for k in (
         "vch date", "voucher date", "vch dt", "voucher dt", "posting date",
-        "entry date", "tx date", "transaction date", "booking date", "book date"
+        "entry date", "tx date", "transaction date", "booking date", "book date",
+        "due date", "ship date", "shipping date", "payment date", "clearance date"
     )):
         return 1
     return 5
@@ -646,7 +647,7 @@ def detect_column_mapping(df: pd.DataFrame) -> dict[str, str]:
 # ---------------------------------------------------------------------------
 
 def _safe_cell(val: Any) -> str | None:
-    """Return a stripped non-empty string, or None for blank / NaN cells."""
+    """Return a stripped non-empty string, or None for blank / NaN / formula error cells."""
     if val is None:
         return None
     try:
@@ -654,8 +655,16 @@ def _safe_cell(val: Any) -> str | None:
             return None
     except (TypeError, ValueError):
         pass
-    s = str(val).strip()
-    if not s or s.lower() in ("nan", "none", "nat"):
+    s = (
+        str(val)
+        .replace("\u200b", "")
+        .replace("\ufeff", "")
+        .replace("\u00a0", " ")
+        .strip()
+    )
+    if not s or s.lower() in (
+        "nan", "none", "nat", "#n/a", "#value!", "#ref!", "#div/0!", "#num!", "#name?", "#null!"
+    ):
         return None
     return s
 
@@ -723,11 +732,25 @@ def _normalize_reverse_charge(val: Any) -> bool | None:
 
 
 def _preprocess_amount(raw: str) -> str:
-    """Strip trailing accounting Dr/Cr suffixes before passing to the normaliser."""
+    """Strip trailing accounting Dr/Cr suffixes, currencies, and whitespace before normaliser."""
     if not isinstance(raw, str):
         raw = str(raw)
     s = _ACCT_SUFFIX_RE.sub("", raw)
-    return s.replace("₹", "").replace(",", "").replace(" ", "").strip()
+    s = (
+        s.replace("₹", "")
+        .replace("$", "")
+        .replace("€", "")
+        .replace("£", "")
+        .replace(",", "")
+        .replace("\u00a0", "")
+        .replace("\u200b", "")
+        .replace("\ufeff", "")
+        .replace(" ", "")
+        .strip()
+    )
+    if s.lower() in ("#n/a", "#value!", "#ref!", "#div/0!", "#num!", "#name?", "#null!", "nan", "none"):
+        return ""
+    return s
 
 
 def _parse_amount(raw_str: str) -> int | None:
@@ -808,6 +831,9 @@ def _coerce_mapped_gstin_column(
     return out
 
 
+_SCIENTIFIC_RE = re.compile(r"^[+-]?\d+(?:\.\d+)?[eE][+-]?\d+$")
+
+
 def _normalize_invoice_number_cell(val: Any) -> str | None:
     s = _safe_cell(val)
     if s is None:
@@ -817,6 +843,13 @@ def _normalize_invoice_number_cell(val: Any) -> str | None:
             return normalize_invoice(str(int(val)))
         if isinstance(val, int):
             return normalize_invoice(str(val))
+    if _SCIENTIFIC_RE.match(s):
+        try:
+            f = float(s)
+            if f.is_integer():
+                return normalize_invoice(str(int(f)))
+        except Exception:
+            pass
     return normalize_invoice(str(s))
 
 
@@ -842,7 +875,22 @@ def _invoice_number_raw_from_cell(val: Any) -> str | None:
             return str(int(val))
         s = str(val).strip()
         return s or None
-    s = str(val).strip()
+    s = (
+        str(val)
+        .replace("\u200b", "")
+        .replace("\ufeff", "")
+        .replace("\u00a0", " ")
+        .strip()
+    )
+    if s.lower() in ("nan", "none", "nat", "#n/a", "#value!", "#ref!", "#div/0!", "#num!", "#name?", "#null!"):
+        return None
+    if _SCIENTIFIC_RE.match(s):
+        try:
+            f = float(s)
+            if f.is_integer():
+                return str(int(f))
+        except Exception:
+            pass
     return s or None
 
 
@@ -1652,6 +1700,7 @@ def parse_sales_register(
     }
     if not file_content or not file_content.strip():
         result["errors"].append("Empty file")
+        result["import_quality_report"] = generate_import_quality_report(result, filename=filename)
         return result
 
     ext = ""
@@ -1857,11 +1906,13 @@ def parse_sales_register(
         result["errors"].append(str(exc))
         result["warnings"].extend(recovery_warnings)
         result["sheets_skipped"] = sheets_skipped
+        result["import_quality_report"] = generate_import_quality_report(result, filename=filename)
         return result
     except Exception as exc:
         result["errors"].append(f"read_file: {exc}")
         result["warnings"].extend(recovery_warnings)
         result["sheets_skipped"] = sheets_skipped
+        result["import_quality_report"] = generate_import_quality_report(result, filename=filename)
         return result
 
     records: list[dict] = []
@@ -2022,6 +2073,7 @@ def parse_sales_register(
         result["sheets_used"] = sheets_used
         result["sheets_skipped"] = sheets_skipped
         result["missing_invoice_number_count"] = missing_invoice_number_count
+        result["import_quality_report"] = generate_import_quality_report(result, filename=filename)
         return result
 
     result["total_rows"] = total_rows
@@ -2066,7 +2118,70 @@ def parse_sales_register(
     else:
         result["normalized_columns"] = []
         result["normalized_dataframe"] = pd.DataFrame()
+    result["import_quality_report"] = generate_import_quality_report(result, filename=filename)
     return result
+
+
+def generate_import_quality_report(parse_result: dict[str, Any], filename: str = "") -> dict[str, Any]:
+    """Generate a structured WHAT/WHY/NEXT import quality report."""
+    errors = parse_result.get("errors", [])
+    warnings = parse_result.get("warnings", [])
+    total_rows = parse_result.get("total_rows", 0)
+    valid_rows = parse_result.get("valid_rows", 0)
+    skipped_rows = parse_result.get("skipped_rows", 0)
+
+    issues: list[dict[str, str]] = []
+
+    # Process errors
+    for err in errors:
+        err_lower = err.lower()
+        if "column mapping" in err_lower or "gstin or invoice number" in err_lower or "cannot identify" in err_lower:
+            issues.append({
+                "severity": "CRITICAL",
+                "category": "MISSING_MANDATORY_COLUMN",
+                "what": "Mandatory invoice identification columns could not be found.",
+                "why": "The file headers do not match recognizable GSTIN or Invoice Number column aliases.",
+                "next_step": "Ensure your Excel/CSV has columns named 'Invoice Number' (or 'Bill No') and 'GSTIN' in the header row.",
+            })
+        elif "empty file" in err_lower:
+            issues.append({
+                "severity": "CRITICAL",
+                "category": "EMPTY_FILE",
+                "what": "The uploaded file is empty.",
+                "why": "The file contains 0 bytes or only whitespace.",
+                "next_step": "Verify the selected file contains exported invoice data before uploading.",
+            })
+        else:
+            issues.append({
+                "severity": "ERROR",
+                "category": "PARSE_ERROR",
+                "what": f"File parsing encountered an error: {err}",
+                "why": "Structural or formatting anomaly in source file prevented row processing.",
+                "next_step": "Check file format, ensure sheet is not password protected, and re-export from ERP.",
+            })
+
+    # Process warnings / skipped rows
+    if skipped_rows > 0:
+        issues.append({
+            "severity": "WARNING",
+            "category": "SKIPPED_ROWS",
+            "what": f"{skipped_rows} row(s) were skipped during parsing.",
+            "why": "Rows lacked valid invoice numbers, dates, or were empty / corrupted rows.",
+            "next_step": "Review skipped rows in the import preview and verify mandatory columns are populated.",
+        })
+
+    status = "FAILED" if (errors or (valid_rows == 0 and total_rows > 0)) else ("WARNING" if issues else "PASSED")
+
+    report = {
+        "status": status,
+        "filename": filename,
+        "total_rows": total_rows,
+        "valid_rows": valid_rows,
+        "skipped_rows": skipped_rows,
+        "issue_count": len(issues),
+        "issues": issues,
+    }
+    return report
 
 
 def parse_sales_register_dataframe(
