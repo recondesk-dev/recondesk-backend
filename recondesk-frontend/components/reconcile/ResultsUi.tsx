@@ -721,8 +721,12 @@ export function ResultsBucketTabs({
 
   if (isCustomTabs) {
     return (
-      <div className="border-b border-[#F1F5F9] bg-white px-2">
-        <nav className="flex flex-wrap gap-1" role="tablist" aria-label={ariaLabel}>
+      <div className="border-b border-[#F1F5F9] bg-white px-3 py-2">
+        <nav
+          className="flex items-center gap-1.5 overflow-x-auto min-w-0"
+          role="tablist"
+          aria-label={ariaLabel}
+        >
           {tabs.map(({ id, label }) => {
             const isActive = active === id;
             const count = tabCounts?.[id];
@@ -733,15 +737,23 @@ export function ResultsBucketTabs({
                 role="tab"
                 aria-selected={isActive}
                 onClick={() => onChange(id)}
-                className={`flex items-center gap-1.5 border-b-2 px-3.5 py-2.5 text-[13px] font-medium transition-colors whitespace-nowrap ${
+                className={`inline-flex items-center gap-2 rounded-[12px] px-3.5 py-1.5 text-xs sm:text-[13px] transition-colors whitespace-nowrap shrink-0 outline-none select-none border-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#78608F]/50 focus-visible:ring-offset-1 ${
                   isActive
-                    ? "border-[#2563EB] text-[#0F172A] font-semibold"
-                    : "border-transparent text-[#94A3B8] hover:text-[#0F172A]"
+                    ? "bg-[#F3EFF8] text-[#695778] font-semibold"
+                    : "bg-transparent text-[#64748B] font-medium hover:bg-[#FAF7FC] hover:text-[#342B40]"
                 }`}
               >
-                <span>{label}</span>
+                <span>{id === "matched" ? "Matched" : label}</span>
                 {count != null && (
-                  <span className="rounded-full bg-[#F1F5F9] px-1.5 py-0.5 text-[10px] font-semibold text-[#475569]">
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-[11px] font-semibold tabular-nums shrink-0 ${
+                      count === 0
+                        ? "bg-[#F1F5F9] text-[#64748B]"
+                        : id === "matched"
+                        ? "bg-[#DCFCE7] text-[#166534]"
+                        : "bg-[#F1F5F9] text-[#475569]"
+                    }`}
+                  >
                     {count.toLocaleString("en-IN")}
                   </span>
                 )}
@@ -762,28 +774,52 @@ export function ResultsBucketTabs({
     duplicate_entry: "bg-[#F1F5F9] text-[#475569]",
   };
 
+  const getBadgeStyle = (tabId: string, count: number | undefined) => {
+    if (count === 0) {
+      return "bg-[#F1F5F9] text-[#64748B]";
+    }
+    if (tabId === "matched") {
+      return "bg-[#DCFCE7] text-[#166534]";
+    }
+    return primaryBadgeStyle[tabId] || "bg-[#F1F5F9] text-[#475569]";
+  };
+
+  const getTabClass = (isActive: boolean) =>
+    `inline-flex items-center gap-2 rounded-[12px] px-3.5 py-1.5 text-xs sm:text-[13px] transition-colors whitespace-nowrap shrink-0 outline-none select-none border-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#78608F]/50 focus-visible:ring-offset-1 ${
+      isActive
+        ? "bg-[#F3EFF8] text-[#695778] font-semibold"
+        : "bg-transparent text-[#64748B] font-medium hover:bg-[#FAF7FC] hover:text-[#342B40]"
+    }`;
+
   const tResults = useTranslations("results");
 
   return (
     <div className="border-b border-[#F1F5F9] bg-white">
       {/* Primary tabs */}
-      <div className="flex items-center border-b border-[#F1F5F9] px-4 overflow-x-auto">
+      <div
+        className="flex items-center gap-1.5 sm:gap-2 border-b border-[#F1F5F9] px-3 sm:px-4 py-2 overflow-x-auto min-w-0"
+        role="tablist"
+        aria-label={ariaLabel}
+      >
         <button
           type="button"
           role="tab"
           aria-selected={active === "matched"}
           onClick={() => onChange("matched")}
-          className={`flex items-center gap-2 border-b-2 px-4 py-3 text-sm font-medium transition-colors whitespace-nowrap outline-none focus:outline-none select-none ${
-            active === "matched"
-              ? "border-[#2563EB] text-[#0F172A] font-bold"
-              : "border-transparent text-[#64748B] hover:text-[#0F172A]"
-          }`}
+          className={getTabClass(active === "matched")}
         >
-          {tabCounts?.itc_on_hold != null && tabCounts.itc_on_hold > 0
-            ? "Matched (Eligible)"
-            : tResults("matched")}
+          <span>
+            {tabCounts?.itc_on_hold != null && tabCounts.itc_on_hold > 0
+              ? "Matched (Eligible)"
+              : "Matched"}
+          </span>
           {tabCounts?.matched != null && (
-            <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${primaryBadgeStyle.matched}`}>
+            <span
+              className={`rounded-full px-2 py-0.5 text-[11px] font-semibold tabular-nums shrink-0 ${getBadgeStyle(
+                "matched",
+                tabCounts.matched
+              )}`}
+            >
               {tabCounts.matched.toLocaleString("en-IN")}
             </span>
           )}
@@ -794,15 +830,16 @@ export function ResultsBucketTabs({
           role="tab"
           aria-selected={active === "itc_on_hold"}
           onClick={() => onChange("itc_on_hold")}
-          className={`flex items-center gap-2 border-b-2 px-4 py-3 text-sm font-medium transition-colors whitespace-nowrap outline-none focus:outline-none select-none ${
-            active === "itc_on_hold"
-              ? "border-[#D97706] text-[#0F172A] font-bold"
-              : "border-transparent text-[#64748B] hover:text-[#0F172A]"
-          }`}
+          className={getTabClass(active === "itc_on_hold")}
         >
-          ITC On Hold
+          <span>ITC On Hold</span>
           {tabCounts?.itc_on_hold != null && (
-            <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${primaryBadgeStyle.itc_on_hold}`}>
+            <span
+              className={`rounded-full px-2 py-0.5 text-[11px] font-semibold tabular-nums shrink-0 ${getBadgeStyle(
+                "itc_on_hold",
+                tabCounts.itc_on_hold
+              )}`}
+            >
               {tabCounts.itc_on_hold.toLocaleString("en-IN")}
             </span>
           )}
@@ -813,15 +850,16 @@ export function ResultsBucketTabs({
           role="tab"
           aria-selected={active === "review_required"}
           onClick={() => onChange("review_required")}
-          className={`flex items-center gap-2 border-b-2 px-4 py-3 text-sm font-medium transition-colors whitespace-nowrap outline-none focus:outline-none select-none ${
-            active === "review_required"
-              ? "border-[#2563EB] text-[#0F172A] font-bold"
-              : "border-transparent text-[#64748B] hover:text-[#0F172A]"
-          }`}
+          className={getTabClass(active === "review_required")}
         >
-          {tResults("reviewRequired")}
+          <span>{tResults("reviewRequired")}</span>
           {tabCounts?.review_required != null && (
-            <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${primaryBadgeStyle.review_required}`}>
+            <span
+              className={`rounded-full px-2 py-0.5 text-[11px] font-semibold tabular-nums shrink-0 ${getBadgeStyle(
+                "review_required",
+                tabCounts.review_required
+              )}`}
+            >
               {tabCounts.review_required.toLocaleString("en-IN")}
             </span>
           )}
@@ -832,15 +870,16 @@ export function ResultsBucketTabs({
           role="tab"
           aria-selected={active === "risk"}
           onClick={() => onChange("risk")}
-          className={`flex items-center gap-2 border-b-2 px-4 py-3 text-sm font-medium transition-colors whitespace-nowrap outline-none focus:outline-none select-none ${
-            active === "risk"
-              ? "border-[#2563EB] text-[#0F172A] font-bold"
-              : "border-transparent text-[#64748B] hover:text-[#0F172A]"
-          }`}
+          className={getTabClass(active === "risk")}
         >
-          {tResults("itcAtRiskShort")}
+          <span>{tResults("itcAtRiskShort")}</span>
           {tabCounts?.risk != null && (
-            <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${primaryBadgeStyle.risk}`}>
+            <span
+              className={`rounded-full px-2 py-0.5 text-[11px] font-semibold tabular-nums shrink-0 ${getBadgeStyle(
+                "risk",
+                tabCounts.risk
+              )}`}
+            >
               {tabCounts.risk.toLocaleString("en-IN")}
             </span>
           )}
@@ -851,36 +890,38 @@ export function ResultsBucketTabs({
           role="tab"
           aria-selected={active === "itc"}
           onClick={() => onChange("itc")}
-          className={`flex items-center gap-2 border-b-2 px-4 py-3 text-sm font-medium transition-colors whitespace-nowrap outline-none focus:outline-none select-none ${
-            active === "itc"
-              ? "border-[#2563EB] text-[#0F172A] font-bold"
-              : "border-transparent text-[#64748B] hover:text-[#0F172A]"
-          }`}
+          className={getTabClass(active === "itc")}
         >
-          {tResults("missedItc")}
+          <span>{tResults("missedItc")}</span>
           {tabCounts?.itc != null && (
-            <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${primaryBadgeStyle.itc}`}>
+            <span
+              className={`rounded-full px-2 py-0.5 text-[11px] font-semibold tabular-nums shrink-0 ${getBadgeStyle(
+                "itc",
+                tabCounts.itc
+              )}`}
+            >
               {tabCounts.itc.toLocaleString("en-IN")}
             </span>
           )}
         </button>
 
-        <div className="flex-1 min-w-4" />
+        <div className="flex-1 min-w-2 sm:min-w-4" />
 
         <button
           type="button"
           role="tab"
           aria-selected={active === "duplicate_entry"}
           onClick={() => onChange("duplicate_entry")}
-          className={`flex items-center gap-2 border-b-2 px-4 py-3 text-xs sm:text-[13px] font-medium transition-colors whitespace-nowrap outline-none focus:outline-none select-none ${
-            active === "duplicate_entry"
-              ? "border-[#2563EB] text-[#0F172A] font-bold"
-              : "border-transparent text-[#64748B] hover:text-[#0F172A]"
-          }`}
+          className={getTabClass(active === "duplicate_entry")}
         >
-          {tResults("duplicateEntries")}
+          <span>{tResults("duplicateEntries")}</span>
           {tabCounts?.duplicate_entry != null && (
-            <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${primaryBadgeStyle.duplicate_entry}`}>
+            <span
+              className={`rounded-full px-2 py-0.5 text-[11px] font-semibold tabular-nums shrink-0 ${getBadgeStyle(
+                "duplicate_entry",
+                tabCounts.duplicate_entry
+              )}`}
+            >
               {tabCounts.duplicate_entry.toLocaleString("en-IN")}
             </span>
           )}
