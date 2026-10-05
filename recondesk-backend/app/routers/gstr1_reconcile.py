@@ -63,7 +63,7 @@ from app.parsers.sales_register_parser import parse_sales_register, ParseError
 from app.parsers.gstr1_parser import parse_gstr1, _parse_filing_period
 from app.parsers.gstr3b_parser import parse_gstr3b
 from app.matching.generic_matcher import match_sales_register_to_gstr1
-from app.services.matcher import normalise_inv_no, _is_credit_note
+from app.services.matcher import normalise_inv_no, normalize_invoice, _is_credit_note
 from app.rules.gstr1_mismatch_rules import (
     classify_all_mismatches,
     check_invoice_series_continuity,
@@ -1004,9 +1004,15 @@ async def _run_pipeline(
             r for r in prior_result.get("records", [])
             if _is_invoice_level_gstr1_record(r)
         ]
-        prior_invoice_keys = {
-            k for k in (_amendment_invoice_key(r) for r in prior_gstr1_records) if k
-        }
+        prior_invoice_keys = set()
+        for r in prior_gstr1_records:
+            k1 = _amendment_invoice_key(r)
+            if k1:
+                prior_invoice_keys.add(k1)
+            raw = r.get("inum") or r.get("nt_num") or r.get("invoice_number_raw") or r.get("invoice_number")
+            if raw:
+                prior_invoice_keys.add(normalize_invoice(str(raw).strip()))
+                prior_invoice_keys.add(normalise_inv_no(str(raw).strip()))
         prior_gstr1_diagnostics = {
             "filing_gstin": prior_result.get("filing_gstin", ""),
             "filing_period": prior_result.get("filing_period", ""),
@@ -1023,24 +1029,28 @@ async def _run_pipeline(
         r for r in gstr1_records if not bool(r.get("is_amendment"))
     ]
 
-    # SR rows whose invoice# exists in prior GSTR-1 belong to amendment flow.
-    sr_current_records: list[dict[str, Any]] = []
-    sr_amendment_records: list[dict[str, Any]] = []
-    if prior_invoice_keys:
-        for rec in sr_records:
-            key = _amendment_invoice_key(rec)
-            if key and key in prior_invoice_keys:
-                sr_amendment_records.append(rec)
-            else:
-                sr_current_records.append(rec)
-    else:
-        sr_current_records = list(sr_records)
+    # Resolve and link Table 9 amendments to Sales Register and prior filings
+    from app.services.gstr1_amendment_engine import process_gstr1_amendments
+
+    amendment_recon = process_gstr1_amendments(
+        current_amendment_records=gstr1_amendment_records,
+        sr_records=sr_records,
+        prior_gstr1_records=prior_gstr1_records,
+        filing_period=gstr1_filing_period,
+    )
+    accounted_amendment_sr_ids = amendment_recon["accounted_sr_ids"]
+    sr_amendment_records = amendment_recon["accounted_sr_records"]
+
+    # Exclude source records accounted by amendments from standard invoice matching
+    sr_current_records: list[dict[str, Any]] = [
+        r for r in sr_records if id(r) not in accounted_amendment_sr_ids
+    ]
 
     _log.info(
-        "gstr1_reconcile: period split — SR current=%d amendment-linked=%d; "
+        "gstr1_reconcile: period split — SR current=%d amendment-accounted=%d; "
         "GSTR-1 current=%d amendments=%d; prior_keys=%d",
         len(sr_current_records),
-        len(sr_amendment_records),
+        len(accounted_amendment_sr_ids),
         len(gstr1_current_records),
         len(gstr1_amendment_records),
         len(prior_invoice_keys),
@@ -1211,18 +1221,66 @@ async def _run_pipeline(
     )
 
     # ── Step 3: Classify mismatches ───────────────────────────────────────
+    # Partition unmatched SR into current-period missing vs prior-period unresolved amendment references
+    unmatched_sr_current: list[dict[str, Any]] = []
+    unmatched_sr_prior_unresolved: list[dict[str, Any]] = []
+    for r in unmatched_sr:
+        doc_no = normalize_invoice(_extract_doc_number(r))
+        doc_alnum = normalise_inv_no(_extract_doc_number(r))
+        if prior_invoice_keys and (doc_no in prior_invoice_keys or doc_alnum in prior_invoice_keys):
+            unmatched_sr_prior_unresolved.append(r)
+        else:
+            unmatched_sr_current.append(r)
+
     matched_for_mismatch = [
         (sr, g1) for sr, g1, _ in matched_pairs
         if g1 and str(g1.get("section") or "").lower() not in ("b2cs", "b2csa")
     ]
     mismatch_results = classify_all_mismatches(
-        unmatched_sr=unmatched_sr,
+        unmatched_sr=unmatched_sr_current,
         unmatched_gstr1=unmatched_gstr1,
         matched_pairs=matched_for_mismatch,
         gstr1_filing_period=gstr1_filing_period,
     )
     if b2cs_mismatches:
         mismatch_results = list(mismatch_results) + list(b2cs_mismatches)
+
+    # Route prior-period unresolved source documents to Review Required
+    for sr_rec in unmatched_sr_prior_unresolved:
+        inv_raw = str(sr_rec.get("invoice_number_raw") or sr_rec.get("invoice_number") or "?").strip()
+        mismatch_results.append(
+            MismatchResult(
+                mismatch_type=MismatchType.AMENDMENT_REQUIRED,
+                severity=MismatchSeverity.HIGH,
+                decision_what=(
+                    f"REVIEW REQUIRED — UNRESOLVED AMENDMENT ORIGINAL: Prior-period document '{inv_raw}' "
+                    "was recorded in books but has no valid corresponding Table 9 amendment in GSTR-1."
+                ),
+                decision_why=(
+                    f"Document '{inv_raw}' from prior return period was recorded in current books for revision, "
+                    "but corresponding Table 9 amendment record was either missing or referenced an invalid document number."
+                ),
+                decision_next=(
+                    f"Verify whether an amendment for '{inv_raw}' was filed under an incorrect original number, "
+                    "and file a Table 9 correction if necessary."
+                ),
+                rule_id="G1M_011_AMENDMENT_ORIGINAL_UNRESOLVED",
+                details={
+                    "invoice_number": inv_raw,
+                    "issue_type": "amendment_original_unresolved",
+                    "requires_review": True,
+                    "taxable_value": _safe_int(sr_rec.get("taxable_amount_paise")),
+                    "igst": _safe_int(sr_rec.get("igst_paise")),
+                    "cgst": _safe_int(sr_rec.get("cgst_paise")),
+                    "sgst": _safe_int(sr_rec.get("sgst_paise")),
+                },
+            )
+        )
+
+    # Add duplicate amendment chain review items
+    for chain_mm in amendment_recon.get("mismatches", []):
+        if chain_mm.rule_id == "G1M_011_MULTIPLE_AMENDMENTS":
+            mismatch_results.append(chain_mm)
 
     _log.info(
         "gstr1_reconcile: classified %d mismatches", len(mismatch_results),
@@ -1419,14 +1477,26 @@ async def _run_pipeline(
             "invoice_level_match_count": len(matched_pairs),
             "aggregate_source_invoice_count": b2cs_recon.source_invoice_count,
             "aggregate_group_count": b2cs_recon.group_count,
-            "accounted_source_invoice_count": len(matched_pairs) + b2cs_recon.accounted_invoice_count,
-            "unaccounted_source_invoice_count": len(unmatched_sr) + b2cs_recon.unaccounted_invoice_count,
+            "accounted_source_invoice_count": (
+                len(matched_pairs)
+                + b2cs_recon.accounted_invoice_count
+                + len(accounted_amendment_sr_ids)
+            ),
+            "unaccounted_source_invoice_count": (
+                len(unmatched_sr_current)
+                + len(unmatched_sr_prior_unresolved)
+                + b2cs_recon.unaccounted_invoice_count
+            ),
             "coverage_percentage": round(
-                100.0 * (len(matched_pairs) + b2cs_recon.accounted_invoice_count) / len(sr_records),
+                100.0
+                * (len(matched_pairs) + b2cs_recon.accounted_invoice_count + len(accounted_amendment_sr_ids))
+                / len(sr_records),
                 2,
             ) if sr_records else 100.0,
             "b2cs_reconciliation_status": b2cs_recon.status,
-            "unmatched_sr_count": len(unmatched_sr),
+            "unmatched_sr_count": len(unmatched_sr_current),
+            "missing_in_gstr1_count": len(unmatched_sr_current),
+            "amendment_accounted_source_count": len(accounted_amendment_sr_ids),
             "unmatched_gstr1_count": len(unmatched_gstr1),
             "reconciliation_mismatch_count": len(reconciliation_mismatches),
             "review_required_count": len(review_required_items),
@@ -1441,18 +1511,23 @@ async def _run_pipeline(
                 "total_series", 0
             ),
             "amendment_detection_skipped": not prior_provided,
-            "amendment_count": sum(
-                1
-                for m in g1m11_results
-                if m.details.get("issue_type") in {
-                    "amendment_required",
-                    "amendment_missing",
-                    "amendment_still_wrong",
-                    "unmatched_amendment",
-                }
+            "amendment_count": (
+                len(amendment_recon.get("canonical_amendments", []))
+                if amendment_recon.get("canonical_amendments")
+                else sum(
+                    1
+                    for m in g1m11_results
+                    if m.details.get("issue_type") in {
+                        "amendment_required",
+                        "amendment_missing",
+                        "amendment_still_wrong",
+                        "unmatched_amendment",
+                    }
+                )
             ),
-            "amendment_linked_sr_count": len(sr_amendment_records),
+            "amendment_linked_sr_count": len(accounted_amendment_sr_ids),
             "gstr1_amendment_record_count": len(gstr1_amendment_records),
+            "amendment_chains_count": len([c for c in amendment_recon.get("chains_summary", []) if c.get("is_duplicate_chain")]),
         },
         "matched": matched_output,
         "unmatched_sr": unmatched_sr_output,
@@ -1464,6 +1539,8 @@ async def _run_pipeline(
         "compliance_warnings": series_compliance_warnings,
         "informational_notices": informational_notices,
         "b2cs_reconciliation": b2cs_recon.to_dict(),
+        "amendments": [a.to_dict() for a in amendment_recon.get("canonical_amendments", [])],
+        "amendment_chains": amendment_recon.get("chains_summary", []),
         "documents_issued": documents_issued,
         "tie_out": tie_out_output,
         "parse_diagnostics": {

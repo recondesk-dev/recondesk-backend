@@ -3336,26 +3336,43 @@ def _field_diffs_for_amendment(
     """Return differed field names when current books ≠ prior filed values."""
     differed: list[str] = []
 
+    is_cn = (
+        _is_credit_note(current)
+        or _is_credit_note(prior)
+        or str(current.get("ntty") or "").upper() == "C"
+        or str(prior.get("ntty") or "").upper() == "C"
+    )
+
     cur_taxable = _safe_int(current.get("taxable_amount_paise"))
     prior_taxable = _safe_int(prior.get("taxable_amount_paise"))
-    if abs(cur_taxable - prior_taxable) > tolerance_paise:
+    if is_cn:
+        taxable_diff = abs(abs(cur_taxable) - abs(prior_taxable))
+    else:
+        taxable_diff = abs(cur_taxable - prior_taxable)
+
+    if taxable_diff > tolerance_paise:
         differed.append("taxable_amount")
 
     cur_tax = _safe_int(current.get("total_tax_paise"))
-    if cur_tax <= 0:
+    if cur_tax == 0:
         cur_tax = (
             _safe_int(current.get("igst_paise"))
             + _safe_int(current.get("cgst_paise"))
             + _safe_int(current.get("sgst_paise"))
         )
     prior_tax = _safe_int(prior.get("total_tax_paise"))
-    if prior_tax <= 0:
+    if prior_tax == 0:
         prior_tax = (
             _safe_int(prior.get("igst_paise"))
             + _safe_int(prior.get("cgst_paise"))
             + _safe_int(prior.get("sgst_paise"))
         )
-    if abs(cur_tax - prior_tax) > tolerance_paise:
+    if is_cn:
+        tax_diff = abs(abs(cur_tax) - abs(prior_tax))
+    else:
+        tax_diff = abs(cur_tax - prior_tax)
+
+    if tax_diff > tolerance_paise:
         differed.append("total_tax")
 
     cur_gstin = _amendment_gstin(current)

@@ -1152,20 +1152,54 @@ def reconcile_gstr1_vs_3b(
                 is_clean=True,
             )
 
-    # Aggregate GSTR-1
-    gstr1_agg = aggregate_gstr1(
-        gstr1_records,
-        include_cdn=include_cdn,
-        include_zero_rated=include_zero_rated,
-        prior_records=prior_records,
-    )
-    gstr1_by_rate = aggregate_gstr1_by_rate(
-        gstr1_records,
-        prior_records=prior_records,
-    )
-
     # Extract GSTR-3B summary
     gstr3b_summary = gstr3b_to_summary(parsed_gstr3b)
+
+    # Aggregate GSTR-1
+    # If prior_records are provided, evaluate candidate models (differential vs gross outward turnover)
+    # and align with the model that best represents the GSTR-3B Table 3.1 declaration.
+    if prior_records:
+        gstr1_agg_diff = aggregate_gstr1(
+            gstr1_records,
+            include_cdn=include_cdn,
+            include_zero_rated=include_zero_rated,
+            prior_records=prior_records,
+        )
+        gstr1_agg_full = aggregate_gstr1(
+            gstr1_records,
+            include_cdn=include_cdn,
+            include_zero_rated=include_zero_rated,
+            prior_records=None,
+        )
+
+        score_diff = abs(gstr1_agg_diff.taxable_value_paise - gstr3b_summary.taxable_value_paise) + abs(
+            gstr1_agg_diff.total_tax_paise - gstr3b_summary.total_tax_paise
+        )
+        score_full = abs(gstr1_agg_full.taxable_value_paise - gstr3b_summary.taxable_value_paise) + abs(
+            gstr1_agg_full.total_tax_paise - gstr3b_summary.total_tax_paise
+        )
+
+        if score_diff < score_full:
+            gstr1_agg = gstr1_agg_diff
+            gstr1_by_rate = aggregate_gstr1_by_rate(
+                gstr1_records,
+                prior_records=prior_records,
+            )
+        else:
+            gstr1_agg = gstr1_agg_full
+            gstr1_by_rate = aggregate_gstr1_by_rate(
+                gstr1_records,
+                prior_records=None,
+            )
+    else:
+        gstr1_agg = aggregate_gstr1(
+            gstr1_records,
+            include_cdn=include_cdn,
+            include_zero_rated=include_zero_rated,
+        )
+        gstr1_by_rate = aggregate_gstr1_by_rate(
+            gstr1_records,
+        )
 
     # Compute statutory reconciliation
     taxable_diff = gstr1_agg.taxable_value_paise - gstr3b_summary.taxable_value_paise

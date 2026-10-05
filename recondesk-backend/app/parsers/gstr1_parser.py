@@ -495,8 +495,12 @@ def _build_record(
         "invoice_number": invoice_number,
         "invoice_number_raw": invoice_number_raw,
         "invoice_number_normalized": invoice_number,
-        "inum": invoice_number_raw if section not in {"cdnr", "cdnra", "cdnur", "cdnura"} else None,
-        "nt_num": invoice_number_raw if section in {"cdnr", "cdnra", "cdnur", "cdnura"} else None,
+        "inum": invoice_number_raw if section not in {"cdnr", "cdnra", "cdna", "cdnur", "cdnura", "cdnua"} else None,
+        "nt_num": invoice_number_raw if section in {"cdnr", "cdnra", "cdna", "cdnur", "cdnura", "cdnua"} else None,
+        "oinum": original_invoice_number_raw if section not in {"cdnr", "cdnra", "cdna", "cdnur", "cdnura", "cdnua"} else None,
+        "oidt": original_invoice_date_norm if section not in {"cdnr", "cdnra", "cdna", "cdnur", "cdnura", "cdnua"} else None,
+        "ont_num": original_invoice_number_raw if section in {"cdnr", "cdnra", "cdna", "cdnur", "cdnura", "cdnua"} else None,
+        "ont_dt": original_invoice_date_norm if section in {"cdnr", "cdnra", "cdna", "cdnur", "cdnura", "cdnua"} else None,
         "invoice_date": invoice_date_norm,
         "invoice_date_raw": invoice_date_raw,
         # Values (paise)
@@ -1414,6 +1418,8 @@ def _process_gstin_grouped_section(
     Returns "present", "empty", or "absent".
     """
     raw_section = root.get(section_name)
+    if raw_section is None and section_name == "cdnra":
+        raw_section = root.get("cdna")
     if raw_section is None:
         return "absent"
     if not isinstance(raw_section, list) or len(raw_section) == 0:
@@ -1668,6 +1674,8 @@ def _process_cdnur_section(
 ) -> str:
     """Process cdnur/cdnura sections (flat list, no GSTIN grouping)."""
     raw_section = root.get(section_name)
+    if raw_section is None and section_name == "cdnura":
+        raw_section = root.get("cdnua")
     if raw_section is None:
         return "absent"
     if not isinstance(raw_section, list) or len(raw_section) == 0:
@@ -1869,7 +1877,7 @@ _IGNORED_SECTIONS = frozenset({"doc_issue", "isd", "supeco"})
 # All sections we actively parse
 _ALL_KNOWN_SECTIONS = (
     "b2b", "b2ba", "b2cl", "b2cla", "b2cs", "b2csa",
-    "cdnr", "cdnra", "cdnur", "cdnura",
+    "cdnr", "cdnra", "cdna", "cdnur", "cdnura", "cdnua",
     "exp", "expa", "at", "ata", "nil", "hsn",
 )
 
@@ -1992,6 +2000,8 @@ def parse_gstr1(file_content, filing_period: str | None = None) -> dict:
             root, section_name, records, skipped, is_cdnr, is_amendment,
         )
         section_status[section_name] = status
+        if section_name == "cdnra" and "cdna" in root:
+            section_status["cdna"] = status
 
     # B2CL sections (POS-grouped)
     for section_name, is_amendment in [("b2cl", False), ("b2cla", True)]:
@@ -2013,6 +2023,8 @@ def parse_gstr1(file_content, filing_period: str | None = None) -> dict:
             root, section_name, records, skipped, is_amendment,
         )
         section_status[section_name] = status
+        if section_name == "cdnura" and "cdnua" in root:
+            section_status["cdnua"] = status
 
     # Export sections (export-type-grouped)
     for section_name, is_amendment in [("exp", False), ("expa", True)]:
@@ -2060,6 +2072,10 @@ def parse_gstr1(file_content, filing_period: str | None = None) -> dict:
     for rec in records:
         sec = rec.get("section", "unknown")
         section_counts[sec] = section_counts.get(sec, 0) + 1
+    if "cdna" in root and "cdnra" in section_counts:
+        section_counts["cdna"] = section_counts["cdnra"]
+    if "cdnua" in root and "cdnura" in section_counts:
+        section_counts["cdnua"] = section_counts["cdnura"]
 
     total_parsed = len(records)
     total_skipped = len(skipped)
