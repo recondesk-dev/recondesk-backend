@@ -19,6 +19,14 @@ from app.filing.sandbox_filing_client import (
     get_filing_client,
 )
 from app.worker.celery_app import celery_app
+from app.utils.crypto import decrypt_secret
+from app.worker.reliability import (
+    QUEUE_FILING,
+    JobHeartbeat,
+    classify_error,
+    log_task_event,
+    record_failed_job,
+)
 
 _log = logging.getLogger(__name__)
 
@@ -47,24 +55,35 @@ def fetch_sales_register_records(sb, client_gstin_id: str, period: str) -> list[
 
 
 @celery_app.task(
+    bind=True,
     name="worker.process_filing_batch",
-    max_retries=0,
+    max_retries=0,  # Irreversible statutory submission: NEVER blindly retry at the task envelope level
+    acks_late=True,
     soft_time_limit=600,
     time_limit=900,
 )
-def process_filing_batch(batch_id: str) -> dict[str, Any]:
+def process_filing_batch(self, batch_id: str) -> dict[str, Any]:
     """Orchestrate Bulk GSTR-1 Filing for a batch of GSTINs.
     
     Processes batch items sequentially (or within safe rate limits), reusing 
     the single-GSTIN filing orchestrator and Sandbox client.
     """
-    _log.info("[BATCH_WORKER] START batch_id=%s", batch_id)
+    t_start = time.perf_counter()
+    task_id = getattr(self.request, "id", None) or "local"
+    log_task_event("started", task_id, "worker.process_filing_batch", queue=QUEUE_FILING, run_id=batch_id, attempt=1)
+    _log.info("[BATCH_WORKER] START batch_id=%s task_id=%s", batch_id, task_id)
     sb = get_supabase()
 
     batch = filing_store.get_batch(sb, batch_id)
     if not batch:
         _log.error("[BATCH_WORKER] Batch %s not found", batch_id)
         return {"error": "batch_not_found"}
+
+    current_status = str(batch.get("status") or "").strip().lower()
+    # Idempotency guard: do not re-process completed batches
+    if current_status in ("completed", "partially_completed"):
+        _log.warning("[BATCH_WORKER] Batch %s is already terminal (%s); skipping", batch_id, current_status)
+        return batch
 
     firm_id = str(batch["firm_id"])
     period = str(batch["period"])
@@ -101,7 +120,7 @@ def process_filing_batch(batch_id: str) -> dict[str, Any]:
                     # Check client_gstins fallback token
                     cg_res = sb.table("client_gstins").select("gstn_access_token, gstn_token_expiry").eq("id", client_gstin_id).limit(1).execute()
                     if cg_res.data and cg_res.data[0].get("gstn_access_token"):
-                        stoken = str(cg_res.data[0]["gstn_access_token"])
+                        stoken = str(decrypt_secret(cg_res.data[0]["gstn_access_token"]) or "")
                         session_row = {"id": None}
                     else:
                         raise RuntimeError("No active GSTN session token found for GSTIN")
@@ -282,5 +301,7 @@ def process_filing_batch(batch_id: str) -> dict[str, Any]:
 
     # Recalculate and persist overall batch status
     final_batch = filing_store.recalculate_batch_status(sb, batch_id)
-    _log.info("[BATCH_WORKER] FINISH batch_id=%s status=%s", batch_id, final_batch.get("status"))
+    duration_ms = (time.perf_counter() - t_start) * 1000
+    log_task_event("completed", task_id, "worker.process_filing_batch", queue=QUEUE_FILING, run_id=batch_id, attempt=1, duration_ms=duration_ms)
+    _log.info("[BATCH_WORKER] FINISH batch_id=%s status=%s duration_ms=%.1f", batch_id, final_batch.get("status"), duration_ms)
     return final_batch

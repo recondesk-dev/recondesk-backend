@@ -34,6 +34,7 @@ from app.database import get_supabase
 from app.services.tally_bridge_sync import (
     apply_tally_bridge_sync,
     generate_tally_bridge_api_key,
+    hash_tally_bridge_api_key,
 )
 from app.utils.audit import resolve_firm_id
 
@@ -155,21 +156,49 @@ def _account_id_for_user(user: dict) -> str:
 
 def _lookup_bridge_key(api_key: str) -> dict[str, Any]:
     sb = get_supabase()
+    raw_key = str(api_key or "").strip()
+    if not raw_key:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="invalid api key",
+        )
+    hashed_key = hash_tally_bridge_api_key(raw_key)
     try:
+        # 1. Primary lookup by SHA-256 hash
         res = (
             sb.table("tally_bridge_keys")
             .select("id, api_key, account_id, company_name, last_synced_at, revoked_at")
-            .eq("api_key", api_key)
+            .eq("api_key", hashed_key)
             .limit(1)
             .execute()
         )
+        rows = res.data or []
+        # 2. Backward compatibility: Fallback lookup by legacy plaintext
+        if not rows:
+            res_legacy = (
+                sb.table("tally_bridge_keys")
+                .select("id, api_key, account_id, company_name, last_synced_at, revoked_at")
+                .eq("api_key", raw_key)
+                .limit(1)
+                .execute()
+            )
+            rows = res_legacy.data or []
+            if rows:
+                # Transparently upgrade legacy plaintext to SHA-256 hash in DB
+                legacy_row = rows[0]
+                try:
+                    sb.table("tally_bridge_keys").update(
+                        {"api_key": hashed_key}
+                    ).eq("id", legacy_row["id"]).execute()
+                    legacy_row["api_key"] = hashed_key
+                except Exception as up_exc:
+                    _log.warning("Failed to auto-migrate legacy tally key: %s", up_exc)
     except Exception as exc:
         _log.exception("tally_bridge_keys lookup failed")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="tally bridge key lookup failed",
         ) from exc
-    rows = res.data or []
     if not rows:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -635,12 +664,18 @@ async def tally_bridge_create_key(
     body: TallyKeyCreateBody,
     current_user: dict = Depends(get_current_active_user),
 ):
-    """Generate a new Tally Bridge API key for the current firm account."""
+    """Generate a new Tally Bridge API key for the current firm account.
+    
+    The raw key is returned exactly once in the response. The database stores
+    only the SHA-256 hash.
+    """
     account_id = _account_id_for_user(current_user)
-    api_key = generate_tally_bridge_api_key()
+    raw_api_key = generate_tally_bridge_api_key()
+    hashed_key = hash_tally_bridge_api_key(raw_api_key)
     company_name = (body.company_name or "").strip()
+    key_prefix = raw_api_key[:10]
     payload = {
-        "api_key": api_key,
+        "api_key": hashed_key,
         "account_id": account_id,
         "company_name": company_name,
         "created_at": datetime.now(timezone.utc).isoformat(),
@@ -657,7 +692,8 @@ async def tally_bridge_create_key(
     row = (res.data or [payload])[0]
     return {
         "id": row.get("id"),
-        "api_key": api_key,
+        "api_key": raw_api_key,
+        "key_prefix": key_prefix,
         "account_id": account_id,
         "company_name": company_name,
         "created_at": row.get("created_at") or payload["created_at"],

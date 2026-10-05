@@ -60,10 +60,24 @@ from app.services.rule37_tracker import (
     PENDING_VERIFICATION,
 )
 from app.services.late_filing_tracker import check_late_filing
+from app.config import get_settings
 from app.worker.celery_app import celery_app
 from app.worker.tasks import _json_safe, _supabase, _update_run
+from app.worker.reliability import (
+    QUEUE_IMPORTS,
+    QUEUE_RECONCILIATION,
+    JobHeartbeat,
+    claim_reconciliation_run,
+    classify_error,
+    log_task_event,
+    record_failed_job,
+)
 
 _log = logging.getLogger(__name__)
+
+_settings = get_settings()
+_RECON_SOFT_LIMIT = getattr(_settings, "RECONCILIATION_SOFT_TIME_LIMIT_SECONDS", 3600)
+_RECON_HARD_LIMIT = getattr(_settings, "RECONCILIATION_HARD_TIME_LIMIT_SECONDS", 3900)
 
 BATCH = 500
 CHUNK_SIZE = 500
@@ -497,12 +511,15 @@ def _load_gstr_matcher_and_raw(
 
 
 @celery_app.task(
+    bind=True,
     name="worker.run_wizard_job",
-    max_retries=0,
+    max_retries=3,
+    retry_backoff=True,
+    retry_jitter=True,
     soft_time_limit=900,
     time_limit=960,
 )
-def run_wizard_job(run_id: str) -> None:
+def run_wizard_job(self, run_id: str) -> None:
     """
     Full pipeline for the import-wizard flow, executed entirely inside the
     Celery worker — NOT in the web-process thread.  Sequence:
@@ -520,8 +537,14 @@ def run_wizard_job(run_id: str) -> None:
     """
     from app.worker.tasks import run_import_job
 
-    _log.info("run_wizard_job: starting run_id=%s", run_id)
+    t_start = time.perf_counter()
+    task_id = getattr(self.request, "id", None) or "local"
+    attempt = getattr(self.request, "retries", 0) + 1
+    log_task_event("started", task_id, "worker.run_wizard_job", queue=QUEUE_IMPORTS, run_id=run_id, attempt=attempt)
+    _log.info("run_wizard_job: starting run_id=%s attempt=%d task_id=%s", run_id, attempt, task_id)
     sb = _supabase()
+    heartbeat = JobHeartbeat(sb, run_id, task_id, table_name="reconciliation_import_runs", interval_seconds=30.0)
+    heartbeat.beat(force=True)
 
     # ── progress helper ───────────────────────────────────────────────────────
     def _set_wizard_pct(pct: int, msg: str, final_status: str = None) -> None:
@@ -672,22 +695,72 @@ def run_wizard_job(run_id: str) -> None:
         # After completion: 100
         _set_wizard_pct(100, "Complete", final_status="complete")
 
-        _log.info("run_wizard_job: completed successfully run_id=%s", run_id)
+        duration_ms = (time.perf_counter() - t_start) * 1000
+        log_task_event("completed", task_id, "worker.run_wizard_job", queue=QUEUE_IMPORTS, run_id=run_id, attempt=attempt, duration_ms=duration_ms)
+        _log.info("run_wizard_job: completed successfully run_id=%s duration_ms=%.1f", run_id, duration_ms)
 
     except Exception as exc:
-        _log.exception("run_wizard_job: failed for run_id=%s", run_id)
+        duration_ms = (time.perf_counter() - t_start) * 1000
+        err_cat, is_retryable = classify_error(exc)
+        _log.exception("run_wizard_job: failed for run_id=%s (category=%s, retryable=%s)", run_id, err_cat, is_retryable)
         _fail(str(exc))
+
+        retries = getattr(self.request, "retries", 0)
+        max_retries = getattr(self, "max_retries", 3)
+        if is_retryable and retries < max_retries:
+            log_task_event(
+                "retry",
+                task_id,
+                "worker.run_wizard_job",
+                queue=QUEUE_IMPORTS,
+                run_id=run_id,
+                attempt=attempt,
+                duration_ms=duration_ms,
+                error=str(exc),
+                extra={"error_category": err_cat},
+            )
+            raise self.retry(exc=exc)
+
+        log_task_event(
+            "failed",
+            task_id,
+            "worker.run_wizard_job",
+            queue=QUEUE_IMPORTS,
+            run_id=run_id,
+            attempt=attempt,
+            duration_ms=duration_ms,
+            error=str(exc),
+            extra={"error_category": err_cat},
+        )
+        record_failed_job(
+            client=sb,
+            task_id=task_id,
+            task_name="worker.run_wizard_job",
+            queue=QUEUE_IMPORTS,
+            exc=exc,
+            entity_id=run_id,
+            entity_type="reconciliation_import_runs",
+            attempt_count=attempt,
+            payload_summary={"run_id": run_id},
+        )
         raise
 
 
 
 @celery_app.task(
+    bind=True,
     name="worker.execute_reconciliation",
-    max_retries=0,
-    soft_time_limit=600,
-    time_limit=660,
+    max_retries=3,
+    retry_backoff=True,
+    retry_jitter=True,
+    soft_time_limit=_RECON_SOFT_LIMIT,
+    time_limit=_RECON_HARD_LIMIT,
 )
-def execute_reconciliation(run_id: str) -> None:
+def execute_reconciliation(self, run_id: str) -> None:
+    t_start = time.perf_counter()
+    task_id = getattr(self.request, "id", None) or "local"
+    attempt = getattr(self.request, "retries", 0) + 1
+    log_task_event("started", task_id, "worker.execute_reconciliation", queue=QUEUE_RECONCILIATION, run_id=run_id, attempt=attempt)
     _t: dict[str, float] = {"start": time.perf_counter()}
 
     def _phase(name: str) -> None:
@@ -702,28 +775,8 @@ def execute_reconciliation(run_id: str) -> None:
         _log.debug("REDIS_URL not set; using fallback from Settings")
 
     client = _supabase()
+    heartbeat = JobHeartbeat(client, run_id, task_id, interval_seconds=30.0)
     try:
-        run_res = (
-            client.table("reconciliation_run")
-            .select(
-                "id, status, client_gstin_id, period, gstr_records_imported, pr_records_imported, created_at"
-            )
-            .eq("id", run_id)
-            .limit(1)
-            .execute()
-        )
-        if not run_res.data:
-            _log.error("execute_reconciliation: run %s not found", run_id)
-            return
-        run = run_res.data[0]
-        st = (run.get("status") or "").strip().upper()
-        if st in ("COMPLETED", "FAILED", "FINAL"):
-            _log.warning("execute_reconciliation: run %s already terminal (%s)", run_id, st)
-            return
-        if st != "MATCHING":
-            _log.warning("execute_reconciliation: run %s not in MATCHING (got %s)", run_id, st)
-            return
-
         try:
             git_hash = subprocess.check_output(
                 ["git", "rev-parse", "--short", "HEAD"], stderr=subprocess.DEVNULL
@@ -731,27 +784,24 @@ def execute_reconciliation(run_id: str) -> None:
         except Exception:
             git_hash = os.environ.get("RAILWAY_GIT_COMMIT_SHA", "unknown")[:7]
 
-        _log.info("execute_reconciliation: claiming run %s on worker version=%s", run_id, git_hash)
-
-        claimed = (
-            client.table("reconciliation_run")
-            .update(
-                {
-                    "status": "PROCESSING",
-                    "status_message": f"Initializing (Worker: {git_hash})",
-                    "progress_percent": 2,
-                    "updated_at": _now_iso(),
-                }
-            )
-            .eq("id", run_id)
-            .eq("status", "MATCHING")
-            .execute()
+        _log.info("execute_reconciliation: claiming run %s on worker version=%s attempt=%d task_id=%s", run_id, git_hash, attempt, task_id)
+        claimed, run = claim_reconciliation_run(
+            client=client,
+            run_id=run_id,
+            task_id=task_id,
+            target_status="PROCESSING",
+            expected_status="MATCHING",
+            status_message=f"Initializing (Worker: {git_hash})",
         )
-        if not claimed.data:
+        if not claimed:
             _log.warning(
-                "execute_reconciliation: lost claim for %s (duplicate worker?)", run_id
+                "execute_reconciliation: lost claim or invalid status for %s (status=%s, duplicate worker?)",
+                run_id,
+                run.get("status"),
             )
             return
+
+        heartbeat.beat(force=True, status_message=f"Initializing (Worker: {git_hash})", progress_percent=2)
 
         client_gstin_id = str(run.get("client_gstin_id", "")).strip()
         period = str(run.get("period", "")).strip()
@@ -1770,20 +1820,76 @@ def execute_reconciliation(run_id: str) -> None:
         )
 
         _phase("db_writes")
+        duration_ms = (time.perf_counter() - t_start) * 1000
+        log_task_event("completed", task_id, "worker.execute_reconciliation", queue=QUEUE_RECONCILIATION, run_id=run_id, attempt=attempt, duration_ms=duration_ms)
+        _log.info("execute_reconciliation: completed successfully run_id=%s duration_ms=%.1f", run_id, duration_ms)
     except Exception as exc:
-        _log.exception("execute_reconciliation failed run_id=%s", run_id)
+        duration_ms = (time.perf_counter() - t_start) * 1000
+        err_cat, is_retryable = classify_error(exc)
+        _log.exception("execute_reconciliation failed run_id=%s (category=%s, retryable=%s)", run_id, err_cat, is_retryable)
         _log.error("%s", traceback.format_exc())
         try:
             client.table("reconciliation_results").delete().eq("run_id", run_id).execute()
         except Exception:
             _log.exception("cleanup reconciliation_results failed")
+
+        retries = getattr(self.request, "retries", 0)
+        max_retries = getattr(self, "max_retries", 3)
+        if is_retryable and retries < max_retries:
+            # Reset run back to MATCHING so the retried worker can claim it atomically
+            _update_run(
+                client,
+                run_id,
+                {
+                    "status": "MATCHING",
+                    "status_message": f"Retrying after transient error ({retries + 1}/{max_retries})",
+                    "updated_at": _now_iso(),
+                },
+            )
+            log_task_event(
+                "retry",
+                task_id,
+                "worker.execute_reconciliation",
+                queue=QUEUE_RECONCILIATION,
+                run_id=run_id,
+                attempt=attempt,
+                duration_ms=duration_ms,
+                error=str(exc),
+                extra={"error_category": err_cat},
+            )
+            raise self.retry(exc=exc)
+
+        # Terminal failure
+        log_task_event(
+            "failed",
+            task_id,
+            "worker.execute_reconciliation",
+            queue=QUEUE_RECONCILIATION,
+            run_id=run_id,
+            attempt=attempt,
+            duration_ms=duration_ms,
+            error=str(exc),
+            extra={"error_category": err_cat},
+        )
         _update_run(
             client,
             run_id,
             {
                 "status": "FAILED",
                 "status_message": str(exc)[:2000],
+                "error_category": err_cat,
                 "updated_at": _now_iso(),
             },
+        )
+        record_failed_job(
+            client=client,
+            task_id=task_id,
+            task_name="worker.execute_reconciliation",
+            queue=QUEUE_RECONCILIATION,
+            exc=exc,
+            entity_id=run_id,
+            entity_type="reconciliation_run",
+            attempt_count=attempt,
+            payload_summary={"run_id": run_id},
         )
         raise

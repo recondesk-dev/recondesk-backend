@@ -17,6 +17,7 @@ from app.services.gstr9c_itc_fy_rollup import (
     fy_periods,
     parse_fy_label,
 )
+from app.utils.crypto import decrypt_secret
 
 logger = logging.getLogger(__name__)
 
@@ -331,7 +332,7 @@ def fetch_live_portal_api(sb: Client, client_gstin_id: str, fy: str) -> dict[str
             .execute()
         )
         if cg_res.data and cg_res.data[0].get("gstn_access_token"):
-            auth_token = str(cg_res.data[0].get("gstn_access_token") or "").strip() or None
+            auth_token = decrypt_secret(cg_res.data[0].get("gstn_access_token")) or None
     except Exception as exc:
         logger.warning("client_gstins token lookup warning: %s", exc)
 

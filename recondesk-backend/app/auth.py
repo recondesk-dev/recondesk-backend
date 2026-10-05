@@ -437,3 +437,19 @@ async def get_current_active_user(
     return _attach_firm_id(
         {**profile, "id": user_id, "email": user.email or profile.get("email")}
     )
+
+
+async def require_admin_user(
+    current_user: dict = Depends(get_current_active_user),
+) -> dict:
+    """Enforce that the authenticated user holds an admin or owner role.
+
+    Used for legally binding or financial operations (filing, liability offset, IMS writeback).
+    """
+    role = (current_user.get("role") or "").strip().lower()
+    if role not in ("admin", "owner"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required for this operation",
+        )
+    return current_user

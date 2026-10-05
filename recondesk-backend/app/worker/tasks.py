@@ -23,6 +23,13 @@ from app.parsers.purchase_register_parser import parse_purchase_register
 from app.services import client_import_mapping as cim
 from app.services.sanity import SanityCheck, run_import_sanity
 from app.worker.celery_app import celery_app
+from app.worker.reliability import (
+    QUEUE_IMPORTS,
+    JobHeartbeat,
+    classify_error,
+    log_task_event,
+    record_failed_job,
+)
 
 _log = logging.getLogger(__name__)
 
@@ -217,6 +224,8 @@ def _update_run(
                 wiz["status_message"] = fields["status_message"]
             if "updated_at" in fields:
                 wiz["updated_at"] = fields["updated_at"]
+            if "last_heartbeat_at" in fields:
+                wiz["last_heartbeat_at"] = fields["last_heartbeat_at"]
             if wiz:
                 client.table("reconciliation_import_runs").update(wiz).eq("id", run_id).execute()
         except Exception as exc:
@@ -292,19 +301,24 @@ def _bulk_insert(
 
 
 @celery_app.task(
+    bind=True,
     name="worker.run_import_job",
-    max_retries=0,
+    max_retries=3,
+    retry_backoff=True,
+    retry_jitter=True,
     soft_time_limit=300,
     time_limit=360,
 )
-def run_import_job(run_id: str, file_type: str, r2_key: str) -> None:
-    print(f"[WORKER] START run_id={run_id}")
-
-    print("=== DEBUG DB URL ===")
-    print(get_settings().SUPABASE_URL)
-    print("====================")
+def run_import_job(self, run_id: str, file_type: str, r2_key: str) -> None:
+    t_start = time.perf_counter()
+    task_id = getattr(self.request, "id", None) or "local"
+    attempt = getattr(self.request, "retries", 0) + 1
+    log_task_event("started", task_id, "worker.run_import_job", queue=QUEUE_IMPORTS, run_id=run_id, attempt=attempt)
+    _log.info("[WORKER] START run_id=%s file_type=%s attempt=%d task_id=%s", run_id, file_type, attempt, task_id)
 
     client = _supabase()
+    heartbeat = JobHeartbeat(client, run_id, task_id, interval_seconds=30.0)
+    heartbeat.beat(force=True)
     bucket = get_settings().R2_BUCKET_NAME
     s3 = _s3()
     now = datetime.now(timezone.utc).isoformat()
@@ -531,7 +545,7 @@ def run_import_job(run_id: str, file_type: str, r2_key: str) -> None:
         else:
             raise ValueError(f"unknown file_type: {file_type}")
 
-        print("[WORKER] Input validated")
+        _log.info("[WORKER] Input validated for run_id=%s file_type=%s", run_id, file_type)
 
         if not client_gstin_id or not period:
             raise ValueError("reconciliation_run missing client_gstin_id or period")
@@ -674,8 +688,8 @@ def run_import_job(run_id: str, file_type: str, r2_key: str) -> None:
             }
             for rec in records
         ]
-        print(
-            f"[WORKER] Inserting {len(rows)} rows into {insert_table}"
+        _log.info(
+            "[WORKER] Inserting %d rows into %s", len(rows), insert_table
         )
         record_label = (
             "purchase"
@@ -798,6 +812,8 @@ def run_import_job(run_id: str, file_type: str, r2_key: str) -> None:
                 "updated_at": datetime.now(timezone.utc).isoformat(),
             },
         )
+        duration_ms = (time.perf_counter() - t_start) * 1000
+        log_task_event("completed", task_id, "worker.run_import_job", queue=QUEUE_IMPORTS, run_id=run_id, attempt=attempt, duration_ms=duration_ms)
 
     except ImportCancelledException:
         _log.info(
@@ -820,15 +836,59 @@ def run_import_job(run_id: str, file_type: str, r2_key: str) -> None:
             )
         return
     except Exception as exc:
-        print(f"[WORKER] ERROR: {str(exc)}")
-        _log.exception("run_import_job failed for run_id=%s", run_id)
+        duration_ms = (time.perf_counter() - t_start) * 1000
+        err_cat, is_retryable = classify_error(exc)
+        _log.error("[WORKER] ERROR for run_id=%s: %s", run_id, str(exc))
+        _log.exception("run_import_job failed for run_id=%s (category=%s, retryable=%s)", run_id, err_cat, is_retryable)
+
+        # Retry if eligible and attempts remain
+        retries = getattr(self.request, "retries", 0)
+        max_retries = getattr(self, "max_retries", 3)
+        if is_retryable and retries < max_retries:
+            log_task_event(
+                "retry",
+                task_id,
+                "worker.run_import_job",
+                queue=QUEUE_IMPORTS,
+                run_id=run_id,
+                attempt=attempt,
+                duration_ms=duration_ms,
+                error=str(exc),
+                extra={"error_category": err_cat},
+            )
+            raise self.retry(exc=exc)
+
+        # Terminal failure
+        log_task_event(
+            "failed",
+            task_id,
+            "worker.run_import_job",
+            queue=QUEUE_IMPORTS,
+            run_id=run_id,
+            attempt=attempt,
+            duration_ms=duration_ms,
+            error=str(exc),
+            extra={"error_category": err_cat},
+        )
         _update_run(
             client,
             run_id,
             {
                 "status": "failed",
                 "status_message": _task_error_detail(exc),
+                "error_category": err_cat,
                 "updated_at": datetime.now(timezone.utc).isoformat(),
             },
+        )
+        record_failed_job(
+            client=client,
+            task_id=task_id,
+            task_name="worker.run_import_job",
+            queue=QUEUE_IMPORTS,
+            exc=exc,
+            entity_id=run_id,
+            entity_type="reconciliation_run",
+            attempt_count=attempt,
+            payload_summary={"file_type": file_type, "r2_key": r2_key},
         )
         raise

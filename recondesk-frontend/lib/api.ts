@@ -25,6 +25,8 @@ export type FilingFrequency = 'monthly' | 'qrmp';
 export type ClientGstin =
   Database["public"]["Tables"]["client_gstins"]["Row"] & {
     gstn_access_token?: string | null;
+    has_gstn_token?: boolean | null;
+    is_gstn_connected?: boolean | null;
     gstn_token_expiry?: string | null;
   };
 export type ReconciliationRun =

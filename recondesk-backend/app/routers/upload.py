@@ -360,20 +360,41 @@ async def upload_purchase_register(
 ):
     """Parse a purchase-register file; requires authentication and tenant access."""
     from uuid import UUID
+    from app.services.firm_access import list_accessible_client_gstin_ids
 
-    sb = get_supabase()
     uid = str(current_user.get("id", ""))
+    cid = str(client_id).strip()
+    rid = str(run_id).strip()
+
     try:
-        UUID(run_id.strip())
+        UUID(rid)
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="invalid run_id",
         ) from exc
+
+    try:
+        UUID(cid)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="invalid client_id",
+        ) from exc
+
+    sb = get_supabase()
+
+    allowed_clients = list_accessible_client_gstin_ids(sb, current_user)
+    if cid not in allowed_clients:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied",
+        )
+
     res = (
         sb.table("reconciliation_run")
         .select("id, client_gstin_id")
-        .eq("id", run_id)
+        .eq("id", rid)
         .limit(1)
         .execute()
     )
@@ -383,7 +404,8 @@ async def upload_purchase_register(
             detail="Access denied",
         )
     run = res.data[0]
-    if str(run.get("client_gstin_id", "")).strip() != str(client_id).strip():
+    run_cg = str(run.get("client_gstin_id", "")).strip()
+    if run_cg != cid or run_cg not in allowed_clients:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied",

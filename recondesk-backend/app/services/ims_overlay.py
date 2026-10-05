@@ -19,6 +19,7 @@ from app.services.sandbox_gst_client import (
     SandboxClientError,
     make_sandbox_client,
 )
+from app.utils.crypto import decrypt_secret
 
 _log = logging.getLogger(__name__)
 
@@ -226,7 +227,7 @@ def try_fetch_ims_status_map_for_client(
         return None
 
     row = rows[0]
-    access_token = row.get("gstn_access_token")
+    access_token = decrypt_secret(row.get("gstn_access_token"))
     gstin = str(row.get("gstin") or "").strip()
     if not access_token or not gstin:
         _log.info(

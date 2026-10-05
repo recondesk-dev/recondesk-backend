@@ -73,6 +73,8 @@ from app.utils.rate_limit import limiter
 
 _log = logging.getLogger(__name__)
 
+from app.utils.context import CorrelationIdMiddleware
+
 START_TIME = datetime.now(timezone.utc)
 
 # ── Sentry ────────────────────────────────────────────────────────────────────
@@ -107,32 +109,75 @@ _STUCK_STATUSES = ("MATCHING", "PROCESSING", "importing")
 
 def _stuck_job_tick() -> None:
     supabase = get_supabase()
-    cutoff = datetime.now(timezone.utc) - timedelta(minutes=15)
+    # Heartbeat timeout threshold from configuration (defaults to 900s / 15m)
+    timeout_seconds = getattr(settings, "JOB_HEARTBEAT_TIMEOUT_SECONDS", 900)
+    cutoff = datetime.now(timezone.utc) - timedelta(seconds=timeout_seconds)
     cutoff_iso = cutoff.isoformat()
     try:
+        # Check active jobs whose heartbeat or start timestamp has gone silent
         stuck_runs = (
             supabase.table("reconciliation_run")
-            .select("id, status, processing_started_at")
+            .select("id, status, processing_started_at, last_heartbeat_at, worker_task_id, attempt_count")
             .in_("status", list(_STUCK_STATUSES))
-            .not_.is_("processing_started_at", "null")
-            .lt("processing_started_at", cutoff_iso)
             .execute()
         )
     except Exception:
         _log.exception("stuck_job_detector: query failed")
         raise
 
+    now_iso = datetime.now(timezone.utc).isoformat()
     for run in stuck_runs.data or []:
         rid = run.get("id")
         if not rid:
             continue
+
+        # Evaluate liveness via heartbeat first, then fallback to processing_started_at
+        last_beat_str = run.get("last_heartbeat_at") or run.get("processing_started_at")
+        if not last_beat_str:
+            # If neither timestamp is set, job was never claimed or initiated
+            continue
+
+        try:
+            # Parse ISO timestamp (handling trailing Z or offsets)
+            beat_dt = datetime.fromisoformat(str(last_beat_str).replace("Z", "+00:00"))
+        except Exception:
+            _log.warning("stuck_job_detector: invalid timestamp format '%s' for run %s", last_beat_str, rid)
+            continue
+
+        # If heartbeat is still active within cutoff, job is healthy and progressing
+        if beat_dt >= cutoff:
+            continue
+
+        # Heartbeat is stale beyond threshold -> mark FAILED and record dead letter
+        _log.warning(
+            "stuck_job_detector: stale heartbeat detected for run %s (last_beat=%s, cutoff=%s)",
+            rid,
+            last_beat_str,
+            cutoff_iso,
+        )
         try:
             supabase.table("reconciliation_run").update(
                 {
                     "status": "FAILED",
-                    "status_message": "Processing timeout — please retry",
+                    "status_message": f"Worker heartbeat timeout (> {timeout_seconds}s silent) — please retry",
+                    "error_category": "HEARTBEAT_TIMEOUT",
+                    "updated_at": now_iso,
                 }
             ).eq("id", rid).execute()
+
+            from app.worker.reliability import record_failed_job
+
+            record_failed_job(
+                client=supabase,
+                task_id=str(run.get("worker_task_id") or "unknown"),
+                task_name="worker.stuck_job_watchdog",
+                queue="maintenance",
+                exc=TimeoutError(f"Heartbeat timeout (> {timeout_seconds}s silent)"),
+                entity_id=rid,
+                entity_type="reconciliation_run",
+                attempt_count=int(run.get("attempt_count") or 1),
+                payload_summary={"last_heartbeat_at": last_beat_str, "status": run.get("status")},
+            )
         except Exception:
             _log.exception("stuck_job_detector: failed to update run %s", rid)
             continue
@@ -330,6 +375,7 @@ app = FastAPI(
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)
+app.add_middleware(CorrelationIdMiddleware)
 
 # ── CORS ──────────────────────────────────────────────────────────────────────
 _EXTRA_CORS_ORIGINS = (

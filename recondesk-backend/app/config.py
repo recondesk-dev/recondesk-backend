@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     FRONTEND_URL: str = ""
 
     # Secrets (load from environment; never log)
+    DATA_ENCRYPTION_KEY: str = ""
     JWT_SECRET: str = ""
     DATABASE_URL: str = ""
     RAZORPAY_KEY_SECRET: str = ""
@@ -55,6 +56,9 @@ class Settings(BaseSettings):
     # Unset (None) → falls back to APP_ENV heuristic (production = True).
     IMPORT_USE_CELERY: Optional[bool] = None
     IMPORT_SANITY_STRICT: bool = False
+    JOB_HEARTBEAT_TIMEOUT_SECONDS: int = 900
+    RECONCILIATION_SOFT_TIME_LIMIT_SECONDS: int = 3600  # 1 hour
+    RECONCILIATION_HARD_TIME_LIMIT_SECONDS: int = 3900  # 1 hour 5 mins
 
     # JWT
     JWT_ALGORITHM: str = "HS256"

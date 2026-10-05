@@ -20,7 +20,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from app.auth import get_current_active_user
+from app.auth import get_current_active_user, require_admin_user
 from app.database import get_supabase, get_user_profile
 from app.utils.audit import client_display_label, log_audit
 from app.ims.ims_offline_export import (
@@ -143,7 +143,7 @@ async def get_ims_recommendations(
 async def confirm_ims_actions_route(
     run_id: str,
     body: ConfirmImsActionsRequest,
-    current_user: dict = Depends(get_current_active_user),
+    current_user: dict = Depends(require_admin_user),
 ):
     """Write confirmed Accept/Reject/Hold actions to GSTN.
 

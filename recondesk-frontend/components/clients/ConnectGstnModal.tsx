@@ -272,9 +272,10 @@ export function ConnectGstnModal({
 
 export function isGstnConnected(client: {
   gstn_access_token?: string | null;
+  has_gstn_token?: boolean | null;
   gstn_token_expiry?: string | null;
 } | null | undefined): boolean {
-  if (!client?.gstn_access_token) return false;
+  if (!client?.has_gstn_token && !client?.gstn_access_token) return false;
   if (client.gstn_token_expiry) {
     return new Date(client.gstn_token_expiry) > new Date();
   }

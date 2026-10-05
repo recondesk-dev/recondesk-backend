@@ -6,6 +6,7 @@ Auto-settle requires both a confident bill-ref match and a hard party-name gate.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import secrets
 from collections import defaultdict
@@ -43,11 +44,16 @@ _UNIQUE_GAP_UNCLEAR_PARTY = 0.15
 # Outstanding pending above this keeps coverage partial.
 _OUTSTANDING_PENDING_EPS = 0.01
 
-API_KEY_PREFIX = "rdb_"
+API_KEY_PREFIX = "rd_tb_"
 
 
 def generate_tally_bridge_api_key() -> str:
     return f"{API_KEY_PREFIX}{secrets.token_urlsafe(32)}"
+
+
+def hash_tally_bridge_api_key(key: str) -> str:
+    """Compute SHA-256 hash of a Tally Bridge API key for secure storage and lookup."""
+    return hashlib.sha256(key.strip().encode("utf-8")).hexdigest()
 
 
 def score_bill_ref_against_invoice(bill_ref: str, invoice_number: str) -> float:

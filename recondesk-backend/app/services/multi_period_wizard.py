@@ -28,6 +28,7 @@ from app.routers.gstr2b_autofetch_routes import (
 )
 from app.services.gstr9c_itc_fy_rollup import assemble_fy_rollup, parse_fy_label
 from app.services.r2_service import upload_file_to_r2
+from app.utils.crypto import decrypt_secret
 from app.worker.reconciliation_task import execute_reconciliation
 from app.worker.tasks import run_import_job
 
@@ -251,7 +252,7 @@ def fetch_gstr2b_for_batch(batch_id: str, user_id: str | None = None) -> None:
     }).eq("id", batch_id).execute()
 
     client_row = _load_client_gstin(sb, client_id)
-    access_token = client_row.get("gstn_access_token")
+    access_token = decrypt_secret(client_row.get("gstn_access_token"))
     gstin = str(client_row.get("gstin") or "").strip()
 
     has_token = bool(access_token)

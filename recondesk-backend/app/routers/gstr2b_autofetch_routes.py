@@ -27,6 +27,7 @@ from app.parsers.gstr2b_parser import parse_gstr2b
 from app.services.firm_access import list_accessible_client_gstin_ids
 from app.services.ims_overlay import fetch_ims_overlay
 from app.services.sandbox_gst_client import SandboxClientError
+from app.utils.crypto import decrypt_secret, encrypt_secret
 
 router = APIRouter(redirect_slashes=False)
 _log = logging.getLogger(__name__)
@@ -310,7 +311,7 @@ async def gstn_verify_otp(
         )
 
     expiry_dt = _token_expiry_from_ms(data.get("token_expiry"))
-    update_payload: dict[str, Any] = {"gstn_access_token": access_token}
+    update_payload: dict[str, Any] = {"gstn_access_token": encrypt_secret(access_token)}
     if expiry_dt is not None:
         update_payload["gstn_token_expiry"] = expiry_dt.isoformat()
 
@@ -330,7 +331,7 @@ async def gstn_fetch_gstr2b(
     _assert_client_access(sb, current_user, cid)
 
     client_row = _load_client_gstin(sb, cid)
-    access_token = client_row.get("gstn_access_token")
+    access_token = decrypt_secret(client_row.get("gstn_access_token"))
     if not access_token:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -421,7 +422,7 @@ async def gstn_fetch_ims(
     _assert_client_access(sb, current_user, cid)
 
     client_row = _load_client_gstin(sb, cid)
-    access_token = client_row.get("gstn_access_token")
+    access_token = decrypt_secret(client_row.get("gstn_access_token"))
     if not access_token:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,

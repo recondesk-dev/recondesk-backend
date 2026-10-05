@@ -22,12 +22,26 @@ celery_app = Celery(
     ],
 )
 
+from app.worker.reliability import (
+    ALL_QUEUES,
+    QUEUE_IMPORTS,
+    QUEUE_RECONCILIATION,
+    QUEUE_FILING,
+    TASK_ROUTES,
+)
+
 celery_app.conf.update(
     task_serializer="json",
     accept_content=["json"],
     result_serializer="json",
     timezone="UTC",
     enable_utc=True,
+    # Enterprise Queue Routing: separate queues prevent starvation across functional domains
+    task_routes=TASK_ROUTES,
+    task_default_queue=QUEUE_RECONCILIATION,
+    # Late acknowledgement: task acknowledged only after successful completion so worker crashes don't drop jobs
+    task_acks_late=True,
+    task_reject_on_worker_lost=True,
 )
 
 

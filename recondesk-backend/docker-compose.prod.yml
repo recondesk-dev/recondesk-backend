@@ -23,15 +23,55 @@ services:
       - redis
     restart: always
 
+  # Default unified worker (consumes all queues for small footprint deployments)
   worker:
     build: .
-    command: celery -A app.worker.celery_app worker --loglevel=info --concurrency=2
+    command: celery -A app.worker.celery_app worker -Q reconciliation,imports,gstn,filing,exports,notifications,maintenance --loglevel=info --concurrency=2
     environment:
       - REDIS_URL=redis://redis:6379/0
     env_file: .env
     depends_on:
       - redis
     restart: always
+
+  # Dedicated reconciliation worker (high memory, CPU bound)
+  worker-reconciliation:
+    build: .
+    command: celery -A app.worker.celery_app worker -Q reconciliation -n recon_worker@%h --loglevel=info --concurrency=2
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+    env_file: .env
+    depends_on:
+      - redis
+    restart: always
+    profiles:
+      - enterprise-split
+
+  # Dedicated import worker (I/O, R2, CSV/Excel parsing)
+  worker-imports:
+    build: .
+    command: celery -A app.worker.celery_app worker -Q imports -n import_worker@%h --loglevel=info --concurrency=2
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+    env_file: .env
+    depends_on:
+      - redis
+    restart: always
+    profiles:
+      - enterprise-split
+
+  # Dedicated filing worker (statutory rate-limits, GSTN/Sandbox APIs)
+  worker-filing:
+    build: .
+    command: celery -A app.worker.celery_app worker -Q filing,gstn -n filing_worker@%h --loglevel=info --concurrency=1
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+    env_file: .env
+    depends_on:
+      - redis
+    restart: always
+    profiles:
+      - enterprise-split
 
   redis:
     image: redis:7-alpine

@@ -43,6 +43,11 @@ from app.services.receipt_pdf import (
 )
 from app.utils.audit import log_action
 from app.utils.rate_limit import limiter
+from app.services.payment_webhook_service import (
+    fulfill_razorpay_payment_captured,
+    mark_webhook_status,
+    record_webhook_event,
+)
 
 _log = logging.getLogger(__name__)
 
@@ -410,18 +415,37 @@ async def payments_webhook(
     except json.JSONDecodeError:
         raise HTTPException(status_code=400, detail="Invalid JSON") from None
 
-    event = payload.get("event")
+    event = payload.get("event") or "unknown"
+    ent = (
+        payload.get("payload", {})
+        .get("payment", {})
+        .get("entity", {})
+    ) or {}
+    event_id = str(payload.get("id") or ent.get("id") or "").strip()
+
+    # Deduplicate event
+    is_new, event_status = record_webhook_event(
+        db,
+        provider="razorpay",
+        event_id=event_id,
+        event_type=event,
+        payload=payload,
+    )
+    if not is_new and event_status == "already_processed":
+        _log.info("Ignoring duplicate Razorpay webhook event %s in payments webhook", event_id)
+        return {"received": True, "duplicate": True}
+
     await log_action(
         None,
         "RAZORPAY_WEBHOOK",
         "webhook",
         str(event or ""),
-        {"event": event, "id": payload.get("payload", {}).get("payment", {}).get("entity", {}).get("id")},
+        {"event": event, "id": ent.get("id")},
     )
 
     try:
         if event == "payment.captured":
-            ent = payload.get("payload", {}).get("payment", {}).get("entity", {}) or {}
+            await fulfill_razorpay_payment_captured(db, payload)
             await log_action(
                 None,
                 "PAYMENT_CAPTURED_WEBHOOK",
@@ -429,8 +453,8 @@ async def payments_webhook(
                 str(ent.get("id") or ""),
                 {"order_id": ent.get("order_id"), "amount": ent.get("amount"), "notes": ent.get("notes")},
             )
+            mark_webhook_status(db, provider="razorpay", event_id=event_id, status="processed")
         elif event == "payment.failed":
-            ent = payload.get("payload", {}).get("payment", {}).get("entity", {}) or {}
             await log_action(
                 None,
                 "PAYMENT_FAILED",
@@ -438,8 +462,12 @@ async def payments_webhook(
                 str(ent.get("id") or ""),
                 {"order_id": ent.get("order_id"), "error": ent.get("error_description")},
             )
+            mark_webhook_status(db, provider="razorpay", event_id=event_id, status="processed")
+        else:
+            mark_webhook_status(db, provider="razorpay", event_id=event_id, status="processed")
     except Exception as exc:  # noqa: BLE001
         _log.exception("webhook side-effect: %s", exc)
+        mark_webhook_status(db, provider="razorpay", event_id=event_id, status="failed", error_message=str(exc))
 
     return {"received": True}
 

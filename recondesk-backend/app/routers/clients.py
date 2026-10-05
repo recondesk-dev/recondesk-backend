@@ -191,6 +191,29 @@ def _resolve_firm_owner(sb, uid: str, role: str | None = None) -> str:
     return uid
 
 
+SENSITIVE_CLIENT_FIELDS = {
+    "gstn_access_token",
+    "gstn_refresh_token",
+    "einvoice_password",
+    "api_secret",
+}
+
+
+def serialize_client(row: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Sanitize client row before returning to client/browser.
+
+    Strips raw secrets and provides safe presence flags.
+    """
+    if not row or not isinstance(row, dict):
+        return row
+    safe = {k: v for k, v in row.items() if k not in SENSITIVE_CLIENT_FIELDS}
+    token = row.get("gstn_access_token")
+    safe["has_gstn_token"] = bool(token)
+    safe["gstn_access_token"] = None
+    safe["is_gstn_connected"] = bool(token and row.get("gstn_token_expiry"))
+    return safe
+
+
 @router.get("")
 async def list_clients(current_user: dict = Depends(get_current_active_user)):
     sb = get_supabase()
@@ -217,7 +240,7 @@ async def list_clients(current_user: dict = Depends(get_current_active_user)):
             .limit(500)
             .execute()
         )
-    return res.data or []
+    return [serialize_client(r) for r in (res.data or [])]
 
 
 @router.post("")
@@ -313,7 +336,7 @@ async def create_client(
         invalidate_user_dashboard(owner)
         return JSONResponse(
             status_code=status.HTTP_200_OK,
-            content=dict(out.data or {}),
+            content=serialize_client(dict(out.data or {})),
         )
 
     try:
@@ -363,7 +386,7 @@ async def create_client(
             if raced.data:
                 return JSONResponse(
                     status_code=status.HTTP_200_OK,
-                    content=raced.data[0],
+                    content=serialize_client(raced.data[0]),
                 )
         raise
     out = (
@@ -392,7 +415,7 @@ async def create_client(
     # Verification runs after the record is saved so the CA is never blocked.
     # If Sandbox is down or misconfigured we still return a 201 without a
     # warning; we just log the error.
-    response_body: dict = dict(out.data or {})
+    response_body: dict = dict(serialize_client(out.data) or {})
     gstin_verification_warning: str | None = None
     try:
         verification = await _verify_gstin(g)
@@ -467,7 +490,7 @@ async def get_client(
     # full payloads makes this endpoint seconds-to-minutes for chatty clients.
     # History belongs on GET /api/reconcile/runs?client_gstin_id=… (and the
     # dedicated /history/{gstin} route). Frontend never consumed the embedded list.
-    return row
+    return serialize_client(row)
 
 
 @router.patch("/{client_id}")
@@ -552,7 +575,7 @@ async def update_client(
         .single()
         .execute()
     )
-    return out.data
+    return serialize_client(out.data)
 
 
 @router.patch("/{client_id}/assign")
@@ -618,7 +641,7 @@ async def assign_client(
         .single()
         .execute()
     )
-    return out.data
+    return serialize_client(out.data)
 
 
 @router.delete("/{client_id}", status_code=status.HTTP_204_NO_CONTENT)

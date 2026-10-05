@@ -13,6 +13,7 @@ from typing import Any
 from fastapi import HTTPException, status
 
 from app.integrations.gstr2b_autofetch import refresh_token
+from app.utils.crypto import decrypt_secret, encrypt_secret
 
 _log = logging.getLogger(__name__)
 
@@ -75,7 +76,7 @@ def ensure_fresh_gstn_token(sb, client_row: dict[str, Any]) -> str:
     On refresh failure (or missing token), raises HTTP 409 so the client can
     reconnect via OTP. Does not modify GSTR-2B route behavior.
     """
-    access_token = client_row.get("gstn_access_token")
+    access_token = decrypt_secret(client_row.get("gstn_access_token"))
     if not access_token:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -111,7 +112,7 @@ def ensure_fresh_gstn_token(sb, client_row: dict[str, Any]) -> str:
         )
     new_token = str(new_token)
 
-    update_payload: dict[str, Any] = {"gstn_access_token": new_token}
+    update_payload: dict[str, Any] = {"gstn_access_token": encrypt_secret(new_token)}
     expiry_dt = _token_expiry_from_ms(data.get("token_expiry"))
     if expiry_dt is not None:
         update_payload["gstn_token_expiry"] = expiry_dt.isoformat()

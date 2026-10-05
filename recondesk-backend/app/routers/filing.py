@@ -9,7 +9,7 @@ from typing import Any, Optional
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from app.auth import get_current_active_user
+from app.auth import get_current_active_user, require_admin_user
 from app.config import get_settings
 from app.database import get_supabase
 from app.filing import filing_store
@@ -52,6 +52,7 @@ _GSTR3B_EVC_OR_FILE_STATUSES = frozenset({"offset_complete", "evc_pending"})
 _GSTR3B_OFFSET_STATUS_ACTIONS = frozenset({"RETOFFSET", "OFFSET", "OFFLIAB"})
 from app.services.firm_access import list_accessible_client_gstin_ids
 from app.utils.audit import resolve_firm_id
+from app.utils.crypto import decrypt_secret, encrypt_secret
 
 router = APIRouter(redirect_slashes=False)
 _log = logging.getLogger(__name__)
@@ -580,7 +581,7 @@ def verify_otp(
         try:
             sb.table("client_gstins").update(
                 {
-                    "gstn_access_token": session.access_token,
+                    "gstn_access_token": encrypt_secret(session.access_token),
                     "gstn_token_expiry": session.token_expires_at.isoformat(),
                 }
             ).eq("id", client_row["id"]).execute()
@@ -1189,7 +1190,7 @@ def generate_evc_otp(
 def file_gstr1(
     period: str,
     body: FileGstr1Body,
-    current_user: dict = Depends(get_current_active_user),
+    current_user: dict = Depends(require_admin_user),
 ):
     """File GSTR-1. EVC OTP is accepted in JSON body only (never as query)."""
     sb = get_supabase()
@@ -1693,7 +1694,7 @@ def gstr3b_return_status(
 def offset_gstr3b(
     period: str,
     body: OffsetGstr3bBody,
-    current_user: dict = Depends(get_current_active_user),
+    current_user: dict = Depends(require_admin_user),
 ):
     """Offset Liability — CA must POST the exact confirmed ``{pdcash, pditc}``.
 
@@ -1821,7 +1822,7 @@ def generate_evc_otp_gstr3b(
 def file_gstr3b(
     period: str,
     body: FileGstr3bBody,
-    current_user: dict = Depends(get_current_active_user),
+    current_user: dict = Depends(require_admin_user),
 ):
     """File GSTR-3B. EVC OTP in JSON body only (never as query to our API)."""
     period = _assert_period_yyyy_mm(period)
