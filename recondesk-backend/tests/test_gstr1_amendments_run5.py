@@ -18,6 +18,7 @@ Covers:
 15. Run 5 tie-out (₹12,500 taxable only)
 """
 
+from pathlib import Path
 import pytest
 from app.matching.generic_matcher import match_sales_register_to_gstr1
 from app.models.canonical_amendment import CanonicalAmendment
@@ -366,19 +367,21 @@ def test_13_duplicate_amendment_aggregation():
 
 @pytest.fixture(scope="module")
 def run5_data():
-    sr_path = "../benchmark_data/run5_amendments_3000/ReconDesk_Sales_Register_3000_Amendments_Run5_Sep2026.xlsx"
-    cur_path = "../benchmark_data/run5_amendments_3000/ReconDesk_GSTR1_Sep2026_Amendments_Run5.json"
-    prior_path = "../benchmark_data/run5_amendments_3000/ReconDesk_GSTR1_Aug2026_PriorPeriod_Run5.json"
-    g3b_path = "../benchmark_data/run5_amendments_3000/ReconDesk_GSTR3B_Sep2026_Amendments_Run5.json"
+    base_dir = Path(__file__).resolve().parents[2] / "benchmark_data" / "run5_amendments_3000"
+    if not (base_dir / "ReconDesk_Sales_Register_3000_Amendments_Run5_Sep2026.xlsx").exists():
+        base_dir = Path("benchmark_data") / "run5_amendments_3000"
+    if not (base_dir / "ReconDesk_Sales_Register_3000_Amendments_Run5_Sep2026.xlsx").exists():
+        base_dir = Path("../benchmark_data") / "run5_amendments_3000"
 
-    with open(sr_path, "rb") as f:
-        sr_bytes = f.read()
-    with open(cur_path, "rb") as f:
-        cur_bytes = f.read()
-    with open(prior_path, "rb") as f:
-        prior_bytes = f.read()
-    with open(g3b_path, "rb") as f:
-        g3b_bytes = f.read()
+    sr_path = base_dir / "ReconDesk_Sales_Register_3000_Amendments_Run5_Sep2026.xlsx"
+    cur_path = base_dir / "ReconDesk_GSTR1_Sep2026_Amendments_Run5.json"
+    prior_path = base_dir / "ReconDesk_GSTR1_Aug2026_PriorPeriod_Run5.json"
+    g3b_path = base_dir / "ReconDesk_GSTR3B_Sep2026_Amendments_Run5.json"
+
+    sr_bytes = sr_path.read_bytes()
+    cur_bytes = cur_path.read_bytes()
+    prior_bytes = prior_path.read_bytes()
+    g3b_bytes = g3b_path.read_bytes()
 
     return {
         "sr_bytes": sr_bytes,

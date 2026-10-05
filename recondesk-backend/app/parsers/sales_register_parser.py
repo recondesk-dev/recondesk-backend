@@ -89,6 +89,8 @@ STANDARD_TO_CANONICAL: dict[str, str] = {
     "shipping_bill_number": "shipping_bill_number",
     "shipping_bill_date": "shipping_bill_date",
     "export_type": "export_type",
+    "customer_type": "customer_type",
+    "gstr1_section": "gstr1_section",
 }
 
 # Placeholder GSTIN tokens that mean "no GSTIN" (B2C / unregistered), not a
@@ -233,6 +235,12 @@ _BASE_COLUMN_ALIASES: dict[str, list[str]] = {
     "export_type": [
         "export type", "type of export",
     ],
+    "customer_type": [
+        "customer type", "party type", "buyer type", "client type",
+    ],
+    "gstr1_section": [
+        "gstr-1 section", "gstr1 section", "gstr section", "gstr-1 table", "gstr1 table",
+    ],
 }
 
 # Includes the named "Tally Export" and ERP alias profiles (SAP, Oracle, Busy, Zoho).
@@ -367,6 +375,8 @@ _FIELD_MATCH_PRIORITY: dict[str, int] = {
     "shipping_bill_number": 40,
     "shipping_bill_date": 40,
     "export_type": 40,
+    "customer_type": 50,
+    "gstr1_section": 50,
 }
 
 def _uniqueify_header_labels(headers: list[Any]) -> list[str]:
@@ -947,6 +957,7 @@ def normalize_dataframe_to_canonical_schema(
         elif canon in (
             "recipient_name", "place_of_supply", "invoice_type",
             "shipping_port_code", "export_type", "is_interstate",
+            "customer_type", "gstr1_section",
         ):
             out_cols[canon] = ser.map(_safe_cell)
         elif canon == "tax_rate":
@@ -1083,11 +1094,14 @@ def _classify_invoice_type(
     explicit_type: str | None,
     place_of_supply: str | None,
     shkzg_hint: str | None = None,
+    customer_type: str | None = None,
+    gstr1_section: str | None = None,
 ) -> str:
     """Classify document type for GSTR-1 reporting.
 
     Priority:
     0. ERP credit note indicator (BLART == DG/G2, SHKZG == H in customer ledger) → CREDIT_NOTE.
+    0b. Explicit GSTR-1 section or customer type column (e.g. B2CS, B2CL, B2B)
     1. Explicit invoice_type column value (if mapped and recognised).
     2. Negative taxable value → CREDIT_NOTE.
     3. Annual fiscal series invoice (e.g. CR/2026-2999) → B2B/B2C/EXPORT.
@@ -1098,6 +1112,13 @@ def _classify_invoice_type(
     """
     if is_erp_credit_note(explicit_type, shkzg_hint, is_sales=True):
         return "CREDIT_NOTE"
+
+    # 0b. Explicit GSTR-1 section or customer type hints
+    for col_hint in (gstr1_section, customer_type):
+        if col_hint is not None:
+            cat = _classify_invoice_type_from_column(col_hint)
+            if cat is not None:
+                return cat
 
     # 1. Explicit column
     if explicit_type is not None:
@@ -1389,12 +1410,26 @@ def _process_sr_sheet_rows(
             else None
         )
 
+        # --- Customer type and GSTR-1 section hints ---
+        customer_type_raw = (
+            _safe_cell(row.get("customer_type"))
+            if "customer_type" in column_mapping
+            else None
+        )
+        gstr1_section_raw = (
+            _safe_cell(row.get("gstr1_section"))
+            if "gstr1_section" in column_mapping
+            else None
+        )
+
         # --- Classify invoice type ---
         shkzg_val = _safe_cell(orig_row.get("shkzg")) or _safe_cell(orig_row.get("SHKZG"))
         invoice_type = _classify_invoice_type(
             inv_raw, original_taxable, gstin_value,
             explicit_invoice_type, place_of_supply,
             shkzg_hint=shkzg_val,
+            customer_type=customer_type_raw,
+            gstr1_section=gstr1_section_raw,
         )
         row_errors.extend(
             _invoice_type_consistency_errors(invoice_type, original_taxable)
@@ -1541,6 +1576,10 @@ def _process_sr_sheet_rows(
             out["is_interstate"] = is_interstate
         if sheet_name:
             out["source_sheet"] = sheet_name
+        if customer_type_raw is not None:
+            out["customer_type"] = customer_type_raw
+        if gstr1_section_raw is not None:
+            out["gstr1_section"] = gstr1_section_raw
         if "hsn" in column_mapping:
             _hsn = row.get("hsn")
             if _hsn is not None and not (isinstance(_hsn, float) and pd.isna(_hsn)):

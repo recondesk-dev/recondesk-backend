@@ -72,6 +72,8 @@ from app.rules.gstr1_mismatch_rules import (
     summarize_documents_issued,
     detect_amendments,
     _amendment_invoice_key,
+    classify_duplicate_identical,
+    classify_duplicate_conflict,
     MismatchResult,
     MismatchType,
     MismatchSeverity,
@@ -445,9 +447,13 @@ def _is_sr_b2cs_record(
     if _is_credit_note(rec):
         return False
     inv_type = str(rec.get("invoice_type") or "").upper().strip()
-    if inv_type == "B2C_SMALL":
+    cust_type = str(rec.get("customer_type") or "").upper().strip()
+    sec_type = str(rec.get("gstr1_section") or "").upper().strip()
+    if inv_type in ("B2C_SMALL", "B2CS") or cust_type in ("B2C_SMALL", "B2CS") or sec_type in ("B2C_SMALL", "B2CS"):
         return True
-    if inv_type in ("EXPORT", "NIL_RATED", "ADVANCES"):
+    if inv_type in ("B2C_LARGE", "B2CL") or cust_type in ("B2C_LARGE", "B2CL") or sec_type in ("B2C_LARGE", "B2CL"):
+        return False
+    if inv_type in ("EXPORT", "NIL_RATED", "ADVANCES") or cust_type == "EXPORT":
         return False
     doc_type = str(rec.get("doc_type") or "").upper().strip()
     if doc_type in ("CREDIT_NOTE", "DEBIT_NOTE", "EXPORT"):
@@ -1211,13 +1217,91 @@ async def _run_pipeline(
 
     # Unmatched GSTR-1: current-period originals not consumed by any SR match.
     # Amendment-table rows (b2ba etc.) are intentionally omitted from G1M2.
-    unmatched_gstr1: list[dict[str, Any]] = [
+    unmatched_gstr1_candidates: list[dict[str, Any]] = [
         rec for rec in gstr1_current_records if id(rec) not in used_gstr1_ids
     ]
 
+    # ── Step 2c: GSTR-1 Duplicate Detection ──────────────────────────────
+    # Distinguish genuine extra invoices (G1M2) from identical or conflicting
+    # duplicate filings in GSTR-1 (G1M_DUPLICATE_IDENTICAL / G1M_DUPLICATE_CONFLICT).
+    # Identity key: (section, recipient_gstin, normalized_invoice_number, invoice_date, document_type).
+    def _gstr1_id_key(r: Mapping[str, Any]) -> tuple:
+        sec = str(r.get("section") or "").lower().strip()
+        gstin = str(r.get("recipient_gstin") or r.get("ctin") or "").strip().upper()
+        raw_inv = (
+            r.get("invoice_number_raw")
+            or r.get("invoice_number")
+            or r.get("inum")
+            or r.get("nt_num")
+            or ""
+        )
+        norm_inv = normalize_invoice(str(raw_inv).strip())
+        idt = str(r.get("invoice_date") or r.get("idt") or "")[:10]
+        dtype = str(r.get("doc_type") or r.get("document_type") or r.get("inv_typ") or "INVOICE").strip().upper()
+        return (sec, gstin, norm_inv, idt, dtype)
+
+    matched_g1_by_key: dict[tuple, list[dict[str, Any]]] = {}
+    for _, g1_rec, _ in matched_pairs:
+        if g1_rec and str(g1_rec.get("section") or "").lower() not in ("b2cs", "b2csa"):
+            k = _gstr1_id_key(g1_rec)
+            if k[2]:
+                matched_g1_by_key.setdefault(k, []).append(g1_rec)
+
+    unmatched_gstr1: list[dict[str, Any]] = []
+    surplus_gstr1_records: list[dict[str, Any]] = []
+    duplicate_mismatch_results: list[MismatchResult] = []
+    duplicate_groups_set: set[tuple] = set()
+    identical_dup_count = 0
+    conflict_dup_count = 0
+
+    seen_unmatched_by_key: dict[tuple, dict[str, Any]] = {}
+
+    for u_rec in unmatched_gstr1_candidates:
+        sec = str(u_rec.get("section") or "").lower().strip()
+        if sec in ("b2cs", "b2csa", "doc_issue", "hsn"):
+            unmatched_gstr1.append(u_rec)
+            continue
+
+        k = _gstr1_id_key(u_rec)
+        canon: dict[str, Any] | None = None
+        if k[2] and k in matched_g1_by_key:
+            canon = matched_g1_by_key[k][0]
+        elif k[2] and k in seen_unmatched_by_key:
+            canon = seen_unmatched_by_key[k]
+
+        if canon is not None:
+            # Surplus duplicate record found!
+            surplus_gstr1_records.append(u_rec)
+            duplicate_groups_set.add(k)
+
+            diffs = []
+            if _safe_int(u_rec.get("taxable_amount_paise")) != _safe_int(canon.get("taxable_amount_paise")):
+                diffs.append("taxable_amount")
+            if _safe_int(u_rec.get("total_tax_paise")) != _safe_int(canon.get("total_tax_paise")):
+                diffs.append("total_tax")
+            if _safe_int(u_rec.get("igst_paise")) != _safe_int(canon.get("igst_paise")):
+                diffs.append("igst")
+            if _safe_int(u_rec.get("cgst_paise")) != _safe_int(canon.get("cgst_paise")):
+                diffs.append("cgst")
+            if _safe_int(u_rec.get("sgst_paise")) != _safe_int(canon.get("sgst_paise")):
+                diffs.append("sgst")
+
+            if not diffs:
+                identical_dup_count += 1
+                duplicate_mismatch_results.append(classify_duplicate_identical(u_rec, canon))
+            else:
+                conflict_dup_count += 1
+                duplicate_mismatch_results.append(classify_duplicate_conflict(u_rec, canon, diffs))
+        else:
+            if k[2]:
+                seen_unmatched_by_key[k] = u_rec
+            unmatched_gstr1.append(u_rec)
+
     _log.info(
-        "gstr1_reconcile: matching done — %d matched, %d unmatched_sr, %d unmatched_gstr1, %d b2cs_matches",
-        len(matched_pairs), len(unmatched_sr), len(unmatched_gstr1), len(b2cs_matches),
+        "gstr1_reconcile: matching done — %d matched, %d unmatched_sr, %d unmatched_gstr1 (genuine extra), "
+        "%d surplus duplicates (%d identical, %d conflicting), %d b2cs_matches",
+        len(matched_pairs), len(unmatched_sr), len(unmatched_gstr1),
+        len(surplus_gstr1_records), identical_dup_count, conflict_dup_count, len(b2cs_matches),
     )
 
     # ── Step 3: Classify mismatches ───────────────────────────────────────
@@ -1244,6 +1328,8 @@ async def _run_pipeline(
     )
     if b2cs_mismatches:
         mismatch_results = list(mismatch_results) + list(b2cs_mismatches)
+    if duplicate_mismatch_results:
+        mismatch_results = list(mismatch_results) + list(duplicate_mismatch_results)
 
     # Route prior-period unresolved source documents to Review Required
     for sr_rec in unmatched_sr_prior_unresolved:
@@ -1384,8 +1470,10 @@ async def _run_pipeline(
         except Exception:
             pass
 
+    surplus_g1_ids = {id(r) for r in surplus_gstr1_records}
+    gstr1_for_tieout = [r for r in gstr1_records_all if id(r) not in surplus_g1_ids]
     tie_out = reconcile_gstr1_vs_3b(
-        gstr1_records_all,
+        gstr1_for_tieout,
         parsed_gstr3b,
         filing_frequency=filing_freq,
         prior_records=prior_gstr1_records,
@@ -1498,6 +1586,10 @@ async def _run_pipeline(
             "missing_in_gstr1_count": len(unmatched_sr_current),
             "amendment_accounted_source_count": len(accounted_amendment_sr_ids),
             "unmatched_gstr1_count": len(unmatched_gstr1),
+            "duplicate_gstr1_group_count": len(duplicate_groups_set),
+            "duplicate_gstr1_record_count": len(surplus_gstr1_records),
+            "identical_duplicate_count": identical_dup_count,
+            "conflicting_duplicate_count": conflict_dup_count,
             "reconciliation_mismatch_count": len(reconciliation_mismatches),
             "review_required_count": len(review_required_items),
             "series_compliance_warning_count": len(series_compliance_warnings),
@@ -1542,6 +1634,7 @@ async def _run_pipeline(
         "amendments": [a.to_dict() for a in amendment_recon.get("canonical_amendments", [])],
         "amendment_chains": amendment_recon.get("chains_summary", []),
         "documents_issued": documents_issued,
+        "duplicates": [_mismatch_result_to_dict(m) for m in duplicate_mismatch_results],
         "tie_out": tie_out_output,
         "parse_diagnostics": {
             "sr": {

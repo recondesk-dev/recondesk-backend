@@ -246,6 +246,8 @@ class MismatchType(str, Enum):
     DOCUMENTS_ISSUED_SUMMARY = "G1M10_DOCUMENTS_ISSUED_SUMMARY"
     AMENDMENT_REQUIRED = "G1M11_AMENDMENT_REQUIRED"
     DATE_OUTSIDE_TOLERANCE = "G1M12_DATE_OUTSIDE_TOLERANCE"
+    DUPLICATE_IDENTICAL = "G1M_DUPLICATE_IDENTICAL"
+    DUPLICATE_CONFLICT = "G1M_DUPLICATE_CONFLICT"
 
 
 class MismatchSeverity(str, Enum):
@@ -706,6 +708,121 @@ def classify_extra_invoice(
             "invoice_date": inv_date.isoformat() if inv_date else None,
             "matched_fields": [],
             "differed_fields": ["presence"],
+        },
+    )
+
+
+def classify_duplicate_identical(
+    gstr1_rec: Mapping[str, Any],
+    canonical_rec: Mapping[str, Any] | None = None,
+) -> MismatchResult:
+    """G1M_DUPLICATE_IDENTICAL — Duplicate GSTR-1 record identical in all statutory values."""
+    inv = str(
+        _get_field(
+            gstr1_rec,
+            "inum",
+            "nt_num",
+            "invoice_number_raw",
+            "invoice_number",
+            "invoice_number_normalized",
+        )
+        or "?"
+    )
+    gstin, recipient_label = _recipient_from_record(
+        gstr1_rec, "recipient_gstin", "gstin",
+    )
+    taxable = _safe_int(gstr1_rec.get("taxable_amount_paise"))
+    total_tax = _safe_int(gstr1_rec.get("total_tax_paise"))
+    inv_date = _parse_date(gstr1_rec.get("invoice_date") or gstr1_rec.get("idt"))
+    doc_type = str(gstr1_rec.get("doc_type") or gstr1_rec.get("document_type") or "INVOICE")
+
+    return MismatchResult(
+        mismatch_type=MismatchType.DUPLICATE_IDENTICAL,
+        severity=MismatchSeverity.WARNING,
+        decision_what=(
+            f"DUPLICATE GSTR-1 ENTRY (IDENTICAL): Document {inv} is reported multiple times in GSTR-1 with identical values"
+        ),
+        decision_why=(
+            f"Document {inv} (taxable {_rs(taxable)}, tax {_rs(total_tax)}) was filed more than once "
+            f"in GSTR-1 under {recipient_label} with identical values. Counting both records would inflate statutory liability."
+        ),
+        decision_next=(
+            f"Verify if Document {inv} was inadvertently filed twice on the GST portal. "
+            f"Retain the canonical filing and remove or amend the duplicate entry."
+        ),
+        rule_id="G1M_DUPLICATE_IDENTICAL",
+        gst_ref="Section 37 CGST Act / Rule 59",
+        details={
+            "invoice_number": inv,
+            "document_type": doc_type,
+            "recipient_gstin": gstin,
+            "taxable_amount_paise": taxable,
+            "total_tax_paise": total_tax,
+            "invoice_date": inv_date.isoformat() if inv_date else None,
+            "matched_fields": ["invoice_number", "recipient_gstin", "invoice_date", "document_type", "amounts"],
+            "differed_fields": [],
+            "duplicate_type": "IDENTICAL",
+        },
+    )
+
+
+def classify_duplicate_conflict(
+    gstr1_rec: Mapping[str, Any],
+    canonical_rec: Mapping[str, Any],
+    differed_fields: Sequence[str] | None = None,
+) -> MismatchResult:
+    """G1M_DUPLICATE_CONFLICT — Duplicate GSTR-1 record with conflicting values (review required)."""
+    inv = str(
+        _get_field(
+            gstr1_rec,
+            "inum",
+            "nt_num",
+            "invoice_number_raw",
+            "invoice_number",
+            "invoice_number_normalized",
+        )
+        or "?"
+    )
+    gstin, recipient_label = _recipient_from_record(
+        gstr1_rec, "recipient_gstin", "gstin",
+    )
+    dup_tx = _safe_int(gstr1_rec.get("taxable_amount_paise"))
+    canon_tx = _safe_int(canonical_rec.get("taxable_amount_paise"))
+    dup_tax = _safe_int(gstr1_rec.get("total_tax_paise"))
+    canon_tax = _safe_int(canonical_rec.get("total_tax_paise"))
+    inv_date = _parse_date(gstr1_rec.get("invoice_date") or gstr1_rec.get("idt"))
+    doc_type = str(gstr1_rec.get("doc_type") or gstr1_rec.get("document_type") or "INVOICE")
+    diffs = list(differed_fields or ["taxable_amount", "total_tax"])
+
+    return MismatchResult(
+        mismatch_type=MismatchType.DUPLICATE_CONFLICT,
+        severity=MismatchSeverity.HIGH,
+        decision_what=(
+            f"REVIEW REQUIRED — DUPLICATE GSTR-1 CONFLICT: Document {inv} is reported multiple times in GSTR-1 with conflicting values"
+        ),
+        decision_why=(
+            f"GSTR-1 contains conflicting records for document {inv} under {recipient_label}: "
+            f"canonical taxable {_rs(canon_tx)} / tax {_rs(canon_tax)} vs duplicate taxable "
+            f"{_rs(dup_tx)} / tax {_rs(dup_tax)}. Conflicting fields: {', '.join(diffs)}."
+        ),
+        decision_next=(
+            f"Review books and portal entries for Document {inv}. Determine the legally binding "
+            f"transaction value and file a Table 9 amendment or cancellation as necessary."
+        ),
+        rule_id="G1M_DUPLICATE_CONFLICT",
+        gst_ref="Section 37 & 39 CGST Act",
+        details={
+            "invoice_number": inv,
+            "document_type": doc_type,
+            "recipient_gstin": gstin,
+            "taxable_amount_paise": dup_tx,
+            "total_tax_paise": dup_tax,
+            "canonical_taxable_paise": canon_tx,
+            "canonical_tax_paise": canon_tax,
+            "invoice_date": inv_date.isoformat() if inv_date else None,
+            "matched_fields": ["invoice_number", "recipient_gstin", "invoice_date", "document_type"],
+            "differed_fields": diffs,
+            "duplicate_type": "CONFLICT",
         },
     )
 

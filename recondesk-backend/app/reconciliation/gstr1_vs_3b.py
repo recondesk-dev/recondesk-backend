@@ -27,7 +27,7 @@ from app.rules.gstr1_mismatch_rules import (
     _rs,
     _safe_int,
 )
-from app.services.matcher import normalise_inv_no, _is_credit_note
+from app.services.matcher import normalise_inv_no, normalize_invoice, _is_credit_note
 
 _log = logging.getLogger(__name__)
 
@@ -127,6 +127,53 @@ def _records_preferring_amendments(
         if key and key in keys_with_amendment and not _is_amendment_row(rec):
             continue
         out.append(rec)
+    return out
+
+
+def _records_deduplicated_for_liability(
+    records: Sequence[Mapping[str, Any]],
+) -> list[Mapping[str, Any]]:
+    """Deduplicate GSTR-1 records for statutory Table 3.1 liability calculation.
+
+    Under GST statutory rules (Section 37 / Rule 59), each invoice / note represents
+    a unique taxable document. Duplicate portal entries sharing the same statutory identity:
+      (section, recipient_gstin, normalized_invoice_number, invoice_date, document_type)
+    must not double-count tax liability against GSTR-3B.
+    Deterministic retention: the canonical (first) entry is retained, and surplus duplicate
+    entries are omitted from liability aggregation.
+    """
+    seen_keys: set[tuple] = set()
+    out: list[Mapping[str, Any]] = []
+
+    for rec in records:
+        sec = str(rec.get("section") or "").lower().strip()
+        # Aggregates without invoice numbers (b2cs, doc_issue, nil) are preserved
+        if sec in _EXCLUDED_SECTIONS or sec in ("b2cs", "b2csa"):
+            out.append(rec)
+            continue
+
+        raw_inv = (
+            rec.get("invoice_number_raw")
+            or rec.get("invoice_number")
+            or rec.get("inum")
+            or rec.get("nt_num")
+            or ""
+        )
+        norm_inv = normalize_invoice(str(raw_inv).strip())
+        if not norm_inv:
+            out.append(rec)
+            continue
+
+        gstin = str(rec.get("recipient_gstin") or rec.get("ctin") or "").strip().upper()
+        idt = str(rec.get("invoice_date") or rec.get("idt") or "")[:10]
+        dtype = str(rec.get("doc_type") or rec.get("document_type") or rec.get("inv_typ") or "INVOICE").strip().upper()
+
+        key = (sec, gstin, norm_inv, idt, dtype)
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        out.append(rec)
+
     return out
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -492,7 +539,7 @@ def aggregate_gstr1(
             if raw_k and raw_k not in prior_by_key:
                 prior_by_key[raw_k] = pr
 
-    for rec in _records_preferring_amendments(records):
+    for rec in _records_deduplicated_for_liability(_records_preferring_amendments(records)):
         section = str(rec.get("section", "")).lower().strip()
 
         # Handle informational sections

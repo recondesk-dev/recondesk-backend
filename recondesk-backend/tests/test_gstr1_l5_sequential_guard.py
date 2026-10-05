@@ -220,7 +220,9 @@ from app.routers.gstr1_reconcile import _run_pipeline
 @pytest.mark.asyncio
 async def test_fuzz_2000_regression_full_pipeline():
     """Verify all 2,000 fuzz test requirements end-to-end on benchmark dataset."""
-    data_dir = Path("benchmark_data/fuzz_2000")
+    data_dir = Path(__file__).resolve().parents[2] / "benchmark_data" / "fuzz_2000"
+    if not (data_dir / "sales_register_fuzz_2000.csv").exists():
+        data_dir = Path("benchmark_data/fuzz_2000")
     if not (data_dir / "sales_register_fuzz_2000.csv").exists():
         pytest.skip("Benchmark fuzz dataset not present in benchmark_data/fuzz_2000")
 
@@ -243,14 +245,17 @@ async def test_fuzz_2000_regression_full_pipeline():
     assert summary["gstr1_total_records"] == 1917
     assert summary["matched_count"] == 1864
     assert summary["unmatched_sr_count"] == 35  # 20 missing B2B + 15 GSTIN mismatch
-    assert summary["unmatched_gstr1_count"] == 51  # 15 dup + 20 extra + 15 GSTIN + 1 July INV1
+    # 51 surplus portal records partitioned into 16 genuine extras + 35 duplicates
+    assert summary["unmatched_gstr1_count"] == 16
+    assert summary["duplicate_gstr1_record_count"] == 35
     assert summary["tie_out_clean"] is False
     assert summary["tie_out_variance_count"] == 5
 
     from collections import Counter
     mtypes = Counter(m["mismatch_type"] for m in res["mismatches"])
     assert mtypes["G1M1_MISSING_INVOICE"] == 35
-    assert mtypes["G1M2_EXTRA_INVOICE"] == 51
+    assert mtypes["G1M2_EXTRA_INVOICE"] == 16
+    assert mtypes["G1M_DUPLICATE_IDENTICAL"] == 35
     assert mtypes["G1M5_RATE_MISMATCH"] == 15  # Exactly the 15 intentional rate mismatches!
     assert mtypes["G1M3_AMOUNT_MISMATCH"] == 61  # 25 taxable + 24 tax + 10 B2CL + 1 B2CS + 1 date tax
 
