@@ -1,0 +1,45 @@
+{
+  "gstin": "27ISKPK1273H1ZF",
+  "ret_period": "092026",
+  "sup_details": {
+    "osup_det": {
+      "txval": 1056700187.56,
+      "iamt": 77570394.6,
+      "camt": 45535422.44,
+      "samt": 45535421.89,
+      "csamt": 52231.97
+    },
+    "osup_zero": {
+      "txval": 42185454.32,
+      "iamt": 4507429.48,
+      "camt": 0.0,
+      "samt": 0.0,
+      "csamt": 0.0
+    },
+    "osup_nil_exmp": {
+      "txval": 0.0,
+      "iamt": 0.0,
+      "camt": 0.0,
+      "samt": 0.0,
+      "csamt": 0.0
+    },
+    "isup_rev": {
+      "txval": 0.0,
+      "iamt": 0.0,
+      "camt": 0.0,
+      "samt": 0.0,
+      "csamt": 0.0
+    },
+    "osup_nongst": {
+      "txval": 0.0,
+      "iamt": 0.0,
+      "camt": 0.0,
+      "samt": 0.0,
+      "csamt": 0.0
+    }
+  },
+  "_test_metadata": {
+    "expected_31a_gstr1_minus_gstr3b": -27500.0,
+    "expected_31b_gstr1_minus_gstr3b": 12500.0
+  }
+}

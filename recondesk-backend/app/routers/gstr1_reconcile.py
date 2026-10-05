@@ -74,6 +74,7 @@ from app.rules.gstr1_mismatch_rules import (
     _amendment_invoice_key,
     classify_duplicate_identical,
     classify_duplicate_conflict,
+    classify_sr_unmatched_exceptions,
     MismatchResult,
     MismatchType,
     MismatchSeverity,
@@ -157,7 +158,7 @@ def _categorize_mismatch(mr: MismatchResult) -> str:
         return "info_notice"
     if mtype in ("G1M8_INVOICE_SERIES_ISSUE", "G1M10_DOCUMENTS_ISSUED_SUMMARY"):
         return "compliance_warning"
-    if mtype in ("G1M3_AMOUNT_MISMATCH", "G1M12_DATE_OUTSIDE_TOLERANCE") or mr.details.get("requires_review"):
+    if mtype in ("G1M3_AMOUNT_MISMATCH", "G1M12_DATE_OUTSIDE_TOLERANCE", "G1D2_DUPLICATE_CONFLICT") or mr.details.get("requires_review"):
         return "review_required"
     return "reconciliation_mismatch"
 
@@ -1316,12 +1317,33 @@ async def _run_pipeline(
         else:
             unmatched_sr_current.append(r)
 
+    # Classify unmatched SR exceptions into identical duplicates, conflicting duplicates,
+    # cancelled/reissued originals, and genuine missing in GSTR-1
+    (
+        sr_identical_dups,
+        sr_conflict_dups,
+        sr_cancelled_reissued,
+        genuine_missing_sr,
+    ) = classify_sr_unmatched_exceptions(
+        unmatched_sr=unmatched_sr_current,
+        matched_pairs=matched_pairs,
+    )
+
+    # Map each exception MismatchResult to its corresponding raw SR record for output enrichment
+    sr_by_mr_id: dict[int, dict[str, Any]] = {}
+    for sr_rec, mr in sr_identical_dups:
+        sr_by_mr_id[id(mr)] = sr_rec
+    for sr_rec, mr in sr_conflict_dups:
+        sr_by_mr_id[id(mr)] = sr_rec
+    for sr_rec, mr in sr_cancelled_reissued:
+        sr_by_mr_id[id(mr)] = sr_rec
+
     matched_for_mismatch = [
         (sr, g1) for sr, g1, _ in matched_pairs
         if g1 and str(g1.get("section") or "").lower() not in ("b2cs", "b2csa")
     ]
     mismatch_results = classify_all_mismatches(
-        unmatched_sr=unmatched_sr_current,
+        unmatched_sr=genuine_missing_sr,
         unmatched_gstr1=unmatched_gstr1,
         matched_pairs=matched_for_mismatch,
         gstr1_filing_period=gstr1_filing_period,
@@ -1330,6 +1352,14 @@ async def _run_pipeline(
         mismatch_results = list(mismatch_results) + list(b2cs_mismatches)
     if duplicate_mismatch_results:
         mismatch_results = list(mismatch_results) + list(duplicate_mismatch_results)
+
+    # Add duplicate and cancel/reissue source exception results
+    for _, mr in sr_identical_dups:
+        mismatch_results.append(mr)
+    for _, mr in sr_conflict_dups:
+        mismatch_results.append(mr)
+    for _, mr in sr_cancelled_reissued:
+        mismatch_results.append(mr)
 
     # Route prior-period unresolved source documents to Review Required
     for sr_rec in unmatched_sr_prior_unresolved:
@@ -1521,18 +1551,25 @@ async def _run_pipeline(
         elif cat == "info_notice":
             informational_notices.append(d)
 
-        if mr.mismatch_type.value == "G1M1_MISSING_INVOICE":
-            # Find the corresponding SR record
-            inv_num = mr.details.get("invoice_number", "?")
-            norm_inv = normalise_inv_no(inv_num)
-            sr_match = next(
-                (r for r in unmatched_sr
-                 if (norm_inv and normalise_inv_no(_extract_doc_number(r)) == norm_inv)
-                 or (r.get("invoice_number") or r.get("invoice_number_normalized")) == inv_num),
-                None,
-            )
+        if mr.mismatch_type.value in (
+            "G1M1_MISSING_INVOICE",
+            "G1D1_DUPLICATE_IDENTICAL",
+            "G1D2_DUPLICATE_CONFLICT",
+            "G1C1_CANCEL_REISSUE",
+        ):
+            # Prefer the exact original SR record if tracked via sr_by_mr_id
+            sr_match = sr_by_mr_id.get(id(mr))
+            if not sr_match:
+                inv_num = mr.details.get("invoice_number", "?")
+                norm_inv = normalise_inv_no(inv_num)
+                sr_match = next(
+                    (r for r in unmatched_sr
+                     if (norm_inv and normalise_inv_no(_extract_doc_number(r)) == norm_inv)
+                     or (r.get("invoice_number") or r.get("invoice_number_normalized")) == inv_num),
+                    None,
+                )
             unmatched_sr_output.append({
-                "record": _sanitise_record(sr_match) if sr_match else {"invoice_number": inv_num},
+                "record": _sanitise_record(sr_match) if sr_match else {"invoice_number": mr.details.get("invoice_number", "?")},
                 **d,
             })
         elif mr.mismatch_type.value == "G1M2_EXTRA_INVOICE":
@@ -1584,13 +1621,20 @@ async def _run_pipeline(
             ) if sr_records else 100.0,
             "b2cs_reconciliation_status": b2cs_recon.status,
             "unmatched_sr_count": len(unmatched_sr_current),
-            "missing_in_gstr1_count": len(unmatched_sr_current),
+            "missing_in_gstr1_count": len(genuine_missing_sr),
+            "genuine_missing_count": len(genuine_missing_sr),
+            "duplicate_identical_count": len(sr_identical_dups) + identical_dup_count,
+            "duplicate_conflict_count": len(sr_conflict_dups) + conflict_dup_count,
+            "duplicate_sr_identical_count": len(sr_identical_dups),
+            "duplicate_sr_conflict_count": len(sr_conflict_dups),
+            "duplicate_postings_count": len(sr_identical_dups) + len(sr_conflict_dups),
+            "cancelled_reissued_count": len(sr_cancelled_reissued),
             "amendment_accounted_source_count": len(accounted_amendment_sr_ids),
             "unmatched_gstr1_count": len(unmatched_gstr1),
             "duplicate_gstr1_group_count": len(duplicate_groups_set),
             "duplicate_gstr1_record_count": len(surplus_gstr1_records),
-            "identical_duplicate_count": identical_dup_count,
-            "conflicting_duplicate_count": conflict_dup_count,
+            "identical_duplicate_count": len(sr_identical_dups) + identical_dup_count,
+            "conflicting_duplicate_count": len(sr_conflict_dups) + conflict_dup_count,
             "reconciliation_mismatch_count": len(reconciliation_mismatches),
             "review_required_count": len(review_required_items),
             "series_compliance_warning_count": len(series_compliance_warnings),

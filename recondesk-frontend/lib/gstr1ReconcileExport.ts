@@ -72,7 +72,8 @@ function unmatchedCsvRows(rows: Gstr1UnmatchedRow[]): unknown[][] {
   return rows.map((row) => {
     const rec = row.record || {};
     return [
-      mismatchTypeShort(row.mismatch_type),
+      (row as any).outcome_code || mismatchTypeShort(row.mismatch_type),
+      (row as any).outcome_category || row.category || "",
       row.mismatch_severity || "",
       excelTextQuote(recordInvoiceNumber(rec)),
       recordGstin(rec) || row.recipient_gstin || "B2C",
@@ -81,6 +82,7 @@ function unmatchedCsvRows(rows: Gstr1UnmatchedRow[]): unknown[][] {
       row.decision_what || "",
       row.decision_why || "",
       row.decision_next || "",
+      (row as any).linked_invoice_number || (row as any).replacement_invoice_number || "",
     ];
   });
 }
@@ -103,6 +105,11 @@ export function downloadGstr1ExcelReport(result: Gstr1ReconcileResult): void {
         ["coverage_percentage", `${result.summary.coverage_percentage ?? 0}%`],
         ["b2cs_reconciliation_status", result.summary.b2cs_reconciliation_status ?? "N/A"],
         ["matched_count", result.summary.matched_count],
+        ["missing_in_gstr1_count", result.summary.missing_in_gstr1_count ?? result.summary.unmatched_sr_count],
+        ["duplicate_postings_count", result.summary.duplicate_postings_count ?? 0],
+        ["duplicate_identical_count", result.summary.duplicate_identical_count ?? 0],
+        ["duplicate_conflict_count", result.summary.duplicate_conflict_count ?? 0],
+        ["cancelled_reissued_count", result.summary.cancelled_reissued_count ?? 0],
         ["unmatched_sr_count", result.summary.unmatched_sr_count],
         ["unmatched_gstr1_count", result.summary.unmatched_gstr1_count],
         ["mismatch_count", result.summary.mismatch_count],
@@ -154,11 +161,12 @@ export function downloadGstr1ExcelReport(result: Gstr1ReconcileResult): void {
     )
   );
 
-  sections.push("\n=== Missing in GSTR-1 (G1M1) ===");
+  sections.push("\n=== Source Exceptions / Missing in GSTR-1 ===");
   sections.push(
     rowsToCsv(
       [
-        "type",
+        "outcome_code",
+        "outcome_category",
         "severity",
         "invoice",
         "gstin",
@@ -167,6 +175,7 @@ export function downloadGstr1ExcelReport(result: Gstr1ReconcileResult): void {
         "what",
         "why",
         "next",
+        "linked_invoice",
       ],
       unmatchedCsvRows(result.unmatched_sr || [])
     )

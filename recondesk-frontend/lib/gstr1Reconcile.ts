@@ -21,6 +21,9 @@ export type Gstr1MismatchType =
   | "G1M9_HSN_RATE_ISSUE"
   | "G1M10_DOCUMENTS_ISSUED_SUMMARY"
   | "G1M11_AMENDMENT_REQUIRED"
+  | "G1D1_DUPLICATE_IDENTICAL"
+  | "G1D2_DUPLICATE_CONFLICT"
+  | "G1C1_CANCEL_REISSUE"
   | string;
 
 export type Gstr1aEligibility =
@@ -198,6 +201,14 @@ export type Gstr1ReconcileSummary = {
   coverage_percentage?: number;
   b2cs_reconciliation_status?: string;
   unmatched_sr_count: number;
+  missing_in_gstr1_count?: number;
+  genuine_missing_count?: number;
+  duplicate_identical_count?: number;
+  duplicate_conflict_count?: number;
+  duplicate_sr_identical_count?: number;
+  duplicate_sr_conflict_count?: number;
+  duplicate_postings_count?: number;
+  cancelled_reissued_count?: number;
   unmatched_gstr1_count: number;
   mismatch_count: number;
   reconciliation_mismatch_count?: number;
@@ -414,13 +425,14 @@ export function filterReviewRequired(
 }
 
 /**
- * Map full mismatch_type (e.g. G1M10_DOCUMENTS_ISSUED_SUMMARY) → short code.
- * Uses digit capture so G1M10/G1M11 are not misread as G1M1.
+ * Map full mismatch_type (e.g. G1M10_DOCUMENTS_ISSUED_SUMMARY, G1D1_DUPLICATE_IDENTICAL) → short code.
+ * Uses pattern capture so G1M10/G1M11 are not misread as G1M1, and G1D1/G1D2/G1C1 are mapped.
  */
 export function mismatchTypeShort(type: string | undefined): string {
   if (!type) return "—";
-  const m = String(type).match(/G1M(\d+)/i);
-  if (m) return `G1M${m[1]}`;
+  const str = String(type);
+  const m = str.match(/(G1[MDC]\d+)/i);
+  if (m) return m[1].toUpperCase();
   return type;
 }
 

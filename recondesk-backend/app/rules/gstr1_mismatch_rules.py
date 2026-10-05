@@ -227,6 +227,50 @@ REGISTRY.register(RuleDefinition(
     tags=["gstr1", "date", "tolerance", "mismatch"],
 ))
 
+REGISTRY.register(RuleDefinition(
+    id="G1D1",
+    name="Duplicate ERP Posting (Identical)",
+    category=RuleCategory.REPORTING,
+    severity=RuleSeverity.MEDIUM,
+    description=(
+        "Duplicate Sales Register posting detected. Another identical copy of this "
+        "invoice is already accounted for in GSTR-1. This row has been quarantined "
+        "and does not represent additional unreported tax."
+    ),
+    gst_ref="Section 37 CGST Act / Rule 59",
+    applies_to=["sales_register"],
+    tags=["sales_register", "duplicate", "g1d1", "identical"],
+))
+
+REGISTRY.register(RuleDefinition(
+    id="G1D2",
+    name="Conflicting Duplicate Posting (ERP)",
+    category=RuleCategory.REPORTING,
+    severity=RuleSeverity.HIGH,
+    description=(
+        "Multiple Sales Register records share the same invoice identity but contain "
+        "conflicting values. One economic invoice is represented in GSTR-1; review the "
+        "duplicate source postings before taking tax action."
+    ),
+    gst_ref="Section 37 CGST Act / Rule 59",
+    applies_to=["sales_register"],
+    tags=["sales_register", "duplicate", "g1d2", "conflict"],
+))
+
+REGISTRY.register(RuleDefinition(
+    id="G1C1",
+    name="Cancelled / Reissued Invoice",
+    category=RuleCategory.REPORTING,
+    severity=RuleSeverity.LOW,
+    description=(
+        "Original invoice appears to have been cancelled and replaced by a reissued "
+        "invoice that is accounted for in GSTR-1."
+    ),
+    gst_ref="Section 34 / Section 37 CGST Act",
+    applies_to=["sales_register"],
+    tags=["sales_register", "cancel", "reissue", "g1c1"],
+))
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Result types
@@ -248,6 +292,9 @@ class MismatchType(str, Enum):
     DATE_OUTSIDE_TOLERANCE = "G1M12_DATE_OUTSIDE_TOLERANCE"
     DUPLICATE_IDENTICAL = "G1M_DUPLICATE_IDENTICAL"
     DUPLICATE_CONFLICT = "G1M_DUPLICATE_CONFLICT"
+    DUPLICATE_ERP_IDENTICAL = "G1D1_DUPLICATE_IDENTICAL"
+    DUPLICATE_ERP_CONFLICT = "G1D2_DUPLICATE_CONFLICT"
+    CANCEL_REISSUE = "G1C1_CANCEL_REISSUE"
 
 
 class MismatchSeverity(str, Enum):
@@ -520,6 +567,8 @@ def classify_missing_invoice(
                 "invoice_date": inv_date.isoformat() if inv_date else None,
                 "matched_fields": [],
                 "differed_fields": ["presence"],
+                "outcome_code": "G1M1",
+                "outcome_category": "GENUINE_MISSING",
             },
         )
 
@@ -551,6 +600,8 @@ def classify_missing_invoice(
                 "invoice_date": inv_date.isoformat() if inv_date else None,
                 "matched_fields": [],
                 "differed_fields": ["presence"],
+                "outcome_code": "G1M1",
+                "outcome_category": "GENUINE_MISSING",
             },
         )
 
@@ -582,6 +633,8 @@ def classify_missing_invoice(
             "invoice_date": inv_date.isoformat() if inv_date else None,
             "matched_fields": [],
             "differed_fields": ["presence"],
+            "outcome_code": "G1M1",
+            "outcome_category": "GENUINE_MISSING",
         },
     )
 
@@ -646,6 +699,8 @@ def classify_extra_invoice(
                 "invoice_date": inv_date.isoformat() if inv_date else None,
                 "matched_fields": [],
                 "differed_fields": ["presence"],
+                "outcome_code": "G1M2",
+                "outcome_category": "EXTRA_IN_GSTR1",
             },
         )
 
@@ -678,6 +733,8 @@ def classify_extra_invoice(
                 "invoice_date": inv_date.isoformat() if inv_date else None,
                 "matched_fields": [],
                 "differed_fields": ["presence"],
+                "outcome_code": "G1M2",
+                "outcome_category": "EXTRA_IN_GSTR1",
             },
         )
 
@@ -708,6 +765,8 @@ def classify_extra_invoice(
             "invoice_date": inv_date.isoformat() if inv_date else None,
             "matched_fields": [],
             "differed_fields": ["presence"],
+            "outcome_code": "G1M2",
+            "outcome_category": "EXTRA_IN_GSTR1",
         },
     )
 
@@ -823,6 +882,226 @@ def classify_duplicate_conflict(
             "matched_fields": ["invoice_number", "recipient_gstin", "invoice_date", "document_type"],
             "differed_fields": diffs,
             "duplicate_type": "CONFLICT",
+        },
+    )
+
+
+def classify_duplicate_erp_identical(
+    sr_rec: Mapping[str, Any],
+    canonical_rec: Mapping[str, Any] | None = None,
+) -> MismatchResult:
+    """G1D1 — Duplicate Sales Register ERP record identical in all statutory values."""
+    inv = str(
+        _get_field(
+            sr_rec,
+            "invoice_number_raw",
+            "invoice_number",
+            "invoice_number_normalized",
+            "inum",
+            "nt_num",
+        )
+        or "?"
+    )
+    gstin, recipient_label = _recipient_from_record(
+        sr_rec, "recipient_gstin", "gstin",
+    )
+    taxable = _safe_int(sr_rec.get("taxable_amount_paise"))
+    total_tax = _safe_int(sr_rec.get("total_tax_paise"))
+    inv_date = _parse_date(sr_rec.get("invoice_date") or sr_rec.get("idt"))
+    doc_type = str(sr_rec.get("doc_type") or sr_rec.get("document_type") or "INVOICE")
+    canon_inv = str(
+        _get_field(
+            canonical_rec,
+            "invoice_number_raw",
+            "invoice_number",
+            "invoice_number_normalized",
+        )
+        or inv
+    ) if canonical_rec else inv
+
+    return MismatchResult(
+        mismatch_type=MismatchType.DUPLICATE_ERP_IDENTICAL,
+        severity=MismatchSeverity.WARNING,
+        decision_what=(
+            f"DUPLICATE ERP POSTING (IDENTICAL): Document {inv} is recorded multiple times in Sales Register with identical values"
+        ),
+        decision_why=(
+            f"Duplicate Sales Register posting detected. Another identical copy of this invoice ({canon_inv}) "
+            f"is already accounted for in GSTR-1 under {recipient_label}. "
+            f"This row has been quarantined and does not represent additional unreported tax."
+        ),
+        decision_next=(
+            f"Verify duplicate entry in ERP / Sales Register. Keep canonical invoice {canon_inv} "
+            f"and ensure duplicate posting is not double-counted in books."
+        ),
+        rule_id="G1D1",
+        gst_ref="Section 37 CGST Act / Rule 59",
+        details={
+            "invoice_number": inv,
+            "canonical_invoice_number": canon_inv,
+            "linked_invoice_number": canon_inv,
+            "outcome_code": "G1D1",
+            "outcome_category": "DUPLICATE_IDENTICAL",
+            "document_type": doc_type,
+            "recipient_gstin": gstin,
+            "taxable_amount_paise": taxable,
+            "total_tax_paise": total_tax,
+            "invoice_date": inv_date.isoformat() if inv_date else None,
+            "matched_fields": ["invoice_number", "recipient_gstin", "invoice_date", "document_type", "amounts"],
+            "differed_fields": [],
+            "duplicate_type": "IDENTICAL",
+        },
+    )
+
+
+def classify_duplicate_erp_conflict(
+    sr_rec: Mapping[str, Any],
+    canonical_rec: Mapping[str, Any],
+    differed_fields: Sequence[str] | None = None,
+) -> MismatchResult:
+    """G1D2 — Duplicate Sales Register ERP record with conflicting values (review required)."""
+    inv = str(
+        _get_field(
+            sr_rec,
+            "invoice_number_raw",
+            "invoice_number",
+            "invoice_number_normalized",
+            "inum",
+            "nt_num",
+        )
+        or "?"
+    )
+    gstin, recipient_label = _recipient_from_record(
+        sr_rec, "recipient_gstin", "gstin",
+    )
+    dup_tx = _safe_int(sr_rec.get("taxable_amount_paise"))
+    canon_tx = _safe_int(canonical_rec.get("taxable_amount_paise"))
+    dup_tax = _safe_int(sr_rec.get("total_tax_paise"))
+    canon_tax = _safe_int(canonical_rec.get("total_tax_paise"))
+    inv_date = _parse_date(sr_rec.get("invoice_date") or sr_rec.get("idt"))
+    doc_type = str(sr_rec.get("doc_type") or sr_rec.get("document_type") or "INVOICE")
+    canon_inv = str(
+        _get_field(
+            canonical_rec,
+            "invoice_number_raw",
+            "invoice_number",
+            "invoice_number_normalized",
+        )
+        or inv
+    )
+    diffs = list(differed_fields or ["taxable_amount", "total_tax"])
+
+    return MismatchResult(
+        mismatch_type=MismatchType.DUPLICATE_ERP_CONFLICT,
+        severity=MismatchSeverity.HIGH,
+        decision_what=(
+            f"REVIEW REQUIRED — CONFLICTING DUPLICATE POSTING: Document {inv} has multiple Sales Register records with conflicting values"
+        ),
+        decision_why=(
+            f"Multiple Sales Register records share the same invoice identity {inv} under {recipient_label} "
+            f"but contain conflicting values ({', '.join(diffs)}): surplus taxable {_rs(dup_tx)} / tax {_rs(dup_tax)} "
+            f"vs accounted canonical taxable {_rs(canon_tx)} / tax {_rs(canon_tax)}. "
+            f"One economic invoice is represented in GSTR-1; review the duplicate source postings before taking tax action."
+        ),
+        decision_next=(
+            f"Review books and source ERP entries for Document {inv}. Determine the correct legally binding "
+            f"transaction values and adjust books accordingly before taking tax action."
+        ),
+        rule_id="G1D2",
+        gst_ref="Section 37 & 39 CGST Act",
+        details={
+            "invoice_number": inv,
+            "canonical_invoice_number": canon_inv,
+            "linked_invoice_number": canon_inv,
+            "outcome_code": "G1D2",
+            "outcome_category": "DUPLICATE_CONFLICT",
+            "document_type": doc_type,
+            "recipient_gstin": gstin,
+            "taxable_amount_paise": dup_tx,
+            "total_tax_paise": dup_tax,
+            "canonical_taxable_paise": canon_tx,
+            "canonical_tax_paise": canon_tax,
+            "invoice_date": inv_date.isoformat() if inv_date else None,
+            "matched_fields": ["invoice_number", "recipient_gstin", "invoice_date", "document_type"],
+            "differed_fields": diffs,
+            "duplicate_type": "CONFLICT",
+            "requires_review": True,
+        },
+    )
+
+
+def classify_cancelled_reissued_invoice(
+    sr_rec: Mapping[str, Any],
+    replacement_rec: Mapping[str, Any] | None = None,
+    confidence: str = "HIGH",
+) -> MismatchResult:
+    """G1C1 — Cancelled / Reissued original invoice replaced by accounted invoice in GSTR-1."""
+    inv = str(
+        _get_field(
+            sr_rec,
+            "invoice_number_raw",
+            "invoice_number",
+            "invoice_number_normalized",
+            "inum",
+            "nt_num",
+        )
+        or "?"
+    )
+    gstin, recipient_label = _recipient_from_record(
+        sr_rec, "recipient_gstin", "gstin",
+    )
+    taxable = _safe_int(sr_rec.get("taxable_amount_paise"))
+    total_tax = _safe_int(sr_rec.get("total_tax_paise"))
+    inv_date = _parse_date(sr_rec.get("invoice_date") or sr_rec.get("idt"))
+    doc_type = str(sr_rec.get("doc_type") or sr_rec.get("document_type") or "INVOICE")
+    repl_inv = str(
+        _get_field(
+            replacement_rec,
+            "invoice_number_raw",
+            "invoice_number",
+            "invoice_number_normalized",
+        )
+        or "?"
+    ) if replacement_rec else "?"
+
+    is_high_conf = (confidence == "HIGH")
+    severity = MismatchSeverity.INFO if is_high_conf else MismatchSeverity.MEDIUM
+
+    return MismatchResult(
+        mismatch_type=MismatchType.CANCEL_REISSUE,
+        severity=severity,
+        decision_what=(
+            f"CANCELLED / REISSUED INVOICE: Original invoice {inv} was cancelled and replaced by {repl_inv}"
+            if is_high_conf
+            else f"REVIEW REQUIRED — CANCELLED / REISSUED INVOICE: Invoice {inv} may be replaced by {repl_inv}"
+        ),
+        decision_why=(
+            f"Original invoice {inv} appears to have been cancelled and replaced by a reissued invoice "
+            f"({repl_inv}) that is accounted for in GSTR-1 under {recipient_label}."
+        ),
+        decision_next=(
+            f"Confirm cancellation of original invoice {inv} in ERP. Since replacement invoice {repl_inv} "
+            f"is accounted for in GSTR-1, no further output tax reporting is required."
+            if is_high_conf
+            else f"Verify whether invoice {inv} was cancelled and replaced by {repl_inv} before deciding on tax reporting."
+        ),
+        rule_id="G1C1",
+        gst_ref="Section 34 / Section 37 CGST Act",
+        details={
+            "invoice_number": inv,
+            "replacement_invoice_number": repl_inv,
+            "linked_invoice_number": repl_inv,
+            "outcome_code": "G1C1",
+            "outcome_category": "CANCEL_REISSUE",
+            "document_type": doc_type,
+            "recipient_gstin": gstin,
+            "taxable_amount_paise": taxable,
+            "total_tax_paise": total_tax,
+            "invoice_date": inv_date.isoformat() if inv_date else None,
+            "cancellation_confidence": confidence,
+            "requires_review": not is_high_conf,
+            "matched_fields": ["recipient_gstin", "amounts"] if is_high_conf else ["recipient_gstin"],
+            "differed_fields": ["invoice_number"],
         },
     )
 
@@ -3899,6 +4178,165 @@ def detect_amendments(
     return results
 
 
+def get_financial_year(dt: Any) -> str | None:
+    """Derive Indian Financial Year (e.g. '2026-27') from date.
+
+    Indian FY runs from 1 April to 31 March.
+    """
+    if not dt:
+        return None
+    s = str(dt)[:10].strip()
+    if len(s) < 10:
+        return None
+    try:
+        y, m, d = int(s[0:4]), int(s[5:7]), int(s[8:10])
+        return f"{y}-{(y + 1) % 100:02d}" if m >= 4 else f"{y - 1}-{y % 100:02d}"
+    except (ValueError, TypeError):
+        return None
+
+
+def classify_sr_unmatched_exceptions(
+    unmatched_sr: Sequence[Mapping[str, Any]],
+    matched_pairs: Sequence[tuple[Mapping[str, Any], Mapping[str, Any], Any]] | None = None,
+) -> tuple[
+    list[tuple[Mapping[str, Any], MismatchResult]],
+    list[tuple[Mapping[str, Any], MismatchResult]],
+    list[tuple[Mapping[str, Any], MismatchResult]],
+    list[Mapping[str, Any]],
+]:
+    """Partition unmatched Sales Register records into distinct business outcomes.
+
+    Run 11 exception classification:
+    1. Identical duplicate ERP surplus (G1D1): Same statutory identity, identical economics.
+    2. Conflicting duplicate ERP surplus (G1D2): Same statutory identity, conflicting economics.
+    3. Cancelled / reissued originals (G1C1): Cancelled invoice replaced by accounted invoice in GSTR-1.
+    4. Genuine missing in GSTR-1 (G1M1): Remaining unaccounted invoices.
+
+    Returns
+    -------
+    (identical_duplicates, conflicting_duplicates, cancelled_reissued, genuine_missing)
+    """
+    from app.services.matcher import normalize_invoice
+
+    def _sr_id_key(r: Mapping[str, Any]) -> tuple:
+        gstin = clean_buyer_gstin(_get_field(r, "recipient_gstin", "gstin")) or ""
+        raw_inv = _get_field(r, "invoice_number_raw", "invoice_number", "invoice_number_normalized", "inum")
+        norm_inv = normalize_invoice(str(raw_inv or "").strip())
+        dtype = str(r.get("doc_type") or r.get("document_type") or "INVOICE").strip().upper()
+        fy = get_financial_year(r.get("invoice_date")) or ""
+        return (norm_inv, gstin, dtype, fy)
+
+    matched_by_key: dict[tuple, list[Mapping[str, Any]]] = {}
+    matched_by_gstin: dict[str, list[Mapping[str, Any]]] = {}
+
+    for pair in matched_pairs or []:
+        sr_rec = pair[0]
+        if not sr_rec:
+            continue
+        k = _sr_id_key(sr_rec)
+        if k[0]:
+            matched_by_key.setdefault(k, []).append(sr_rec)
+        gstin = clean_buyer_gstin(_get_field(sr_rec, "recipient_gstin", "gstin")) or ""
+        if gstin:
+            matched_by_gstin.setdefault(gstin, []).append(sr_rec)
+
+    identical_duplicates: list[tuple[Mapping[str, Any], MismatchResult]] = []
+    conflicting_duplicates: list[tuple[Mapping[str, Any], MismatchResult]] = []
+    non_duplicate_candidates: list[Mapping[str, Any]] = []
+    seen_unmatched_by_key: dict[tuple, Mapping[str, Any]] = {}
+
+    # Phase 1: Duplicate ERP Detection
+    for u_rec in unmatched_sr:
+        k = _sr_id_key(u_rec)
+        if not k[0]:
+            non_duplicate_candidates.append(u_rec)
+            continue
+
+        canon: Mapping[str, Any] | None = None
+        if k in matched_by_key:
+            canon = matched_by_key[k][0]
+        elif k in seen_unmatched_by_key:
+            canon = seen_unmatched_by_key[k]
+
+        if canon is not None:
+            diffs = []
+            if _safe_int(u_rec.get("taxable_amount_paise")) != _safe_int(canon.get("taxable_amount_paise")):
+                diffs.append("taxable_amount")
+            if _safe_int(u_rec.get("total_tax_paise")) != _safe_int(canon.get("total_tax_paise")):
+                diffs.append("total_tax")
+            if _safe_int(u_rec.get("igst_paise")) != _safe_int(canon.get("igst_paise")):
+                diffs.append("igst")
+            if _safe_int(u_rec.get("cgst_paise")) != _safe_int(canon.get("cgst_paise")):
+                diffs.append("cgst")
+            if _safe_int(u_rec.get("sgst_paise")) != _safe_int(canon.get("sgst_paise")):
+                diffs.append("sgst")
+            if str(u_rec.get("place_of_supply") or "").strip() != str(canon.get("place_of_supply") or "").strip():
+                diffs.append("place_of_supply")
+
+            if not diffs:
+                identical_duplicates.append((u_rec, classify_duplicate_erp_identical(u_rec, canon)))
+            else:
+                conflicting_duplicates.append((u_rec, classify_duplicate_erp_conflict(u_rec, canon, diffs)))
+        else:
+            seen_unmatched_by_key[k] = u_rec
+            non_duplicate_candidates.append(u_rec)
+
+    # Phase 2: Cancel / Reissue Detection
+    cancelled_reissued: list[tuple[Mapping[str, Any], MismatchResult]] = []
+    genuine_missing: list[Mapping[str, Any]] = []
+
+    for r in non_duplicate_candidates:
+        r_gstin = clean_buyer_gstin(_get_field(r, "recipient_gstin", "gstin")) or ""
+        r_tx = _safe_int(r.get("taxable_amount_paise"))
+        r_tax = _safe_int(r.get("total_tax_paise"))
+        r_inv = str(_get_field(r, "invoice_number_raw", "invoice_number", "invoice_number_normalized", "inum") or "")
+        r_norm = normalize_invoice(r_inv)
+        r_date = _parse_date(r.get("invoice_date"))
+
+        candidates = matched_by_gstin.get(r_gstin, [])
+        found_reissue: tuple[Mapping[str, Any], str] | None = None
+
+        for m_sr in candidates:
+            m_tx = _safe_int(m_sr.get("taxable_amount_paise"))
+            m_tax = _safe_int(m_sr.get("total_tax_paise"))
+            if abs(m_tx - r_tx) <= 100 and abs(m_tax - r_tax) <= 100:
+                m_inv = str(_get_field(m_sr, "invoice_number_raw", "invoice_number", "invoice_number_normalized", "inum") or "")
+                m_norm = normalize_invoice(m_inv)
+                m_date = _parse_date(m_sr.get("invoice_date"))
+                days_diff = abs((m_date - r_date).days) if (m_date and r_date) else 0
+
+                if days_diff <= 45:
+                    has_reissue_num = False
+                    if m_norm.startswith(r_norm) or r_norm.startswith(m_norm):
+                        has_reissue_num = True
+                    else:
+                        for sfx in ("RE", "REV", "R", "CAN", "NEW", "CORR", "AMD"):
+                            if m_norm.endswith(sfx) and m_norm[:-len(sfx)] == r_norm:
+                                has_reissue_num = True
+                                break
+                            if r_norm.endswith(sfx) and r_norm[:-len(sfx)] == m_norm:
+                                has_reissue_num = True
+                                break
+
+                    status_text = str(r.get("status") or r.get("remarks") or r.get("document_status") or "").lower()
+                    has_status_keyword = "cancel" in status_text or "reissue" in status_text
+
+                    if has_reissue_num:
+                        found_reissue = (m_sr, "HIGH")
+                        break
+                    elif has_status_keyword:
+                        found_reissue = (m_sr, "MEDIUM")
+                        break
+
+        if found_reissue:
+            m_sr, conf = found_reissue
+            cancelled_reissued.append((r, classify_cancelled_reissued_invoice(r, m_sr, confidence=conf)))
+        else:
+            genuine_missing.append(r)
+
+    return identical_duplicates, conflicting_duplicates, cancelled_reissued, genuine_missing
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Public API
 # ──────────────────────────────────────────────────────────────────────────────
@@ -3916,6 +4354,13 @@ __all__ = [
     "classify_invalid_gstin",
     "classify_gstin_mismatch",
     "classify_tax_structure_mismatch",
+    "classify_duplicate_identical",
+    "classify_duplicate_conflict",
+    "classify_duplicate_erp_identical",
+    "classify_duplicate_erp_conflict",
+    "classify_cancelled_reissued_invoice",
+    "classify_sr_unmatched_exceptions",
+    "get_financial_year",
     "collect_unique_buyer_gstins",
     "clean_buyer_gstin",
     "gstin_format_ok",

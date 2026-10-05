@@ -585,9 +585,11 @@ export function Gstr1ResultsView({
             label="Missing in GSTR-1"
             accent="missed"
             emphasis="danger"
-            value={(mismatchCounts.G1M1 || summary.unmatched_sr_count).toLocaleString(
-              "en-IN"
-            )}
+            value={(
+              summary.missing_in_gstr1_count ??
+              mismatchCounts.G1M1 ??
+              summary.unmatched_sr_count
+            ).toLocaleString("en-IN")}
             subtext="G1M1 · under-reporting"
           />
           <StatCard
@@ -647,7 +649,22 @@ export function Gstr1ResultsView({
         {Object.keys(mismatchCounts).length > 0 ? (
           <div className="flex flex-wrap gap-2">
             {(
-              ["G1M1", "G1M2", "G1M3", "G1M4", "G1M5", "G1M6", "G1M7", "G1M8", "G1M9", "G1M10", "G1M11"] as const
+              [
+                "G1M1",
+                "G1M2",
+                "G1M3",
+                "G1M4",
+                "G1M5",
+                "G1M6",
+                "G1M7",
+                "G1M8",
+                "G1M9",
+                "G1M10",
+                "G1M11",
+                "G1D1",
+                "G1D2",
+                "G1C1",
+              ] as const
             ).map(
               (code) =>
                 mismatchCounts[code] ? (
@@ -673,7 +690,9 @@ export function Gstr1ResultsView({
           tabCounts={{
             matched: invoiceLevelMatchCount,
             review_required: summary.review_required_count ?? g1m3Count,
-            unmatched_sr: mismatchCounts.G1M1 || summary.unmatched_sr_count,
+            unmatched_sr:
+              summary.missing_in_gstr1_count ??
+              (mismatchCounts.G1M1 || summary.unmatched_sr_count),
             unmatched_gstr1: mismatchCounts.G1M2 || summary.unmatched_gstr1_count,
             series_warnings: seriesWarningsCount,
             tie_out: summary.tie_out_variance_count,
@@ -740,22 +759,46 @@ export function Gstr1ResultsView({
 
         {tab === "unmatched_sr" && (
           <section className={sectionContainerClass}>
-            <h2 className="mb-4 text-[15px] font-semibold tracking-tight text-[var(--ink)]">
-              Missing in GSTR-1{" "}
-              <span className="text-gray-400">
-                (
-                {(
-                  mismatchCounts.G1M1 || summary.unmatched_sr_count
-                ).toLocaleString("en-IN")}
-                )
-              </span>
-            </h2>
-            <p className="mb-4 text-[13px] text-gray-500">
-              Invoices in the Sales Register that were not found in GSTR-1
-              (G1M1 — under-reporting risk).
-            </p>
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h2 className="text-[15px] font-semibold tracking-tight text-[var(--ink)]">
+                  Missing in GSTR-1{" "}
+                  <span className="text-gray-400">
+                    (
+                    {(
+                      summary.missing_in_gstr1_count ??
+                      (mismatchCounts.G1M1 || summary.unmatched_sr_count)
+                    ).toLocaleString("en-IN")}
+                    )
+                  </span>
+                </h2>
+                <p className="mt-0.5 text-[13px] text-gray-500">
+                  Invoices in the Sales Register that were not found in GSTR-1
+                  (G1M1 — under-reporting risk).
+                </p>
+              </div>
+              {((summary.duplicate_postings_count ?? 0) > 0 || (summary.cancelled_reissued_count ?? 0) > 0) ? (
+                <div className="flex flex-wrap items-center gap-2 text-xs">
+                  {(summary.duplicate_postings_count ?? 0) > 0 ? (
+                    <span className="rounded-full bg-amber-50 px-2.5 py-0.5 font-medium text-amber-700">
+                      {summary.duplicate_postings_count} duplicate postings quarantined
+                    </span>
+                  ) : null}
+                  {(summary.cancelled_reissued_count ?? 0) > 0 ? (
+                    <span className="rounded-full bg-blue-50 px-2.5 py-0.5 font-medium text-blue-700">
+                      {summary.cancelled_reissued_count} cancelled/reissued accounted
+                    </span>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
             <UnmatchedCards
-              rows={result.unmatched_sr || []}
+              rows={(result.unmatched_sr || []).filter(
+                (r) =>
+                  !r.mismatch_type ||
+                  r.mismatch_type === "G1M1_MISSING_INVOICE" ||
+                  (r as any).outcome_code === "G1M1"
+              )}
               emptyTitle="No missing invoices"
               gstr1aWindow={gstr1aWindow}
             />
