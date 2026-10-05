@@ -1,8 +1,6 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { ArrowRight, Search, ListChecks } from "lucide-react";
-import styles from "./DecisionInvoiceCard.module.css";
 import { useLocale, useTranslations } from "next-intl";
 
 import { AmountDisplay } from "@/components/reconcile/ResultsUi";
@@ -23,15 +21,19 @@ function DecisionField({
   const text = value?.trim() || "—";
   const toneClass =
     tone === "action"
-      ? "font-semibold text-[var(--ink)]"
+      ? "font-semibold text-[#554260]"
       : tone === "muted"
-        ? "text-gray-500"
-        : "text-gray-700";
+        ? "text-[#594c66]"
+        : "text-[#342b40]";
+
+  const bgClass =
+    tone === "action"
+      ? "bg-[#f4f0fa] border-[#e8e0f1]"
+      : "bg-[#faf9fc] border-[#eee8f4]";
 
   return (
-    <div className={redesigned ? `${styles.field} ${tone === "action" ? styles.next : ""}` : "min-w-0 rounded-[8px] border border-[#F1F5F9] bg-[#F8FAFC] px-4 py-3"}>
-      {redesigned && <span className={styles.step} aria-hidden="true">{tone === "action" ? <ArrowRight size={16} /> : tone === "muted" ? <Search size={16} /> : <ListChecks size={16} />}</span>}
-      <p className={redesigned ? "text-xs font-semibold text-[#64748B]" : "text-[11px] font-bold uppercase tracking-[0.5px] text-[#64748B]"}>
+    <div className={`min-w-0 rounded-[8px] border px-4 py-3 ${bgClass}`}>
+      <p className="text-[11px] font-bold uppercase tracking-[0.5px] text-[#78608f]">
         {label}
       </p>
       <p className={`mt-1 text-[13px] leading-relaxed ${toneClass}`}>{text}</p>
@@ -91,10 +93,10 @@ export function DecisionInvoiceCard({
 
   return (
     <article
-      className={`${redesigned ? styles.invoice : ""} rounded-[10px] bg-white border transition-shadow ${
+      className={`rounded-[12px] bg-white border transition-shadow ${
         selected
-          ? "border-[#2563EB] ring-1 ring-[#2563EB]/20 shadow-sm"
-          : "border-[#E2E8F0] shadow-sm hover:shadow-md"
+          ? "border-[#78608f] ring-1 ring-[#78608f]/20 shadow-xs"
+          : "border-[#e8e0f1] shadow-xs hover:shadow-sm"
       }`}
     >
       <div className="flex flex-col gap-3.5 p-5">
@@ -163,10 +165,10 @@ export function DecisionInvoiceCard({
         </div>
 
         {/* Decision block — structured for CAs */}
-        <div className={redesigned ? styles.decision : "grid gap-2 sm:grid-cols-3"}>
-          <DecisionField redesigned={redesigned} label={t("whatIsWrong")} value={localizedWhat} />
-          <DecisionField redesigned={redesigned} label={t("whyItHappened")} value={localizedWhy} tone="muted" />
-          <DecisionField redesigned={redesigned} label={t("whatToDoNext")} value={localizedNext} tone="action" />
+        <div className="grid gap-2 sm:grid-cols-3">
+          <DecisionField label={t("whatIsWrong")} value={localizedWhat} />
+          <DecisionField label={t("whyItHappened")} value={localizedWhy} tone="muted" />
+          <DecisionField label={t("whatToDoNext")} value={localizedNext} tone="action" />
         </div>
 
         {expandedContent ? (

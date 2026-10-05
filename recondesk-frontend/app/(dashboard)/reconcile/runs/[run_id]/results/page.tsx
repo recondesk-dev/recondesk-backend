@@ -3115,7 +3115,7 @@ export default function ReconcileResultsPage() {
       {/* Context bar */}
       <div
         ref={summaryRef}
-        className="box-border w-full min-w-0 rounded-[10px] border border-[#E2E8F0] bg-white px-6 py-3.5 shadow-sm"
+        className={`${styles.context} box-border w-full min-w-0 rounded-[12px] border border-[#e8e0f1] bg-white px-6 py-3.5 shadow-xs`}
       >
         {/* Show skeleton while auth is initialising OR the fetch is in-flight */}
         {(authLoading || summaryLoading) && <SummarySkeleton />}
@@ -3138,21 +3138,21 @@ export default function ReconcileResultsPage() {
         {summary && !summaryError && (
           <div className="flex w-full flex-wrap items-center justify-between gap-3">
             <div className="flex min-w-0 flex-wrap items-center gap-2.5">
-              <div className="flex min-w-0 items-center gap-1.5 text-xs text-[#94A3B8]">
-                <Link href="/clients" className="shrink-0 hover:text-[#0F172A] transition-colors">
+              <div className="flex min-w-0 items-center gap-1.5 text-xs text-[#968ba2]">
+                <Link href="/clients" className="shrink-0 hover:text-[#342b40] transition-colors">
                   Clients
                 </Link>
-                <span className="shrink-0 text-[#94A3B8] font-semibold">›</span>
-                <span className="truncate font-semibold text-[#0F172A] max-w-[200px] sm:max-w-xs" title={summary.client_name ?? undefined}>
+                <span className="shrink-0 text-[#968ba2] font-semibold">›</span>
+                <span className="truncate font-semibold text-[#342b40] max-w-[200px] sm:max-w-xs" title={summary.client_name ?? undefined}>
                   {summary.client_name || "—"}
                 </span>
-                <span className="shrink-0 text-[#94A3B8] font-semibold">›</span>
-                <span className="shrink-0 font-medium text-[#475569]">
+                <span className="shrink-0 text-[#968ba2] font-semibold">›</span>
+                <span className="shrink-0 font-medium text-[#594c66]">
                   {formatPeriod(summary.period)}
                 </span>
               </div>
               {(summary.client_gstin || summary.client_gstin_id) && (
-                <span className="shrink-0 rounded border border-[#E2E8F0] bg-[#F8FAFC] px-2 py-0.5 font-mono text-[11px] tracking-wide text-[#94A3B8]">
+                <span className="shrink-0 rounded-full border border-[#e5dcee] bg-[#f0eaf7] px-2.5 py-0.5 font-mono text-[11px] font-semibold tracking-wide text-[#78608f]">
                   {summary.client_gstin || summary.client_gstin_id}
                 </span>
               )}
@@ -3162,7 +3162,7 @@ export default function ReconcileResultsPage() {
               <button
                 type="button"
                 disabled={excelDownloading}
-                className="inline-flex items-center gap-1.5 rounded-md border border-[#E2E8F0] bg-white px-3 py-1.5 text-xs font-medium text-[#475569] transition-colors hover:bg-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 rounded-[7px] border border-[#e5dcee] bg-white px-3 py-1.5 text-xs font-medium text-[#594c66] transition-colors hover:bg-[#faf8fc] disabled:cursor-not-allowed disabled:opacity-50"
                 onClick={() => void downloadExcelReport()}
               >
                 {excelDownloading ? (
@@ -3177,7 +3177,7 @@ export default function ReconcileResultsPage() {
               <button
                 type="button"
                 disabled={pdfDownloading}
-                className="inline-flex items-center gap-1.5 rounded-md border border-[#E2E8F0] bg-white px-3 py-1.5 text-xs font-medium text-[#475569] transition-colors hover:bg-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 rounded-[7px] border border-[#e5dcee] bg-white px-3 py-1.5 text-xs font-medium text-[#594c66] transition-colors hover:bg-[#faf8fc] disabled:cursor-not-allowed disabled:opacity-50"
                 onClick={() => void downloadPdfReport()}
               >
                 {pdfDownloading ? (
@@ -3193,7 +3193,7 @@ export default function ReconcileResultsPage() {
               {canDeleteRun && (
                 <button
                   type="button"
-                  className="inline-flex items-center gap-1.5 rounded-md border border-red-200 bg-white px-2 py-1.5 text-xs text-red-600 hover:bg-red-50"
+                  className="inline-flex items-center gap-1.5 rounded-[7px] border border-red-200 bg-white px-2 py-1.5 text-xs text-red-600 hover:bg-red-50"
                   title="Delete run"
                   onClick={() => {
                     setDeleteError(null);
@@ -3205,7 +3205,7 @@ export default function ReconcileResultsPage() {
               )}
               <Link
                 href={`/reconcile/runs/${runId}/gstr3b`}
-                className="inline-flex items-center gap-1.5 rounded-md border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-100 transition-colors whitespace-nowrap shadow-xs"
+                className="inline-flex items-center gap-1.5 rounded-[7px] border border-[#e5dcee] bg-[#faf8fc] px-3 py-1.5 text-xs font-semibold text-[#554260] hover:bg-[#f0eaf7] transition-colors whitespace-nowrap shadow-xs"
               >
                 <FileSpreadsheet className="h-3.5 w-3.5" />
                 GSTR-3B Table 4 Workpaper →
@@ -3213,13 +3213,13 @@ export default function ReconcileResultsPage() {
               {!isRunFinalized ? (
                 <button
                   type="button"
-                  className="rounded-md bg-[#DC2626] px-3.5 py-1.5 text-xs font-medium text-white transition-colors hover:bg-red-700 whitespace-nowrap"
+                  className="rounded-[7px] bg-[#342b40] px-3.5 py-1.5 text-xs font-medium text-white transition-colors hover:bg-[#231b2c] whitespace-nowrap shadow-xs"
                   onClick={() => setFinalizeModalOpen(true)}
                 >
                   Finalize Run
                 </button>
               ) : (
-                <span className="rounded-md bg-emerald-100 px-3 py-1.5 text-xs font-medium text-emerald-800 whitespace-nowrap">
+                <span className="rounded-[7px] bg-[#e7f8ee] border border-[#d1f2dd] px-3 py-1.5 text-xs font-medium text-[#237b51] whitespace-nowrap">
                   Finalized
                 </span>
               )}
@@ -3233,8 +3233,8 @@ export default function ReconcileResultsPage() {
           <div
             className={`rounded-[10px] border px-4 py-2.5 text-xs ${
               (summary.isd_itc_amount ?? 0) > 0
-                ? "border-emerald-300 bg-emerald-50 text-emerald-950"
-                : "border-amber-300 bg-amber-50 text-amber-950"
+                ? "border-[#d1f2dd] bg-[#e7f8ee] text-[#237b51]"
+                : "border-[#fae29f] bg-[#fffaeb] text-[#78552f]"
             }`}
             role="alert"
           >
@@ -3248,7 +3248,7 @@ export default function ReconcileResultsPage() {
 
         {summary && (summary.unmatched_notes_count ?? 0) > 0 && (
           <div
-            className="flex items-center justify-between rounded-[10px] border border-amber-300 bg-amber-50 px-4 py-2.5 text-xs text-amber-950"
+            className="flex items-center justify-between rounded-[10px] border border-[#fae29f] bg-[#fffaeb] px-4 py-2.5 text-xs text-[#78552f]"
             role="alert"
           >
             <span>
@@ -3256,7 +3256,7 @@ export default function ReconcileResultsPage() {
             </span>
             <button
               type="button"
-              className="ml-2 font-semibold underline hover:text-amber-900"
+              className="ml-2 font-semibold underline hover:text-[#523b1f]"
               onClick={() => setResultsTab("unmatched_notes")}
             >
               View notes
@@ -3266,7 +3266,7 @@ export default function ReconcileResultsPage() {
 
         {summary && (summary.pr_skipped_count ?? 0) > 0 && (
           <div
-            className="rounded-[10px] bg-amber-50 px-4 py-2 text-xs text-amber-950"
+            className="rounded-[10px] border border-[#fae29f] bg-[#fffaeb] px-4 py-2 text-xs text-[#78552f]"
             role="status"
           >
             {summary.pr_skipped_detail?.trim() ||
@@ -3287,30 +3287,30 @@ export default function ReconcileResultsPage() {
           return (
           <div className={`${styles.overview} grid grid-cols-1 gap-3 lg:grid-cols-2`}>
             {/* Left: Run summary */}
-            <div className={`${styles.runSummary} flex items-center gap-6 rounded-[10px] border border-[#E2E8F0] bg-white p-5 px-6`}>
+            <div className={`${styles.runSummary} flex items-center gap-6 rounded-[16px] border border-[#e8e0f1] bg-white p-5 px-6`}>
               <div className="min-w-[84px] text-center">
-                <div className="mb-1 text-xs font-semibold uppercase tracking-wider text-[#94A3B8]">
+                <div className="mb-1 text-[10px] font-bold uppercase tracking-[1.8px] text-[#78608f]">
                   {tResults("runTotal")}
                 </div>
-                <div className="text-[36px] font-black leading-none text-[#0F172A]">
+                <div className="text-[38px] font-black leading-none text-[#342b40]">
                   {summary.total_gstr_records.toLocaleString("en-IN")}
                 </div>
-                <div className="mt-1.5 text-xs font-medium text-[#94A3B8]">{tResults("invoices")}</div>
+                <div className="mt-1.5 text-xs font-medium text-[#968ba2]">{tResults("invoices")}</div>
               </div>
-              <div className="h-14 w-[1px] bg-[#F1F5F9]" />
+              <div className="h-14 w-[1px] bg-[#eee8f4]" />
               <div className="flex-1">
-                <div className="mb-1.5 flex justify-between items-baseline text-xs text-[#94A3B8]">
-                  <span className="font-semibold uppercase tracking-wider text-[#64748B]">
+                <div className="mb-1.5 flex justify-between items-baseline text-xs text-[#968ba2]">
+                  <span className="font-semibold uppercase tracking-wider text-[#968ba2]">
                     {itcOnHold > 0 ? "Total Matched" : tResults("matched")}
                   </span>
-                  <span className="text-base sm:text-lg font-bold text-[#0F172A]">
-                    <span className="text-[#16A34A]">{grossMatched.toLocaleString("en-IN")}</span>
-                    <span className="text-[#64748B] text-sm sm:text-base font-semibold"> · {grossMatchPct}%</span>
+                  <span className="text-base sm:text-lg font-bold text-[#342b40]">
+                    <span className="text-[#237b51]">{grossMatched.toLocaleString("en-IN")}</span>
+                    <span className="text-[#968ba2] text-sm sm:text-base font-semibold"> · {grossMatchPct}%</span>
                   </span>
                 </div>
-                <div className="h-2 w-full overflow-hidden rounded-full bg-[#F1F5F9] flex">
+                <div className="h-[7px] w-full overflow-hidden rounded-full bg-[#d8e9df] flex">
                   <div
-                    className="h-full bg-[#16A34A] transition-all duration-150"
+                    className="h-full bg-[#3c8a61] transition-all duration-150"
                     style={{
                       width: `${cleanMatchedPct}%`,
                     }}
@@ -3318,7 +3318,7 @@ export default function ReconcileResultsPage() {
                   />
                   {itcOnHold > 0 && (
                     <div
-                      className="h-full bg-[#F59E0B] transition-all duration-150"
+                      className="h-full bg-[#e3a735] transition-all duration-150"
                       style={{
                         width: `${onHoldPct}%`,
                       }}
@@ -3326,116 +3326,116 @@ export default function ReconcileResultsPage() {
                     />
                   )}
                 </div>
-                <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px] font-medium">
-                  <span className="inline-flex items-center gap-1 rounded bg-emerald-50 px-2 py-0.5 text-emerald-700 border border-emerald-200">
-                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                <div className="mt-2.5 flex flex-wrap items-center gap-1.5 text-[11px] font-medium">
+                  <span className="inline-flex items-center gap-1 rounded-full bg-[#e7f8ee] px-2.5 py-0.5 text-[#237b51] border border-[#d1f2dd]">
+                    <span className="h-1.5 w-1.5 rounded-full bg-[#3c8a61]" />
                     <strong>{cleanMatched.toLocaleString("en-IN")}</strong> Eligible (Table 4A5)
                   </span>
                   {itcOnHold > 0 && (
-                    <span className="inline-flex items-center gap-1 rounded bg-amber-50 px-2 py-0.5 text-amber-700 border border-amber-200">
-                      <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+                    <span className="inline-flex items-center gap-1 rounded-full bg-[#fff5dd] px-2.5 py-0.5 text-[#97621c] border border-[#fde7b2]">
+                      <span className="h-1.5 w-1.5 rounded-full bg-[#e3a735]" />
                       <strong>{itcOnHold.toLocaleString("en-IN")}</strong> Blocked by GSTN (Table 4B)
                     </span>
                   )}
                 </div>
               </div>
-              <div className="h-14 w-[1px] bg-[#F1F5F9]" />
+              <div className="h-14 w-[1px] bg-[#eee8f4]" />
               <div className="min-w-[76px] text-center">
-                <div className="mb-1 text-xs font-semibold uppercase tracking-wider text-[#94A3B8]">
+                <div className="mb-1 text-[10px] font-bold uppercase tracking-[1.8px] text-[#78608f]">
                   {tResults("assigned")}
                 </div>
-                <div className="mt-1 text-sm font-bold text-[#0F172A]">
+                <div className="mt-1 text-sm font-bold text-[#342b40]">
                   {summary.assigned_to_name?.trim() ? summary.assigned_to_name : tResults("unassigned")}
                 </div>
-                <div className="mt-1 text-xs text-[#94A3B8]">
+                <div className="mt-1 text-xs text-[#968ba2]">
                   {formatPeriod(summary.period)}
                 </div>
               </div>
             </div>
 
             {/* Right: Action required */}
-            <div className={`${styles.actionQueue} overflow-hidden rounded-[10px] border border-[#E2E8F0] bg-white`}>
-              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#FEF2F2] bg-[#FFF7F7] px-6 py-3">
+            <div className={`${styles.actionQueue} overflow-hidden rounded-[16px] border border-[#e8e0f1] bg-white`}>
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#eee8f4] bg-[#f8f5fc] px-6 py-3">
                 <div className="flex items-center gap-2">
-                  <div className="h-2 w-2 rounded-full bg-[#DC2626]" />
-                  <div className="text-xs sm:text-[13px] font-bold uppercase tracking-wider text-[#991B1B]">
+                  <div className="h-2 w-2 rounded-full bg-[#78608f]" />
+                  <div className="text-xs sm:text-[13px] font-bold text-[#342b40]">
                     {((summary.review_required_count ?? 0) + (summary.missed_itc_count ?? 0) + (summary.wrongful_risk_count ?? 0)).toLocaleString("en-IN")} {tResults("invoicesNeedAction")}
                   </div>
                 </div>
                 <div className="flex items-center gap-1.5 text-xs">
-                  <span className="inline-flex items-center gap-1 rounded bg-emerald-50 px-2 py-0.5 font-medium text-emerald-700 border border-emerald-200">
-                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                  <span className="inline-flex items-center gap-1 rounded-full bg-[#e7f8ee] px-2 py-0.5 font-medium text-[#237b51] border border-[#d1f2dd]">
+                    <span className="h-1.5 w-1.5 rounded-full bg-[#3c8a61]" />
                     {(summary.decisions_acted_count ?? 0).toLocaleString("en-IN")} Acted
                   </span>
-                  <span className="inline-flex items-center gap-1 rounded bg-amber-50 px-2 py-0.5 font-medium text-amber-700 border border-amber-200">
-                    <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+                  <span className="inline-flex items-center gap-1 rounded-full bg-[#fff5dd] px-2 py-0.5 font-medium text-[#97621c] border border-[#fde7b2]">
+                    <span className="h-1.5 w-1.5 rounded-full bg-[#e3a735]" />
                     {(summary.decisions_pending_count ?? Math.max(0, ((summary.review_required_count ?? 0) + (summary.missed_itc_count ?? 0) + (summary.wrongful_risk_count ?? 0)) - (summary.decisions_acted_count ?? 0) - (summary.decisions_ignored_count ?? 0))).toLocaleString("en-IN")} Pending
                   </span>
                   {(summary.decisions_ignored_count ?? 0) > 0 ? (
-                    <span className="inline-flex items-center gap-1 rounded bg-gray-50 px-2 py-0.5 font-medium text-gray-600 border border-gray-200">
-                      <span className="h-1.5 w-1.5 rounded-full bg-gray-400" />
+                    <span className="inline-flex items-center gap-1 rounded-full bg-[#f4f0f8] px-2 py-0.5 font-medium text-[#554260] border border-[#eee8f4]">
+                      <span className="h-1.5 w-1.5 rounded-full bg-[#968ba2]" />
                       {(summary.decisions_ignored_count ?? 0).toLocaleString("en-IN")} Ignored
                     </span>
                   ) : null}
                 </div>
               </div>
               <button type="button"
-                className="flex cursor-pointer items-center border-b border-[#F8FAFC] px-6 py-3.5 transition-colors hover:bg-[#FAFAFA]"
+                className="flex cursor-pointer items-center border-b border-[#eee8f4] px-6 py-3.5 transition-colors hover:bg-[#faf8fc]"
                 onClick={() => setResultsTab("review_required")}
               >
-                <div className="flex-1 text-[13px] sm:text-sm font-medium text-[#334155]">{tResults("reviewRequired")}</div>
-                <span className="rounded-[5px] border border-[#FCD34D] bg-[#FFFBEB] px-2 py-0.5 text-xs font-bold text-[#92400E]">
+                <div className="flex-1 text-[13px] sm:text-sm font-medium text-[#342b40]">{tResults("reviewRequired")}</div>
+                <span className="rounded-[6px] bg-[#f4f0f8] px-2.5 py-0.5 text-xs font-bold text-[#554260]">
                   {(summary.review_required_count ?? 0).toLocaleString("en-IN")}
                 </span>
-                <div className="ml-2 text-base font-bold text-[#CBD5E1]">›</div>
+                <div className="ml-2 text-base font-bold text-[#968ba2]">›</div>
               </button>
               <button type="button"
-                className="flex cursor-pointer items-center border-b border-[#F8FAFC] px-6 py-3.5 transition-colors hover:bg-[#FAFAFA]"
+                className="flex cursor-pointer items-center border-b border-[#eee8f4] px-6 py-3.5 transition-colors hover:bg-[#faf8fc]"
                 onClick={() => setResultsTab("itc")}
               >
-                <div className="flex-1 text-[13px] sm:text-sm font-medium text-[#334155]">
+                <div className="flex-1 text-[13px] sm:text-sm font-medium text-[#342b40]">
                   {itcHasCdnRows ? tResults("net2bDifference") : tResults("missedItc")}
                 </div>
-                <span className="rounded-[5px] border border-[#FECACA] bg-[#FEF2F2] px-2 py-0.5 text-xs font-bold text-[#991B1B]">
+                <span className="rounded-[6px] bg-[#f4f0f8] px-2.5 py-0.5 text-xs font-bold text-[#554260]">
                   {(summary.missed_itc_count ?? 0).toLocaleString("en-IN")}
                 </span>
-                <div className="ml-3 text-sm sm:text-[15px] font-black text-[#DC2626]">
+                <div className="ml-3 text-sm sm:text-[15px] font-bold text-[#342b40]">
                   {formatInrCompact(summary.missed_itc_total_amount)}
                 </div>
-                <div className="ml-2 text-base font-bold text-[#CBD5E1]">›</div>
+                <div className="ml-2 text-base font-bold text-[#968ba2]">›</div>
               </button>
               <button type="button"
-                className="flex cursor-pointer items-center px-6 py-3.5 transition-colors hover:bg-[#FAFAFA]"
+                className="flex cursor-pointer items-center px-6 py-3.5 transition-colors hover:bg-[#faf8fc]"
                 onClick={() => setResultsTab("risk")}
               >
-                <div className="flex-1 text-[13px] sm:text-sm font-medium text-[#334155]">{tResults("itcAtRisk")}</div>
-                <span className="rounded-[5px] border border-[#FECACA] bg-[#FEF2F2] px-2 py-0.5 text-xs font-bold text-[#991B1B]">
+                <div className="flex-1 text-[13px] sm:text-sm font-medium text-[#342b40]">{tResults("itcAtRisk")}</div>
+                <span className="rounded-[6px] bg-[#f4f0f8] px-2.5 py-0.5 text-xs font-bold text-[#554260]">
                   {(summary.wrongful_risk_count ?? 0).toLocaleString("en-IN")}
                 </span>
-                <div className="ml-3 text-sm sm:text-[15px] font-black text-[#DC2626]">
+                <div className="ml-3 text-sm sm:text-[15px] font-bold text-[#342b40]">
                   {formatInrCompact(summary.wrongful_risk_total_amount)}
                 </div>
-                <div className="ml-2 text-base font-bold text-[#CBD5E1]">›</div>
+                <div className="ml-2 text-base font-bold text-[#968ba2]">›</div>
               </button>
               <button type="button"
-                className="flex cursor-pointer items-center border-t border-[#F8FAFC] px-6 py-3.5 transition-colors hover:bg-[#FAFAFA]"
+                className="flex cursor-pointer items-center border-t border-[#eee8f4] px-6 py-3.5 transition-colors hover:bg-[#faf8fc]"
                 onClick={() => setResultsTab("itc_on_hold")}
               >
                 <div className="flex-1">
-                  <div className="text-[13px] sm:text-sm font-medium text-[#334155]">
+                  <div className="text-[13px] sm:text-sm font-medium text-[#342b40]">
                     ITC On Hold (Table 4B Ineligible)
                   </div>
-                  <div className="text-[11px] text-[#64748B]">
+                  <div className="text-[11px] text-[#968ba2]">
                     Matched invoices blocked by GST portal rules
                   </div>
                 </div>
-                <span className="rounded-[5px] border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-bold text-amber-800">
+                <span className="rounded-[6px] bg-[#f4f0f8] px-2.5 py-0.5 text-xs font-bold text-[#554260]">
                   {(summary.itc_on_hold_count ?? 0).toLocaleString("en-IN")}
                 </span>
-                <div className="ml-3 text-sm sm:text-[15px] font-black text-amber-700">
+                <div className="ml-3 text-sm sm:text-[15px] font-bold text-[#342b40]">
                   {formatInrCompact(summary.itc_on_hold_total_amount ?? 0)}
                 </div>
-                <div className="ml-2 text-base font-bold text-[#CBD5E1]">›</div>
+                <div className="ml-2 text-base font-bold text-[#968ba2]">›</div>
               </button>
             </div>
           </div>
@@ -3443,7 +3443,7 @@ export default function ReconcileResultsPage() {
         })()}
 
         {/* Tabs & Table Card Wrapper */}
-        <div className="overflow-hidden rounded-[10px] border border-[#E2E8F0] bg-white">
+        <div className={`${styles.workspaceCard} overflow-hidden rounded-[16px] border border-[#e8e0f1] bg-white`}>
           {summary && (
             <ResultsBucketTabs
               active={resultsTab}
@@ -6662,6 +6662,35 @@ export default function ReconcileResultsPage() {
         </>
         )}
         </div>
+
+        {/* Footer Review Bar */}
+        {summary && (
+          <div className="flex flex-wrap items-center justify-between gap-3 pt-4 pb-2 text-xs text-[#554260]">
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="font-semibold text-[#237b51]">✓ Matched reviewed</span>
+              <span className="text-[#968ba2]">·</span>
+              <span>Review Required — {(summary.review_required_count ?? 0).toLocaleString("en-IN")} pending</span>
+              <span className="text-[#968ba2]">·</span>
+              <span>Missed ITC — {(summary.missed_itc_count ?? 0).toLocaleString("en-IN")} pending</span>
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="text-[#968ba2]">Complete all reviews before locking</span>
+              {!isRunFinalized ? (
+                <button
+                  type="button"
+                  className="rounded-[7px] bg-[#342b40] px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-[#231b2c] shadow-xs"
+                  onClick={() => setFinalizeModalOpen(true)}
+                >
+                  Lock Run
+                </button>
+              ) : (
+                <span className="rounded-[7px] bg-[#e7f8ee] border border-[#d1f2dd] px-3 py-1.5 text-xs font-medium text-[#237b51]">
+                  Run Locked
+                </span>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Drawer */}
