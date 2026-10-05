@@ -2,14 +2,14 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Logo } from "@/components/ui/Logo";
 import useSWR, { mutate } from "swr";
 import { Avatar } from "@/components/ui/Avatar";
 import { LanguageToggle } from "@/components/ui/LanguageToggle";
 import { useToast } from "@/components/providers/ToastProvider";
 import { useTranslations } from "next-intl";
-import { Menu, X } from "lucide-react";
+import { Menu, X, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import {
   billingApi,
   isApiError,
@@ -25,6 +25,9 @@ import { DW, formatPeriodLabel } from "@/lib/dashboard-portfolio";
 import { clearOnboardingDoneCookie } from "@/lib/onboarding-cookie";
 import { createClient, subscribeAccessToken } from "@/lib/supabase/client";
 import { Analytics } from "@/lib/analytics";
+
+import { AccessibleTooltip } from "@/components/ui/AccessibleTooltip";
+import { safeStorageGet, safeStorageSet } from "@/lib/safeStorage";
 
 function initialsFromDisplayName(name: string): string {
   const t = name.trim();
@@ -225,6 +228,7 @@ export default function DashboardShellLayout({
   const toast = useToast();
   const [panelOpen, setPanelOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const sidebarRef = useRef<HTMLElement>(null);
   const menuTriggerRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
@@ -268,6 +272,53 @@ export default function DashboardShellLayout({
     role: "…",
     initials: "··",
   });
+  // User-scoped storage key
+  const userStorageKey = useMemo(() => {
+    const raw = currentUser.email || "";
+    const clean = raw.trim().toLowerCase().replace(/[^a-z0-9]/g, "_");
+    return clean ? `recondesk_sidebar_collapsed_${clean}` : "recondesk_sidebar_collapsed";
+  }, [currentUser.email]);
+
+  // Load layout preference scoped to user
+  useEffect(() => {
+    const stored = safeStorageGet<boolean | null>(userStorageKey, null);
+    if (stored !== null) {
+      setSidebarCollapsed(stored);
+    } else {
+      const legacy = safeStorageGet<boolean | null>("recondesk_sidebar_collapsed", null);
+      if (legacy !== null) {
+        setSidebarCollapsed(legacy);
+      }
+    }
+  }, [userStorageKey]);
+
+  const toggleSidebar = useCallback(() => {
+    setSidebarCollapsed((prev) => {
+      const next = !prev;
+      safeStorageSet(userStorageKey, next);
+      return next;
+    });
+  }, [userStorageKey]);
+
+  // Optional ⌘B / Ctrl+B shortcut: disabled while typing in editable fields
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "b") {
+        const target = document.activeElement;
+        const isInputField =
+          target instanceof HTMLInputElement ||
+          target instanceof HTMLTextAreaElement ||
+          target instanceof HTMLSelectElement ||
+          (target as HTMLElement)?.isContentEditable;
+        if (!isInputField) {
+          e.preventDefault();
+          toggleSidebar();
+        }
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [toggleSidebar]);
   const [profileBilling, setProfileBilling] = useState<
     | { status: "idle" }
     | { status: "loading" }
@@ -456,7 +507,15 @@ export default function DashboardShellLayout({
   ];
 
   return (
-    <div className="rd-workspace dashboard-soft-bg flex min-h-screen w-full min-w-0 text-[var(--text-primary)]">
+    <div
+      data-sidebar-collapsed={sidebarCollapsed ? "true" : "false"}
+      style={
+        {
+          "--workspace-sidebar-offset": sidebarCollapsed ? "96px" : "252px",
+        } as React.CSSProperties
+      }
+      className="rd-workspace dashboard-soft-bg flex min-h-screen w-full min-w-0 text-[var(--text-primary)]"
+    >
       {/* Mobile/Tablet Backdrop */}
       {mobileMenuOpen && (
         <div
@@ -471,15 +530,59 @@ export default function DashboardShellLayout({
         ref={sidebarRef}
         id="workspace-navigation"
         data-open={mobileMenuOpen}
+        data-collapsed={sidebarCollapsed}
         aria-label="Workspace navigation"
-        className={`rd-workspace-sidebar fixed inset-y-3 left-3 z-50 flex w-[230px] flex-col rounded-[1.75rem] bg-white shadow-[var(--shadow-lift)] transition-transform duration-300 ease-in-out lg:w-[196px] lg:translate-x-0 lg:shadow-[var(--shadow-soft)] ${
+        className={`rd-workspace-sidebar fixed inset-y-3 left-3 z-50 flex flex-col rounded-[1.75rem] bg-white shadow-[var(--shadow-lift)] transition-all duration-200 motion-reduce:transition-none lg:translate-x-0 lg:shadow-[var(--shadow-soft)] ${
+          sidebarCollapsed ? "w-[68px]" : "w-[230px] lg:w-[196px]"
+        } ${
           mobileMenuOpen ? "translate-x-0" : "-translate-x-[120%] lg:translate-x-0"
         }`}
       >
-        <div className="rd-sidebar-brand flex items-center justify-between px-4 pb-3 pt-5">
-          <Link href="/dashboard" className="flex items-center" onClick={() => setMobileMenuOpen(false)}>
-            <Logo height={40} />
+        <div
+          className={`rd-sidebar-brand flex items-center ${
+            sidebarCollapsed
+              ? "justify-center px-2 py-5 flex-col gap-2"
+              : "justify-between px-4 pb-3 pt-5"
+          }`}
+        >
+          <Link
+            href="/dashboard"
+            className="flex items-center"
+            onClick={() => setMobileMenuOpen(false)}
+            title="ReconDesk"
+            aria-label="ReconDesk Home"
+          >
+            {sidebarCollapsed ? (
+              <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/10 font-bold text-white text-base tracking-tighter shadow-xs">
+                R<span className="h-1.5 w-1.5 rounded-full bg-[#7B5CFA] ml-0.5" />
+              </span>
+            ) : (
+              <Logo height={40} />
+            )}
           </Link>
+
+          {/* Primary Sidebar Collapse Toggle (Desktop) */}
+          <AccessibleTooltip
+            content={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+            shortcut="⌘B"
+            side="right"
+          >
+            <button
+              type="button"
+              onClick={toggleSidebar}
+              aria-expanded={!sidebarCollapsed}
+              aria-controls="workspace-navigation"
+              aria-label={sidebarCollapsed ? "Expand navigation sidebar (⌘B)" : "Collapse navigation sidebar (⌘B)"}
+              className="hidden lg:flex items-center justify-center h-7 w-7 rounded-lg text-gray-400 hover:text-white hover:bg-white/10 transition-colors"
+            >
+              {sidebarCollapsed ? (
+                <PanelLeftOpen className="h-4 w-4" />
+              ) : (
+                <PanelLeftClose className="h-4 w-4" />
+              )}
+            </button>
+          </AccessibleTooltip>
+
           <button
             type="button"
             className="flex h-8 w-8 items-center justify-center rounded-full text-gray-400 hover:bg-gray-100 hover:text-gray-700 lg:hidden"
@@ -489,36 +592,58 @@ export default function DashboardShellLayout({
             <X className="h-5 w-5" />
           </button>
         </div>
+
         <nav className="flex-1 space-y-0.5 px-2 overflow-y-auto">
-          <span className="rd-nav-caption">WORKSPACE</span>
+          {!sidebarCollapsed && <span className="rd-nav-caption">WORKSPACE</span>}
           {nav.map(({ href, label, Icon }) => {
             const isActive =
               href === "/dashboard"
                 ? pathname === "/dashboard"
                 : pathname === href || pathname.startsWith(`${href}/`);
-            return (
+            const navLink = (
               <Link
                 key={href}
                 href={href}
                 aria-current={isActive ? "page" : undefined}
+                aria-label={label}
                 onClick={() => setMobileMenuOpen(false)}
                 className={`flex items-center gap-2.5 rounded-full px-3 py-2 text-[13px] transition-all duration-200 ${
+                  sidebarCollapsed
+                    ? "justify-center px-0 h-10 w-10 mx-auto"
+                    : ""
+                } ${
                   isActive
                     ? "bg-[var(--ink)] font-semibold text-white shadow-sm"
                     : "font-medium text-gray-500 hover:bg-gray-50 hover:text-gray-900"
                 }`}
               >
-                <Icon className={`h-4 w-4 shrink-0 ${isActive ? "text-white" : "text-gray-400"}`} />
-                {label}
+                <Icon
+                  className={`h-4 w-4 shrink-0 ${
+                    isActive ? "text-white" : "text-gray-400"
+                  }`}
+                />
+                {!sidebarCollapsed && <span>{label}</span>}
               </Link>
             );
+
+            if (sidebarCollapsed) {
+              return (
+                <AccessibleTooltip key={href} content={label} side="right" className="w-full justify-center">
+                  {navLink}
+                </AccessibleTooltip>
+              );
+            }
+            return navLink;
           })}
         </nav>
-        <div className="p-3">
+
+        <div className={`p-3 ${sidebarCollapsed ? "px-1.5" : ""}`}>
           <div className="relative" ref={profileRef}>
             {profileOpen && (
               <div
-                className="absolute bottom-full left-0 right-0 z-[60] mb-2 overflow-hidden rounded-2xl bg-white shadow-[var(--shadow-lift)] ring-1 ring-black/[0.04]"
+                className={`absolute bottom-full z-[60] mb-2 overflow-hidden rounded-2xl bg-white shadow-[var(--shadow-lift)] ring-1 ring-black/[0.04] ${
+                  sidebarCollapsed ? "left-0 w-60" : "left-0 right-0"
+                }`}
                 role="menu"
               >
                 <div className="flex items-center gap-3 border-b border-gray-100 px-4 py-3">
@@ -568,28 +693,62 @@ export default function DashboardShellLayout({
             )}
             <button
               type="button"
-              className="flex w-full items-center gap-2.5 rounded-2xl p-1.5 text-left transition-colors hover:bg-gray-50"
+              className={`flex w-full items-center gap-2.5 rounded-2xl p-1.5 text-left transition-colors hover:bg-gray-50 ${
+                sidebarCollapsed ? "justify-center p-1" : ""
+              }`}
               onClick={() => setProfileOpen((open) => !open)}
               aria-expanded={profileOpen}
               aria-haspopup="menu"
+              aria-label={currentUser.name}
+              title={sidebarCollapsed ? `${currentUser.name} (${currentUser.role})` : undefined}
             >
               <span className="relative shrink-0">
                 <Avatar initials={currentUser.initials} />
               </span>
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-xs font-semibold text-gray-900">{currentUser.name}</p>
-                <p className="truncate text-[11px] text-gray-400">
-                  {currentUser.email || currentUser.role}
-                </p>
-              </div>
+              {!sidebarCollapsed && (
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-xs font-semibold text-gray-900">{currentUser.name}</p>
+                  <p className="truncate text-[11px] text-gray-400">
+                    {currentUser.email || currentUser.role}
+                  </p>
+                </div>
+              )}
             </button>
           </div>
         </div>
       </aside>
 
-      <div className="rd-workspace-main flex min-h-screen min-w-0 w-full flex-1 flex-col overflow-x-hidden lg:ml-[216px] lg:w-[calc(100%-216px)] lg:max-w-[calc(100%-216px)]">
+      <div
+        className={`rd-workspace-main flex min-h-screen min-w-0 w-full flex-1 flex-col overflow-x-hidden transition-all duration-200 motion-reduce:transition-none ${
+          sidebarCollapsed
+            ? "lg:ml-[96px] lg:w-[calc(100%-96px)] lg:max-w-[calc(100%-96px)]"
+            : "lg:ml-[216px] lg:w-[calc(100%-216px)] lg:max-w-[calc(100%-216px)]"
+        }`}
+      >
         <header className="rd-workspace-header relative z-[60] flex h-16 shrink-0 items-center justify-between px-4 sm:px-6 pt-2">
           <div className="flex items-center gap-3">
+            {/* Header sidebar toggle */}
+            <AccessibleTooltip
+              content={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+              shortcut="⌘B"
+              side="bottom"
+            >
+              <button
+                type="button"
+                onClick={toggleSidebar}
+                aria-expanded={!sidebarCollapsed}
+                aria-controls="workspace-navigation"
+                aria-label={sidebarCollapsed ? "Expand navigation sidebar (⌘B)" : "Collapse navigation sidebar (⌘B)"}
+                className="hidden lg:flex items-center justify-center h-8 w-8 rounded-lg text-gray-500 hover:text-gray-900 hover:bg-white/80 border border-gray-200/70 shadow-xs transition-colors"
+              >
+                {sidebarCollapsed ? (
+                  <PanelLeftOpen className="h-4 w-4" />
+                ) : (
+                  <PanelLeftClose className="h-4 w-4" />
+                )}
+              </button>
+            </AccessibleTooltip>
+
             <div className="rd-workspace-breadcrumb hidden lg:flex" aria-label="Current workspace">
               <span>ReconDesk</span><span aria-hidden="true">/</span>
               <strong>{nav.find(({ href }) => pathname === href || pathname.startsWith(`${href}/`))?.label ?? "Workspace"}</strong>

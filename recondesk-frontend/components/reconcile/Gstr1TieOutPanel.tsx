@@ -8,14 +8,12 @@ import { formatINR } from "@/lib/format";
 import {
   CompactStatAmount,
   SectionHeader,
-  sectionContainerClass,
   StatCard,
   statCardsGridClass,
 } from "./ResultsUi";
 
 function parseRupeeLabel(raw: string | undefined): number | null {
   if (!raw) return null;
-  // Backend formats as "₹7,698,910.71" via _rs()
   const cleaned = raw.replace(/[₹,\s]/g, "").replace(/[−–]/g, "-");
   const n = Number(cleaned);
   return Number.isFinite(n) ? n : null;
@@ -29,10 +27,10 @@ function VarianceDirectionBadge({
   const over = direction === "over";
   return (
     <span
-      className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-medium ${
+      className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${
         over
-          ? "bg-amber-50 text-amber-800 ring-1 ring-amber-200"
-          : "bg-red-50 text-red-700 ring-1 ring-red-200"
+          ? "bg-[#FFF5DD] text-[#97621C] border border-[#FDE7B2]"
+          : "bg-[#FEECEE] text-[#9C3843] border border-[#FCD3D7]"
       }`}
     >
       {over ? "GSTR-1 higher" : "GSTR-3B higher"}
@@ -43,15 +41,15 @@ function VarianceDirectionBadge({
 function CleanBadge({ clean }: { clean: boolean }) {
   if (clean) {
     return (
-      <span className="inline-flex items-center gap-1.5 rounded-full bg-green-50 px-3 py-1 text-[12px] font-semibold text-green-700 ring-1 ring-green-200">
-        <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
-        Tied out
+      <span className="inline-flex items-center gap-1.5 rounded-full bg-[#E7F8EE] px-3 py-1 text-[12px] font-semibold text-[#237B51] border border-[#D1F2DD]">
+        <span className="h-1.5 w-1.5 rounded-full bg-[#398461]" />
+        Tied out clean
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-3 py-1 text-[12px] font-semibold text-amber-800 ring-1 ring-amber-200">
-      <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+    <span className="inline-flex items-center gap-1.5 rounded-full bg-[#FFF5DD] px-3 py-1 text-[12px] font-semibold text-[#97621C] border border-[#FDE7B2]">
+      <span className="h-1.5 w-1.5 rounded-full bg-[#A56B26]" />
       Variances found
     </span>
   );
@@ -82,23 +80,23 @@ function AggregateCompare({
   const g3 = g3Paise / 100;
   const diff = g1 - g3;
   return (
-    <tr className="border-b border-[#F0F0F0] last:border-b-0">
-      <td className="px-4 py-3 text-[13px] font-medium text-[var(--ink)]">
+    <tr className="border-b border-[#EEE8F4] last:border-b-0 hover:bg-[#FCFBFE] transition-colors">
+      <td className="px-4 py-3 text-[13px] font-medium text-[#342B40]">
         {label}
       </td>
-      <td className="px-4 py-3 text-right text-[13px] tabular-nums text-gray-700">
+      <td className="px-4 py-3 text-right text-[13px] tabular-nums text-[#594C66]">
         {formatINR(g1)}
       </td>
-      <td className="px-4 py-3 text-right text-[13px] tabular-nums text-gray-700">
+      <td className="px-4 py-3 text-right text-[13px] tabular-nums text-[#594C66]">
         {formatINR(g3)}
       </td>
       <td
         className={`px-4 py-3 text-right text-[13px] font-semibold tabular-nums ${
           Math.abs(diff) < 0.01
-            ? "text-gray-500"
+            ? "text-[#968BA2]"
             : diff > 0
-              ? "text-amber-800"
-              : "text-red-700"
+              ? "text-[#A56B26]"
+              : "text-[#BE555E]"
         }`}
       >
         {Math.abs(diff) < 0.01
@@ -115,9 +113,7 @@ export function Gstr1TieOutPanel({
   clientGstin = "",
 }: {
   tieOut: Gstr1TieOut;
-  /** Taxpayer legal / trade name for DRC-01B draft header. */
   clientName?: string;
-  /** Filing GSTIN for DRC-01B draft header. */
   clientGstin?: string;
 }) {
   const [drc01bOpen, setDrc01bOpen] = useState(false);
@@ -154,17 +150,17 @@ export function Gstr1TieOutPanel({
   const nonGst = tieOut.non_gst || stat.non_gst;
 
   return (
-    <section className={sectionContainerClass} aria-label="GSTR-1 vs GSTR-3B tie-out">
+    <section className="box-border w-full max-w-full rounded-[14px] border border-[#E8E0F1] bg-white p-6 shadow-xs" aria-label="GSTR-1 vs GSTR-3B tie-out">
       <SectionHeader
-        title="GSTR-1 vs GSTR-3B"
-        dotColor={isClean ? "#22C55E" : "#F59E0B"}
+        title="GSTR-1 vs GSTR-3B Tie-Out"
+        dotColor={isClean ? "#398461" : "#A56B26"}
         actions={
           <div className="flex flex-wrap items-center gap-2">
             {!isClean ? (
               <button
                 type="button"
                 onClick={() => setDrc01bOpen(true)}
-                className="rounded-full border border-[#E5E7EB] bg-white px-3 py-1.5 text-[12px] font-semibold text-[var(--ink)] transition-colors hover:bg-[#F7F7F8]"
+                className="rounded-[7px] border border-[#E5DCEE] bg-white px-3 py-1.5 text-xs font-semibold text-[#554260] hover:bg-[#FAF8FC] hover:border-[#D8CDE3] transition-colors shadow-xs"
               >
                 Draft DRC-01B reply
               </button>
@@ -173,9 +169,9 @@ export function Gstr1TieOutPanel({
           </div>
         }
       />
-      <p className="mt-1 text-[13px] text-gray-500">
+      <p className="mt-1 text-xs text-[#756184]">
         Table 3.1 outward supplies & tax tie-out — period{" "}
-        <span className="font-medium text-[var(--ink)]">
+        <span className="font-semibold text-[#342B40]">
           {tieOut.ret_period || "—"}
         </span>
         {typeof tieOut.gstr1_record_count === "number" ? (
@@ -188,10 +184,10 @@ export function Gstr1TieOutPanel({
       </p>
 
       {reclassificationDiff > 0.01 ? (
-        <div className="mt-3 flex items-start gap-2.5 rounded-xl border border-blue-100 bg-blue-50/60 px-4 py-3 text-[12px] text-blue-900">
-          <div className="mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-blue-600" />
+        <div className="mt-3 flex items-start gap-2.5 rounded-xl border border-[#E8E0F1] bg-[#F0EAF7]/60 px-4 py-3 text-xs text-[#554260]">
+          <div className="mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-[#78608F]" />
           <div className="min-w-0">
-            <span className="font-semibold text-blue-950">Statutory Allocation Accounted For:</span>{" "}
+            <span className="font-bold text-[#342B40]">Statutory Allocation Accounted For:</span>{" "}
             {formatINR(reclassificationDiff)} belongs to nil-rated/exempt supplies reported in Table 8 / 3.1(c) rather than 3.1(a).
             {unexplainedDiff < 0.01 ? " Genuine unexplained financial variance is ₹0 (Clean)." : ` Unexplained variance: ${formatINR(unexplainedDiff)}.`}
           </div>
@@ -218,7 +214,7 @@ export function Gstr1TieOutPanel({
             <CompactStatAmount
               amount={unexplainedDiff}
               emphasize={unexplainedDiff > 0.01}
-              className={unexplainedDiff > 0.01 ? "text-amber-800" : undefined}
+              className={unexplainedDiff > 0.01 ? "text-[#A56B26]" : undefined}
             />
           }
           subtext="Net financial difference"
@@ -231,14 +227,14 @@ export function Gstr1TieOutPanel({
             <CompactStatAmount
               amount={totalTaxDiff}
               emphasize={totalTaxDiff > 0.01}
-              className={totalTaxDiff > 0.01 ? "text-red-700" : undefined}
+              className={totalTaxDiff > 0.01 ? "text-[#BE555E]" : undefined}
             />
           }
           subtext="IGST + CGST + SGST + CESS"
         />
       </div>
 
-      <div className="mt-5 overflow-x-auto rounded-xl border border-[#F0F0F0]">
+      <div className="mt-5 overflow-x-auto rounded-xl border border-[#E8E0F1]">
         <table className="w-full table-fixed border-collapse text-left text-[13px]">
           <colgroup>
             <col style={{ width: "28%" }} />
@@ -247,7 +243,7 @@ export function Gstr1TieOutPanel({
             <col style={{ width: "24%" }} />
           </colgroup>
           <thead>
-            <tr className="border-b border-[#F0F0F0] bg-[#FAFAFB] text-[11px] font-medium uppercase tracking-widest text-gray-400">
+            <tr className="border-b border-[#EEE8F4] bg-[#FAF9FC] text-[11px] font-bold uppercase tracking-[0.5px] text-[#968BA2]">
               <th className="px-4 py-3">Statutory Supply Section</th>
               <th className="px-4 py-3 text-right">GSTR-1</th>
               <th className="px-4 py-3 text-right">GSTR-3B</th>
@@ -307,20 +303,20 @@ export function Gstr1TieOutPanel({
 
       {variances.length > 0 ? (
         <div className="mt-5 space-y-2">
-          <p className="text-[11px] font-medium uppercase tracking-widest text-gray-400">
+          <p className="text-[10px] font-bold uppercase tracking-[1.4px] text-[#968BA2]">
             Flagged variances
           </p>
           <ul className="space-y-2">
             {variances.map((v) => (
               <li
                 key={`${v.field}-${v.diff}`}
-                className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-[#F7F7F8] px-4 py-3"
+                className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[#EEE8F4] bg-[#FAF9FC] px-4 py-3"
               >
                 <div className="min-w-0">
-                  <p className="text-[13px] font-medium text-[var(--ink)]">
+                  <p className="text-[13px] font-semibold text-[#342B40]">
                     {fieldLabel(v.field)}
                   </p>
-                  <p className="mt-0.5 text-[12px] text-gray-500">
+                  <p className="mt-0.5 text-xs text-[#756184]">
                     GSTR-1 {v.gstr1} · 3B {v.gstr3b} · diff {v.diff}
                   </p>
                 </div>
@@ -330,39 +326,39 @@ export function Gstr1TieOutPanel({
           </ul>
         </div>
       ) : (
-        <p className="mt-5 text-[12px] italic text-gray-400">
+        <p className="mt-5 text-xs italic text-[#968BA2]">
           No variance exceeds the ₹1 rounding tolerance. Outward supply
           figures tie out between GSTR-1 and GSTR-3B.
         </p>
       )}
 
-      {decisions.length > 0 ? (
+      {decisions.length > 0 && (
         <div className="mt-5 space-y-2">
-          <p className="text-[11px] font-medium uppercase tracking-widest text-gray-400">
+          <p className="text-[10px] font-bold uppercase tracking-[1.4px] text-[#968BA2]">
             Tie-out decisions
           </p>
           {decisions.map((d, i) => (
             <div
               key={`${d.mismatch_type || "v"}-${i}`}
-              className="rounded-xl ring-1 ring-[#F0F0F0] bg-white px-4 py-3"
+              className="rounded-xl border border-[#E8E0F1] bg-white px-4 py-3 shadow-xs"
             >
-              <p className="text-[13px] font-medium text-[var(--ink)]">
+              <p className="text-[13px] font-semibold text-[#342B40]">
                 {d.decision_what || d.mismatch_type}
               </p>
-              {d.decision_why ? (
-                <p className="mt-1 text-[12px] italic text-gray-500">
+              {d.decision_why && (
+                <p className="mt-1 text-xs italic text-[#756184]">
                   {d.decision_why}
                 </p>
-              ) : null}
-              {d.decision_next ? (
-                <p className="mt-1 text-[12px] font-medium text-[var(--ink)]">
+              )}
+              {d.decision_next && (
+                <p className="mt-1 text-xs font-medium text-[#554260]">
                   {d.decision_next}
                 </p>
-              ) : null}
+              )}
             </div>
           ))}
         </div>
-      ) : null}
+      )}
 
       <Drc01bReplyDraftModal
         open={drc01bOpen}
