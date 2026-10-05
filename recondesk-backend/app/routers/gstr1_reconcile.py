@@ -380,7 +380,7 @@ def _extract_doc_number(rec: Mapping[str, Any]) -> str:
 
 def _candidate_keys_for_record(rec: Mapping[str, Any]) -> list[str]:
     """Generate normalized lookup keys for candidate indexing/matching."""
-    from app.services.matcher import invoice_match_key_for_record
+    from app.services.matcher import invoice_match_key_for_record, ocr_canonical_invoice
 
     keys: list[str] = []
     doc = _extract_doc_number(rec)
@@ -392,6 +392,13 @@ def _candidate_keys_for_record(rec: Mapping[str, Any]) -> list[str]:
             core = re.sub(r"^[A-Z]+", "", norm)
             if core and core not in keys:
                 keys.append(core)
+
+        ocr_key = ocr_canonical_invoice(doc)
+        if ocr_key and ocr_key not in keys:
+            keys.append(ocr_key)
+            core_ocr = re.sub(r"^[A-Z]+", "", ocr_key)
+            if core_ocr and core_ocr not in keys:
+                keys.append(core_ocr)
 
     try:
         k = invoice_match_key_for_record(rec)

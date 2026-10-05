@@ -39,6 +39,11 @@ from app.services.matcher import (
     MatchResult,
     # Invoice helpers
     normalize_invoice,
+    ocr_canonical_invoice,
+    InvoiceNormalizationEvidence,
+    analyze_invoice_evidence,
+    extract_terminal_and_prefix,
+    _OCR_CHAR_PAIRS,
     invoice_similarity,
     is_invoice_format_variant,
     is_sequential_series_mismatch,
@@ -624,8 +629,8 @@ def generic_match_pair(
     b_doc = _extract_doc_number(rec_b) or b_inv
     norm_a = normalise_inv_no(a_doc)
     norm_b = normalise_inv_no(b_doc)
-    a_inv_raw = str(rec_a.get("invoice_number", "")).strip()
-    b_inv_raw = str(rec_b.get("invoice_number", "")).strip()
+    a_inv_raw = str(rec_a.get("invoice_number_raw") or rec_a.get("inum") or rec_a.get("invoice_number", "")).strip()
+    b_inv_raw = str(rec_b.get("invoice_number_raw") or rec_b.get("inum") or rec_b.get("invoice_number", "")).strip()
 
     if not (norm_a or a_inv) or not (norm_b or b_inv):
         return MatchResult(
@@ -684,6 +689,22 @@ def generic_match_pair(
         config=config,
     )
 
+    evidence = analyze_invoice_evidence(
+        a_inv=a_inv,
+        b_inv=b_inv,
+        a_inv_raw=a_inv_raw or a_doc,
+        b_inv_raw=b_inv_raw or b_doc,
+        da=da,
+        db=db,
+        ta=ta,
+        tb=tb,
+        tax_a=_safe_paise_field(rec_a, "total_tax_paise"),
+        tax_b=_safe_paise_field(rec_b, "total_tax_paise"),
+        gstin_exact=identity_ok,
+        doc_type_compatible=True,
+        date_diff_days=date_diff_days,
+    )
+
     # ── Invoice identity checks ──────────────────────────────────────────
     inv_ok = (
         bool(norm_a and norm_b and norm_a == norm_b)
@@ -702,7 +723,6 @@ def generic_match_pair(
                 a_doc, b_doc,
             )
         )
-
     raw_inv_ok = bool(
         (a_doc and b_doc and a_doc == b_doc)
         or (a_inv_raw and b_inv_raw and a_inv_raw == b_inv_raw)
@@ -840,6 +860,36 @@ def generic_match_pair(
                 identity_confidence="High", financial_status="Exact",
                 review_reason=None,
             )
+        # ── Multi-OCR Guard: require review for >= 2 OCR substitutions ──────
+        if evidence.ocr_substitution_count >= 2:
+            subs_str = ", ".join(evidence.ocr_substitutions) if evidence.ocr_substitutions else f"{evidence.ocr_substitution_count} substitutions"
+            return _ret(
+                level=3, matched=True, confidence=75,
+                requires_human_review=True,
+                decision_what="Possible OCR Invoice Match",
+                decision_why=(
+                    f"Invoice numbers differ by {evidence.ocr_substitution_count} OCR-like "
+                    f"substitutions ({subs_str}). GSTIN and tax values match."
+                ),
+                decision_next="Verify the invoice number before accepting.",
+                review_reason="MULTI_OCR_REVIEW",
+                discrepancies=discrepancies,
+                identity_confidence="Medium", financial_status="Exact",
+            )
+
+        # ── Prefix Alteration Guard: require review when prefix differs ──────
+        if evidence.prefix_changed and evidence.terminal_sequence_match:
+            return _ret(
+                level=3, matched=True, confidence=75,
+                requires_human_review=True,
+                decision_what="Invoice Series / Prefix Mismatch",
+                decision_why="The numeric invoice sequence matches, but the invoice prefix differs.",
+                decision_next="Confirm whether both numbers belong to the same invoice series/branch.",
+                review_reason="PREFIX_ALTERATION_REVIEW",
+                discrepancies=discrepancies,
+                identity_confidence="Medium", financial_status="Exact",
+            )
+
         why_text = (
             "Invoice numbers match after normalization or format variant; amounts and dates align"
             if (skip_date or date_diff_days == 0)
@@ -1059,13 +1109,44 @@ def generic_match_pair(
     # in the same series (e.g. INV/25-26/0101 vs INV/25-26/0197).
     # ══════════════════════════════════════════════════════════════════════
     if gstin_ok and not inv_ok and not format_variant:
-        if not is_sequential_series_mismatch(a_inv, b_inv, a_inv_raw, b_inv_raw):
+        if evidence.prefix_changed and not evidence.terminal_sequence_match:
+            # Terminal sequence mismatch across different prefixes: NEVER match
+            pass
+        elif not is_sequential_series_mismatch(a_inv, b_inv, a_inv_raw, b_inv_raw):
             inv_sim = invoice_similarity(a_inv, b_inv)
             if inv_sim >= _L5_INVOICE_SIM_THRESHOLD:
                 date_within_l5 = skip_date or (
                     date_diff_days <= _L5_DATE_TOLERANCE_DAYS
                 )
                 if amount_within_l3 and date_within_l5:
+                    if evidence.ocr_substitution_count >= 2:
+                        subs_str = ", ".join(evidence.ocr_substitutions) if evidence.ocr_substitutions else f"{evidence.ocr_substitution_count} substitutions"
+                        return _ret(
+                            level=3, matched=True, confidence=75,
+                            requires_human_review=True,
+                            decision_what="Possible OCR Invoice Match",
+                            decision_why=(
+                                f"Invoice numbers differ by {evidence.ocr_substitution_count} OCR-like "
+                                f"substitutions ({subs_str}). GSTIN and tax values match."
+                            ),
+                            decision_next="Verify the invoice number before accepting.",
+                            review_reason="MULTI_OCR_REVIEW",
+                            discrepancies=discrepancies,
+                            identity_confidence="Medium",
+                            financial_status=financial_status,
+                        )
+                    if evidence.prefix_changed and evidence.terminal_sequence_match:
+                        return _ret(
+                            level=3, matched=True, confidence=75,
+                            requires_human_review=True,
+                            decision_what="Invoice Series / Prefix Mismatch",
+                            decision_why="The numeric invoice sequence matches, but the invoice prefix differs.",
+                            decision_next="Confirm whether both numbers belong to the same invoice series/branch.",
+                            review_reason="PREFIX_ALTERATION_REVIEW",
+                            discrepancies=discrepancies,
+                            identity_confidence="Medium",
+                            financial_status=financial_status,
+                        )
                     return _ret(
                         level=5, matched=True, confidence=60,
                         requires_human_review=True,

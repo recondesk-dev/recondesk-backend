@@ -121,13 +121,231 @@ _OCR_MAP = str.maketrans({
     "B": "8", "b": "8",
 })
 
+_UNICODE_DASH_RE = re.compile(r"[\u2010\u2011\u2012\u2013\u2014\u2015\u2212\ufe58\ufe63\uff0d]")
+_UNICODE_SPACE_RE = re.compile(r"[\u00a0\u2000-\u200b\u202f\u205f\u3000]")
+
+_OCR_CHAR_PAIRS: set[tuple[str, str]] = {
+    ("0", "O"), ("O", "0"),
+    ("1", "I"), ("I", "1"),
+    ("1", "L"), ("L", "1"),
+    ("5", "S"), ("S", "5"),
+    ("8", "B"), ("B", "8"),
+    ("2", "Z"), ("Z", "2"),
+}
+
 
 def ocr_canonical_invoice(s: str | None) -> str:
-    """Normalize invoice number with OCR-confused character transliteration."""
+    """Normalize invoice number with OCR-confused character transliteration.
+
+    Transliterates OCR confusable characters before stripping numeric zeros so that
+    characters like 'I' or 'O' don't artificially split numeric runs.
+    """
     if not s:
         return ""
-    norm = normalize_invoice(s)
-    return norm.translate(_OCR_MAP)
+    clean = _RE_NON_ALNUM.sub("", str(s).strip().upper())
+    ocr_trans = clean.translate(_OCR_MAP)
+    return normalize_invoice(ocr_trans)
+
+
+@dataclass
+class InvoiceNormalizationEvidence:
+    raw_a: str
+    raw_b: str
+    normalized_a: str
+    normalized_b: str
+    ocr_substitution_count: int = 0
+    ocr_substitutions: list[str] = field(default_factory=list)
+    punctuation_only_change: bool = False
+    whitespace_only_change: bool = False
+    unicode_only_change: bool = False
+    leading_zero_only_change: bool = False
+    prefix_changed: bool = False
+    prefix_a: str = ""
+    prefix_b: str = ""
+    suffix_changed: bool = False
+    suffix_a: str = ""
+    suffix_b: str = ""
+    terminal_sequence_match: bool = False
+    terminal_seq_a: int | None = None
+    terminal_seq_b: int | None = None
+    token_overlap: float = 0.0
+    date_delta_days: int = 0
+    taxable_difference_paise: int = 0
+    tax_difference_paise: int = 0
+    gstin_exact: bool = True
+    doc_type_compatible: bool = True
+    normalization_reason_codes: list[str] = field(default_factory=list)
+    risk_points: int = 0
+    is_safe_format_variant: bool = False
+    is_exact_raw: bool = False
+    is_exact_normalized: bool = False
+
+
+def extract_terminal_and_prefix(s: str | None) -> tuple[int | None, str]:
+    """Extract terminal meaningful sequence number and prefix preceding it."""
+    raw = str(s or "").strip()
+    m = re.search(r"^(.*?)(\d+)\s*$", raw)
+    if m:
+        pref = _RE_NON_ALNUM.sub("", m.group(1)).upper()
+        return int(m.group(2)), pref
+    nums = [int(x) for x in re.findall(r"\d+", raw)]
+    term = nums[-1] if nums else None
+    clean = _RE_NON_ALNUM.sub("", raw).upper()
+    pref = re.sub(r"\d+$", "", clean)
+    return term, pref
+
+
+def analyze_invoice_evidence(
+    a_inv: str | None,
+    b_inv: str | None,
+    a_inv_raw: str | None = None,
+    b_inv_raw: str | None = None,
+    da: date | None = None,
+    db: date | None = None,
+    ta: int = 0,
+    tb: int = 0,
+    tax_a: int = 0,
+    tax_b: int = 0,
+    gstin_exact: bool = True,
+    doc_type_compatible: bool = True,
+    date_diff_days: int = 0,
+) -> InvoiceNormalizationEvidence:
+    """Analyze invoice pair transformations, OCR substitutions, prefix drift, and risk points."""
+    raw_a = str(a_inv_raw or a_inv or "").strip()
+    raw_b = str(b_inv_raw or b_inv or "").strip()
+
+    clean_a = _RE_NON_ALNUM.sub("", raw_a).upper()
+    clean_b = _RE_NON_ALNUM.sub("", raw_b).upper()
+
+    norm_a = normalize_invoice(raw_a)
+    norm_b = normalize_invoice(raw_b)
+
+    ocr_a = ocr_canonical_invoice(raw_a)
+    ocr_b = ocr_canonical_invoice(raw_b)
+
+    is_exact_raw = bool(raw_a and raw_b and raw_a == raw_b)
+    is_exact_norm = bool(norm_a and norm_b and norm_a == norm_b)
+
+    term_a, pref_a = extract_terminal_and_prefix(raw_a)
+    term_b, pref_b = extract_terminal_and_prefix(raw_b)
+    terminal_sequence_match = bool(term_a is not None and term_a == term_b)
+
+    # Whitespace-only difference
+    raw_a_no_space = re.sub(r"\s+", "", raw_a).upper()
+    raw_b_no_space = re.sub(r"\s+", "", raw_b).upper()
+    whitespace_only = bool(raw_a_no_space and raw_b_no_space and raw_a_no_space == raw_b_no_space and raw_a != raw_b)
+
+    # Unicode-only difference
+    u_a = _UNICODE_SPACE_RE.sub(" ", _UNICODE_DASH_RE.sub("-", raw_a))
+    u_b = _UNICODE_SPACE_RE.sub(" ", _UNICODE_DASH_RE.sub("-", raw_b))
+    unicode_only = bool(u_a == u_b and raw_a != raw_b)
+
+    # Punctuation-only difference
+    punct_only = bool(clean_a and clean_b and clean_a == clean_b and not is_exact_raw and not whitespace_only)
+
+    # Leading-zero only difference
+    leading_zero_only = False
+    if is_exact_norm and not punct_only and not whitespace_only and not is_exact_raw:
+        leading_zero_only = True
+
+    is_safe_format_variant = bool(
+        is_exact_norm or punct_only or whitespace_only or unicode_only or leading_zero_only
+    )
+
+    # OCR substitutions
+    ocr_count = 0
+    ocr_subs: list[str] = []
+    if not is_exact_norm and ocr_a and ocr_b and ocr_a == ocr_b:
+        if len(clean_a) == len(clean_b):
+            for ca, cb in zip(clean_a, clean_b):
+                if ca != cb:
+                    if (ca, cb) in _OCR_CHAR_PAIRS:
+                        ocr_subs.append(f"{ca}/{cb}")
+                    else:
+                        ocr_subs.append(f"{ca}/{cb}")
+            ocr_count = len(ocr_subs)
+        else:
+            diff_len = abs(len(clean_a) - len(clean_b))
+            subs_inner = [f"{ca}/{cb}" for ca, cb in zip(clean_a, clean_b) if ca != cb and (ca, cb) in _OCR_CHAR_PAIRS]
+            ocr_count = max(1, len(subs_inner) + diff_len)
+            ocr_subs = subs_inner or [f"len_{diff_len}"]
+
+    # Prefix change
+    prefix_changed = False
+    if clean_a != clean_b and not is_exact_norm and ocr_count == 0:
+        if pref_a != pref_b:
+            prefix_changed = True
+
+    # Risk points
+    risk_points = 0
+    reasons: list[str] = []
+    if is_exact_raw:
+        pass
+    elif is_safe_format_variant and ocr_count == 0 and not prefix_changed:
+        pass
+    else:
+        if ocr_count == 1:
+            risk_points += 1
+            reasons.append("OCR_SINGLE")
+        elif ocr_count >= 2:
+            risk_points += 1 + 2 * (ocr_count - 1)
+            reasons.append(f"OCR_MULTI_{ocr_count}")
+
+        if prefix_changed:
+            risk_points += 2
+            reasons.append("PREFIX_ALTERATION")
+
+    d_days = date_diff_days
+    if da and db:
+        try:
+            d_days = abs((db - da).days)
+        except Exception:
+            pass
+    if d_days > 1:
+        risk_points += 2
+        reasons.append("DATE_DRIFT")
+
+    amt_diff = abs(abs(ta) - abs(tb))
+    if amt_diff > 100:
+        risk_points += 3
+        reasons.append("AMOUNT_DRIFT")
+
+    if not doc_type_compatible:
+        risk_points += 5
+        reasons.append("DOC_TYPE_MISMATCH")
+
+    if not gstin_exact:
+        risk_points += 10
+        reasons.append("GSTIN_MISMATCH")
+
+    return InvoiceNormalizationEvidence(
+        raw_a=raw_a,
+        raw_b=raw_b,
+        normalized_a=norm_a,
+        normalized_b=norm_b,
+        ocr_substitution_count=ocr_count,
+        ocr_substitutions=ocr_subs,
+        punctuation_only_change=punct_only,
+        whitespace_only_change=whitespace_only,
+        unicode_only_change=unicode_only,
+        leading_zero_only_change=leading_zero_only,
+        prefix_changed=prefix_changed,
+        prefix_a=pref_a,
+        prefix_b=pref_b,
+        terminal_sequence_match=terminal_sequence_match,
+        terminal_seq_a=term_a,
+        terminal_seq_b=term_b,
+        date_delta_days=d_days,
+        taxable_difference_paise=amt_diff,
+        tax_difference_paise=abs(abs(tax_a) - abs(tax_b)),
+        gstin_exact=gstin_exact,
+        doc_type_compatible=doc_type_compatible,
+        normalization_reason_codes=reasons,
+        risk_points=risk_points,
+        is_safe_format_variant=is_safe_format_variant and ocr_count == 0 and not prefix_changed,
+        is_exact_raw=is_exact_raw,
+        is_exact_normalized=is_exact_norm,
+    )
 
 
 def count_ocr_substitutions(a: str, b: str) -> tuple[int, bool]:
@@ -136,35 +354,8 @@ def count_ocr_substitutions(a: str, b: str) -> tuple[int, bool]:
     Returns:
         (substitution_count, has_prefix_or_structural_substitution)
     """
-    na, nb = normalize_invoice(a), normalize_invoice(b)
-    if not na or not nb or na == nb:
-        return 0, False
-
-    ocr_a = ocr_canonical_invoice(na)
-    ocr_b = ocr_canonical_invoice(nb)
-    if ocr_a != ocr_b:
-        return levenshtein(na, nb), True
-
-    subs = 0
-    prefix_sub = False
-    pa = _RE_LEADING_ALPHA.match(na)
-    pb = _RE_LEADING_ALPHA.match(nb)
-    p_len_a = pa.end() if pa else 0
-    p_len_b = pb.end() if pb else 0
-    p_len = max(p_len_a, p_len_b)
-
-    for i, (ca, cb) in enumerate(zip(na, nb)):
-        if ca != cb:
-            subs += 1
-            if i < p_len or (i < 3 and (ca in "15280" or cb in "15280")):
-                prefix_sub = True
-
-    diff_len = abs(len(na) - len(nb))
-    subs += diff_len
-    if diff_len > 0:
-        prefix_sub = True
-
-    return subs, prefix_sub
+    ev = analyze_invoice_evidence(a, b)
+    return ev.ocr_substitution_count, (ev.prefix_changed or ev.risk_points >= 2)
 
 
 def _pan_of(gstin: str | None) -> str:
