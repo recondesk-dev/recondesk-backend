@@ -1,6 +1,7 @@
 import { MetadataRoute } from "next";
 import fs from "fs";
 import path from "path";
+import { getAllPosts } from "@/lib/blog/posts";
 
 /**
  * Recursively checks if a page file (page.tsx or page.ts) exists for a route path,
@@ -73,11 +74,9 @@ export default function sitemap(): MetadataRoute.Sitemap {
       priority: candidate.priority,
     }));
 
-  const blogPosts = [
-    "what-is-gstr-2b-itc-claims-guide",
-  ].map((slug) => ({
-    url: `${baseUrl}/blog/${slug}`,
-    lastModified: new Date(),
+  const blogPosts = getAllPosts().map((post) => ({
+    url: `${baseUrl}/blog/${post.slug}`,
+    lastModified: new Date(post.publishedAt).toString() !== "Invalid Date" ? new Date(post.publishedAt) : new Date(),
     changeFrequency: "monthly" as const,
     priority: 0.8,
   }));

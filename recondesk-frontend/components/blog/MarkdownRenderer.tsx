@@ -1,4 +1,5 @@
 import React from "react";
+import Link from "next/link";
 import { ScrollyInvoiceStory } from "./ScrollyInvoiceStory";
 import { ItcLossCalculator } from "./ItcLossCalculator";
 import { TaxCallout } from "./TaxCallout";
@@ -68,6 +69,28 @@ export function MarkdownRenderer({ content }: { content: string }) {
             </TaxCallout>
           );
         }
+        if (trimmed === "{{TAX_CALLOUT_RULE_88D}}") {
+          return (
+            <TaxCallout
+              key={i}
+              type="warning"
+              title="Rule 88D & Form GST DRC-01C: Excess ITC Intimation"
+            >
+              Where input tax credit availed in GSTR-3B exceeds the ITC available in GSTR-2B by a specified percentage or amount, an intimation in Part A of Form GST DRC-01C is automatically issued. The taxpayer must either discharge the differential tax along with interest under Section 50 or explain the difference in Part B within seven days.
+            </TaxCallout>
+          );
+        }
+        if (trimmed === "{{TAX_CALLOUT_RULE_37}}") {
+          return (
+            <TaxCallout
+              key={i}
+              type="law"
+              title="Rule 37 of CGST Rules: 180-Day Payment Reversal Mandate"
+            >
+              A recipient who has availed of input tax credit on inward supply must reverse such credit along with interest under Section 50 if they fail to pay the supplier the value of supply plus tax within 180 days from the invoice date. Credit can only be reclaimed once actual payment is discharged.
+            </TaxCallout>
+          );
+        }
 
         // 2. Horizontal divider
         if (trimmed === "---") {
@@ -75,6 +98,16 @@ export function MarkdownRenderer({ content }: { content: string }) {
         }
 
         // 3. Headings
+        if (trimmed.startsWith("#### ")) {
+          return (
+            <h4
+              key={i}
+              className="mt-6 mb-2 text-lg font-bold tracking-tight text-[#0A0A0A] sm:text-xl"
+            >
+              {renderInline(trimmed.replace(/^####\s+/, ""))}
+            </h4>
+          );
+        }
         if (trimmed.startsWith("### ")) {
           return (
             <h3
@@ -142,16 +175,16 @@ export function MarkdownRenderer({ content }: { content: string }) {
           }
         }
 
-        // 5. Unordered List
-        if (trimmed.startsWith("- ") || trimmed.startsWith("* ")) {
+        // 5. Unordered List (supports -, *, and •)
+        if (trimmed.startsWith("- ") || trimmed.startsWith("* ") || trimmed.startsWith("• ")) {
           const items = trimmed
             .split("\n")
-            .filter((line) => line.trim().startsWith("- ") || line.trim().startsWith("* "));
+            .filter((line) => line.trim().startsWith("- ") || line.trim().startsWith("* ") || line.trim().startsWith("• "));
           return (
             <ul key={i} className="my-4 list-disc space-y-2 pl-5 text-[#4A4A4A]">
               {items.map((item, itemIdx) => (
                 <li key={itemIdx}>
-                  {renderInline(item.replace(/^[-*]\s+/, ""))}
+                  {renderInline(item.replace(/^[-*•]\s+/, ""))}
                 </li>
               ))}
             </ul>
@@ -189,8 +222,8 @@ export function MarkdownRenderer({ content }: { content: string }) {
  * Basic inline parser for bold, code, and links
  */
 function renderInline(text: string): React.ReactNode {
-  // Split on bold (**text**)
-  const parts = text.split(/(\*\*.*?\*\*|`.*?`)/g);
+  // Split on bold (**text**), code (`text`), and markdown links [text](url)
+  const parts = text.split(/(\*\*.*?\*\*|`.*?`|\[.*?\]\(.*?\))/g);
 
   return parts.map((part, index) => {
     if (part.startsWith("**") && part.endsWith("**")) {
@@ -208,6 +241,30 @@ function renderInline(text: string): React.ReactNode {
         >
           {part.slice(1, -1)}
         </code>
+      );
+    }
+    const linkMatch = part.match(/^\[(.*?)\]\((.*?)\)$/);
+    if (linkMatch) {
+      const [, label, href] = linkMatch;
+      const isInternal = href.startsWith("/");
+      return isInternal ? (
+        <Link
+          key={index}
+          href={href}
+          className="text-[#7B5CFA] font-semibold underline underline-offset-2 hover:text-[#6C4DE6] transition-colors"
+        >
+          {label}
+        </Link>
+      ) : (
+        <a
+          key={index}
+          href={href}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-[#7B5CFA] font-semibold underline underline-offset-2 hover:text-[#6C4DE6] transition-colors"
+        >
+          {label}
+        </a>
       );
     }
     return part;

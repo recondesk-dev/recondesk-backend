@@ -4,6 +4,11 @@ export interface Author {
   avatarUrl?: string;
 }
 
+export interface FAQItem {
+  question: string;
+  answer: string;
+}
+
 export interface BlogPost {
   slug: string;
   title: string;
@@ -16,4 +21,8 @@ export interface BlogPost {
   coverGradient: string;
   featured?: boolean;
   content: string;
+  metaTitle?: string;
+  metaDescription?: string;
+  keywords?: string[];
+  faqs?: FAQItem[];
 }

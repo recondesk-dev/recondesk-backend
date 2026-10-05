@@ -39,15 +39,29 @@ export function generateMetadata({ params }: Props): Metadata {
     };
   }
 
+  const title = post.metaTitle || `${post.title} — ReconDesk Intelligence`;
+  const description = post.metaDescription || post.excerpt;
+  const canonicalUrl = `https://recondesk.in/blog/${post.slug}`;
+
   return {
-    title: `${post.title} — ReconDesk Intelligence`,
-    description: post.excerpt,
+    title,
+    description,
+    keywords: post.keywords || post.tags,
+    alternates: {
+      canonical: canonicalUrl,
+    },
     openGraph: {
-      title: post.title,
-      description: post.excerpt,
+      title,
+      description,
       type: "article",
+      url: canonicalUrl,
       publishedTime: post.publishedAt,
       tags: post.tags,
+    },
+    twitter: {
+      card: "summary_large_image",
+      title,
+      description,
     },
   };
 }
@@ -64,8 +78,63 @@ export default function BlogPostPage({ params }: Props) {
     .filter((p) => p.slug !== post.slug)
     .slice(0, 2);
 
+  const siteUrl = "https://recondesk.in";
+  const postUrl = `${siteUrl}/blog/${post.slug}`;
+
+  const articleSchema = {
+    "@context": "https://schema.org",
+    "@type": "BlogPosting",
+    headline: post.title,
+    description: post.metaDescription || post.excerpt,
+    datePublished: post.publishedAt,
+    author: {
+      "@type": "Organization",
+      name: post.author.name,
+    },
+    publisher: {
+      "@type": "Organization",
+      name: "ReconDesk",
+      url: siteUrl,
+      logo: {
+        "@type": "ImageObject",
+        url: `${siteUrl}/logo.png`,
+      },
+    },
+    mainEntityOfPage: {
+      "@type": "WebPage",
+      "@id": postUrl,
+    },
+    keywords: (post.keywords || post.tags).join(", "),
+  };
+
+  const faqSchema =
+    post.faqs && post.faqs.length > 0
+      ? {
+          "@context": "https://schema.org",
+          "@type": "FAQPage",
+          mainEntity: post.faqs.map((faq) => ({
+            "@type": "Question",
+            name: faq.question,
+            acceptedAnswer: {
+              "@type": "Answer",
+              text: faq.answer,
+            },
+          })),
+        }
+      : null;
+
   return (
     <article className="bg-white text-[#0A0A0A] py-10 sm:py-16">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(articleSchema) }}
+      />
+      {faqSchema && (
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(faqSchema) }}
+        />
+      )}
       <div className="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8">
         {/* Top Breadcrumb & Back Link */}
         <div className="flex items-center justify-between gap-4 text-xs text-[#6B6B6B]">
