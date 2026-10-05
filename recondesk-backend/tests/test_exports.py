@@ -1056,3 +1056,45 @@ class TestCsvExcelQuoting:
         assert _excel_quote_text('INV"123"') == '="INV""123"""'
         assert _excel_quote_text(12345) == '="12345"'
 
+
+@pytest.mark.asyncio
+async def test_reconcile_export_excel_workbook_endpoint_executes_cleanly(monkeypatch):
+    """Verify /runs/{run_id}/export/excel endpoint executes without NameError or missing review_rows."""
+    from unittest.mock import MagicMock, AsyncMock
+    from starlette.responses import StreamingResponse
+    import app.routers.reconciliation_api as r_api
+
+    mock_sb = MagicMock()
+    mock_sb.table.return_value.select.return_value.eq.return_value.limit.return_value.execute.return_value = MagicMock(
+        data=[{"id": "0651bc45-1f02-4ff9-9f35-64fd2d956eb9", "period": "2026-09"}]
+    )
+    # gstr3b select query
+    mock_sb.table.return_value.select.return_value.eq.return_value.order.return_value.limit.return_value.execute.return_value = MagicMock(
+        data=[]
+    )
+
+    monkeypatch.setattr(r_api, "get_supabase", lambda: mock_sb)
+    monkeypatch.setattr(r_api, "_parse_uuid", lambda r, p: r)
+    monkeypatch.setattr(r_api, "assert_run_accessible", lambda sb, rid, u: None)
+    monkeypatch.setattr(r_api, "_payload_or_404", lambda sb, rid: {"engine": {}})
+    monkeypatch.setattr(r_api.ro, "build_outcome_rows", lambda sb, rid, p: ([], [], []))
+    monkeypatch.setattr(r_api, "_build_reconcile_summary", lambda *a, **kw: {"client_name": "Test Client"})
+    monkeypatch.setattr(r_api, "get_user_profile", lambda uid: {"firm_name": "Test Firm", "full_name": "Test User"})
+    monkeypatch.setattr(r_api, "_notes_count_for_run", lambda sb, rid: {})
+    monkeypatch.setattr(r_api, "_build_matched_pair_records", lambda *a, **kw: [])
+    monkeypatch.setattr(r_api, "_build_missed_itc_records", lambda *a, **kw: [])
+    monkeypatch.setattr(r_api, "_build_wrongful_risk_records", lambda *a, **kw: [])
+    monkeypatch.setattr(r_api, "_build_rule37_rows", lambda *a, **kw: [])
+    monkeypatch.setattr(r_api, "_build_section175_rows", lambda *a, **kw: [])
+    monkeypatch.setattr(r_api, "_followup_audit_query", lambda *a, **kw: [])
+    monkeypatch.setattr(r_api, "_followup_audit_list_response", lambda raw: [])
+    monkeypatch.setattr(r_api, "_log_result_export", AsyncMock())
+
+    resp = await r_api.reconcile_export_excel_workbook(
+        run_id="0651bc45-1f02-4ff9-9f35-64fd2d956eb9",
+        current_user={"id": "usr-test-123"},
+    )
+    assert isinstance(resp, StreamingResponse)
+    assert resp.media_type == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    assert "Content-Disposition" in resp.headers
+

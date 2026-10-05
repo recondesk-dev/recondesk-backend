@@ -2,12 +2,14 @@
 
 import {
   Check,
+  ChevronDown,
   FileSpreadsheet,
   FileText,
   Loader2,
+  X,
 } from "lucide-react";
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
   DecisionInvoiceCard,
@@ -198,6 +200,74 @@ export function Gstr1ResultsView({
   const [tab, setTab] = useState<ResultsBucketTabId>("matched");
   const [excelBusy, setExcelBusy] = useState(false);
   const [pdfBusy, setPdfBusy] = useState(false);
+  const [filesDropdownOpen, setFilesDropdownOpen] = useState(false);
+  const filesDropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!filesDropdownOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (
+        filesDropdownRef.current &&
+        !filesDropdownRef.current.contains(e.target as Node)
+      ) {
+        setFilesDropdownOpen(false);
+      }
+    };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setFilesDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [filesDropdownOpen]);
+
+  const uploadedFiles = useMemo(() => {
+    const list: { label: string; filename: string }[] = [];
+    if (result.meta?.sales_register_filename) {
+      list.push({
+        label: "Sales Register",
+        filename: result.meta.sales_register_filename,
+      });
+    }
+    if (result.meta?.gstr1_filename) {
+      list.push({
+        label: "GSTR-1",
+        filename: result.meta.gstr1_filename,
+      });
+    }
+    if (result.meta?.gstr3b_filename) {
+      list.push({
+        label: "GSTR-3B",
+        filename: result.meta.gstr3b_filename,
+      });
+    }
+    if (result.meta?.prior_gstr1_filename) {
+      list.push({
+        label: "Prior GSTR-1",
+        filename: result.meta.prior_gstr1_filename,
+      });
+    }
+    return list;
+  }, [
+    result.meta?.sales_register_filename,
+    result.meta?.gstr1_filename,
+    result.meta?.gstr3b_filename,
+    result.meta?.prior_gstr1_filename,
+  ]);
+
+  const compactMetadataText = useMemo(() => {
+    if (uploadedFiles.length === 0) {
+      return "Sales Register ↔ GSTR-1 ↔ GSTR-3B";
+    }
+    const countPrefix = `${uploadedFiles.length} file${uploadedFiles.length === 1 ? "" : "s"} analysed`;
+    const names = uploadedFiles.map((f) => f.label).join(" · ");
+    return `${countPrefix} · ${names}`;
+  }, [uploadedFiles]);
 
   const summary = result.summary;
 
@@ -349,15 +419,69 @@ export function Gstr1ResultsView({
             <h1 className="mt-1 text-xl font-semibold tracking-tight text-[var(--ink)]">
               Period {periodLabel}
             </h1>
-            <p className="mt-1 text-[13px] text-gray-500">
-              {[
-                result.meta?.sales_register_filename,
-                result.meta?.gstr1_filename,
-                result.meta?.gstr3b_filename,
-              ]
-                .filter(Boolean)
-                .join(" · ") || "Sales Register ↔ GSTR-1 ↔ GSTR-3B"}
-            </p>
+            <div className="relative mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-gray-500">
+              <span>{compactMetadataText}</span>
+              {uploadedFiles.length > 0 && (
+                <div className="relative inline-block" ref={filesDropdownRef}>
+                  <button
+                    type="button"
+                    onClick={() => setFilesDropdownOpen((prev) => !prev)}
+                    aria-expanded={filesDropdownOpen}
+                    aria-haspopup="dialog"
+                    className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium text-[#2563EB] hover:bg-blue-50 transition-colors"
+                  >
+                    <span>View files</span>
+                    <ChevronDown
+                      className={`h-3 w-3 transition-transform duration-150 ${
+                        filesDropdownOpen ? "rotate-180" : ""
+                      }`}
+                    />
+                  </button>
+
+                  {filesDropdownOpen && (
+                    <div
+                      role="dialog"
+                      aria-label="Uploaded files for reconciliation"
+                      className="absolute left-0 top-full z-50 mt-1.5 w-80 max-w-[calc(100vw-2rem)] sm:w-96 rounded-xl border border-[#E2E8F0] bg-white p-3.5 shadow-lg ring-1 ring-black/5"
+                    >
+                      <div className="flex items-center justify-between border-b border-[#F1F5F9] pb-2">
+                        <span className="text-xs font-semibold text-[#0F172A]">
+                          Uploaded Files ({uploadedFiles.length})
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setFilesDropdownOpen(false)}
+                          className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+                          aria-label="Close"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                      <div className="mt-2.5 space-y-2 text-xs">
+                        {uploadedFiles.map((f) => (
+                          <div
+                            key={f.label}
+                            className="rounded-lg border border-[#F1F5F9] bg-[#F8FAFC] p-2.5"
+                          >
+                            <div className="flex items-center justify-between">
+                              <span className="text-[11px] font-bold uppercase tracking-wider text-[#64748B]">
+                                {f.label}
+                              </span>
+                            </div>
+                            <div
+                              className="mt-1 font-mono text-[11px] text-[#0F172A] break-all select-all leading-relaxed"
+                              title={f.filename}
+                            >
+                              {f.filename}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
             <div className="mt-2 flex flex-wrap gap-2">
               {!summary.tie_out_clean ? (
                 <span className="inline-flex rounded-full bg-amber-50 px-2.5 py-0.5 text-[11px] font-medium text-amber-800 ring-1 ring-amber-200">

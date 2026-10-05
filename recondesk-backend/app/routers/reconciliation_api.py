@@ -7163,6 +7163,11 @@ async def reconcile_export_excel_workbook(
             fetch_review_required=True,
             precomputed_outcome_rows=summ_outcome_rows,
         )
+        review_rows = [pair[0] for pair in review_pairs]
+        if not review_rows:
+            review_rows = [
+                x.as_dict() for x in summ_outcome_rows if x.category == "review_required"
+            ]
         missed = _build_missed_itc_records(
             sb,
             rid=rid,

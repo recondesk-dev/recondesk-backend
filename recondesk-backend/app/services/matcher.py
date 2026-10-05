@@ -437,7 +437,11 @@ def is_invoice_format_variant(
                             or pref_b.endswith(pref_a)
                         ):
                             # Prefix abbreviation (e.g. "FZ" vs "F") or branch prefix (e.g. "MUMINV" vs "INV")
-                            if na[-1].isdigit() and nb[-1].isdigit():
+                            core_a = [t for t in tokens_a if not (20 <= t <= 35 or 2020 <= t <= 2035)]
+                            core_b = [t for t in tokens_b if not (20 <= t <= 35 or 2020 <= t <= 2035)]
+                            if core_a and core_b and core_a[-1] == core_b[-1]:
+                                return True
+                            if not core_a and not core_b and tokens_a and tokens_b and tokens_a[-1] == tokens_b[-1]:
                                 return True
                     elif not (pa and pb):
                         # One side has no alpha prefix (e.g. pure numeric '100' or '89').
@@ -2073,7 +2077,19 @@ def _match_gstr_to_pr_pair(
     # the zero-discrepancy invariant above; anything reaching here has a real
     # (if small) amount/date diff.
     if gstin_match and format_variant:
-        if amount_within_l3 and date_within_l3:
+        # Guard: weak invoice identity cannot be rescued by L3 when date difference
+        # is large (> date tolerance) and amount/tax-profile difference is material.
+        has_large_date_diff = not date_within_l1
+        has_material_financial_diff = (
+            not amount_within_l1
+            or not tax_structure_match
+            or not l12_finance_ok
+        )
+        if has_large_date_diff and has_material_financial_diff:
+            # Cannot match: weak invoice identity cannot be rescued by L3 when
+            # date difference is large and amount/tax-profile difference is material.
+            pass
+        elif amount_within_l3 and date_within_l3:
             if amount_within_l1 and not skip_amount:
                 d_what = f"Format variant with date difference of {date_diff_days} days"
                 d_why = f"Invoice format matches, date differs by {date_diff_days} days"

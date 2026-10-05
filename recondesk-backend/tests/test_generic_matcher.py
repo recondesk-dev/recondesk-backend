@@ -571,3 +571,96 @@ class TestSymmetricInvoiceNormalisation:
         r = generic_match_pair(sr, g1, SALES_MATCH_CONFIG)
         assert r.matched is False or r.level > 2
 
+    def test_run7_r7_01912_vs_g1only_r7_0024_false_match_rejected(self):
+        """Run 7 regression: SR 'R7/01912' must NOT match GSTR-1 'G1ONLY-R7/0024'."""
+        sr = {
+            "invoice_number": "R7/01912",
+            "invoice_number_raw": "R7/01912",
+            "recipient_gstin": "27ISKPK1273H1ZF",
+            "gstin": "27ISKPK1273H1ZF",
+            "invoice_date": "2026-09-05",
+            "taxable_amount_paise": 10000000,
+            "total_tax_paise": 1800000,
+            "igst_paise": 1800000,
+            "cgst_paise": 0,
+            "sgst_paise": 0,
+        }
+        g1 = {
+            "invoice_number": "G1ONLY-R7/0024",
+            "invoice_number_raw": "G1ONLY-R7/0024",
+            "inum": "G1ONLY-R7/0024",
+            "recipient_gstin": "27ISKPK1273H1ZF",
+            "ctin": "27ISKPK1273H1ZF",
+            "invoice_date": "2026-09-25",
+            "taxable_amount_paise": 10500000,
+            "total_tax_paise": 1890000,
+            "igst_paise": 0,
+            "cgst_paise": 945000,
+            "sgst_paise": 945000,
+        }
+        r = generic_match_pair(sr, g1, SALES_MATCH_CONFIG)
+        assert r.matched is False, f"Expected matched=False, got {r.matched} (level {r.level})"
+        assert r.level == 6
+
+    def test_run7_guard_format_variant_large_date_and_material_amount_rejected(self):
+        """Weak invoice identity cannot be rescued by L3 when date diff is large and amount is material."""
+        sr = {
+            "invoice_number": "DS/26/78",
+            "invoice_number_raw": "DS/26/78",
+            "recipient_gstin": "27ISKPK1273H1ZF",
+            "gstin": "27ISKPK1273H1ZF",
+            "invoice_date": "2026-09-05",
+            "taxable_amount_paise": 10000000,
+            "total_tax_paise": 1800000,
+            "igst_paise": 1800000,
+            "cgst_paise": 0,
+            "sgst_paise": 0,
+        }
+        g1 = {
+            "invoice_number": "DS-2026-00078",
+            "invoice_number_raw": "DS-2026-00078",
+            "recipient_gstin": "27ISKPK1273H1ZF",
+            "ctin": "27ISKPK1273H1ZF",
+            "invoice_date": "2026-09-20",  # 15 days diff (> date tolerance)
+            "taxable_amount_paise": 10300000,  # 3% diff (material amount mismatch)
+            "total_tax_paise": 1854000,
+            "igst_paise": 1854000,
+            "cgst_paise": 0,
+            "sgst_paise": 0,
+        }
+        r = generic_match_pair(sr, g1, SALES_MATCH_CONFIG)
+        assert r.matched is False
+        assert r.level == 6
+
+    def test_run7_preserves_plus_2_day_date_tolerance(self):
+        """+2-day date tolerance behavior is preserved for format variants."""
+        sr = {
+            "invoice_number": "INV/2026/001",
+            "invoice_number_raw": "INV/2026/001",
+            "recipient_gstin": "27ISKPK1273H1ZF",
+            "gstin": "27ISKPK1273H1ZF",
+            "invoice_date": "2026-09-05",
+            "taxable_amount_paise": 10000000,
+            "total_tax_paise": 1800000,
+            "igst_paise": 1800000,
+            "cgst_paise": 0,
+            "sgst_paise": 0,
+        }
+        g1 = {
+            "invoice_number": "INV-2026-001",
+            "invoice_number_raw": "INV-2026-001",
+            "recipient_gstin": "27ISKPK1273H1ZF",
+            "ctin": "27ISKPK1273H1ZF",
+            "invoice_date": "2026-09-07",  # +2 days within tolerance
+            "taxable_amount_paise": 10000000,
+            "total_tax_paise": 1800000,
+            "igst_paise": 1800000,
+            "cgst_paise": 0,
+            "sgst_paise": 0,
+        }
+        r = generic_match_pair(sr, g1, SALES_MATCH_CONFIG)
+        assert r.matched is True
+        assert r.level in (1, 2)
+        assert r.review_reason == "DATE_TOLERANCE_MATCH"
+
+

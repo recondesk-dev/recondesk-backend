@@ -1002,7 +1002,19 @@ def generic_match_pair(
     # TIER 3 — Identity OK + format-variant invoice
     # ══════════════════════════════════════════════════════════════════════
     if identity_ok and format_variant:
-        if amount_within_l3 and date_within_l3:
+        # Guard: weak invoice identity cannot be rescued by L3 when date difference
+        # is large (> date tolerance) and amount/tax-profile difference is material.
+        has_large_date_diff = not date_within_l1
+        has_material_financial_diff = (
+            not amount_within_l1
+            or not tax_structure_match
+            or not l12_finance_ok
+        )
+        if has_large_date_diff and has_material_financial_diff:
+            # Cannot match: weak invoice identity cannot be rescued by L3 when
+            # date difference is large and amount/tax-profile difference is material.
+            pass
+        elif amount_within_l3 and date_within_l3:
             return _ret(
                 level=3, matched=True, confidence=75,
                 requires_human_review=True,
