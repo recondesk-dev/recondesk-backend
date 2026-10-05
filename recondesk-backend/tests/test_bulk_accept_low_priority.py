@@ -134,7 +134,8 @@ async def test_bulk_accept_low_priority_executes_successfully():
         assert kwargs["status_value"] == "acted"
 
 
-def test_summary_low_priority_count_excludes_urgent_and_acted():
+@pytest.mark.parametrize("record_prefix", ["", "rr:"])
+def test_summary_low_priority_count_excludes_urgent_and_acted(record_prefix):
     """Verify summary only counts un-acted LOW items in low_priority_review_count."""
     payload = _make_test_payload()
     gstr_map = _make_gstr_map()
@@ -172,7 +173,7 @@ def test_summary_low_priority_count_excludes_urgent_and_acted():
             assert summary["low_priority_review_itc_paise"] == 500000
 
         # When the low item is acted, it is no longer counted in the banner
-        with patch("app.routers.reconciliation_api._decision_statuses_for_run", return_value={GSTR_LOW: "acted"}):
+        with patch("app.routers.reconciliation_api._decision_statuses_for_run", return_value={f"{record_prefix}{GSTR_LOW}": "acted"}):
             summary = _build_reconcile_summary(
                 sb,
                 run_row=run_row,

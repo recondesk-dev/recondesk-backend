@@ -1,5 +1,7 @@
 "use client";
 
+import styles from "./results.module.css";
+
 import { AlertTriangle, Check, CheckCircle, ChevronDown, FileSpreadsheet, FileText, Info, Loader2, Lock, MessageSquare, Shield, Trash2, Upload, X } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { localizeDiscrepancyReason } from "@/lib/decision-translations";
@@ -3109,7 +3111,7 @@ export default function ReconcileResultsPage() {
   }
 
   return (
-    <div className="box-border min-h-screen min-w-0 w-full space-y-3 pb-28">
+    <div className={`${styles.results} box-border min-h-screen min-w-0 w-full space-y-3 pb-28`}>
       {/* Context bar */}
       <div
         ref={summaryRef}
@@ -3283,9 +3285,9 @@ export default function ReconcileResultsPage() {
           const onHoldPct = Math.min(100 - cleanMatchedPct, Math.round((itcOnHold / totalRecords) * 100));
 
           return (
-          <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+          <div className={`${styles.overview} grid grid-cols-1 gap-3 lg:grid-cols-2`}>
             {/* Left: Run summary */}
-            <div className="flex items-center gap-6 rounded-[10px] border border-[#E2E8F0] bg-white p-5 px-6">
+            <div className={`${styles.runSummary} flex items-center gap-6 rounded-[10px] border border-[#E2E8F0] bg-white p-5 px-6`}>
               <div className="min-w-[84px] text-center">
                 <div className="mb-1 text-xs font-semibold uppercase tracking-wider text-[#94A3B8]">
                   {tResults("runTotal")}
@@ -3352,7 +3354,7 @@ export default function ReconcileResultsPage() {
             </div>
 
             {/* Right: Action required */}
-            <div className="overflow-hidden rounded-[10px] border border-[#E2E8F0] bg-white">
+            <div className={`${styles.actionQueue} overflow-hidden rounded-[10px] border border-[#E2E8F0] bg-white`}>
               <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#FEF2F2] bg-[#FFF7F7] px-6 py-3">
                 <div className="flex items-center gap-2">
                   <div className="h-2 w-2 rounded-full bg-[#DC2626]" />
@@ -3377,7 +3379,7 @@ export default function ReconcileResultsPage() {
                   ) : null}
                 </div>
               </div>
-              <div
+              <button type="button"
                 className="flex cursor-pointer items-center border-b border-[#F8FAFC] px-6 py-3.5 transition-colors hover:bg-[#FAFAFA]"
                 onClick={() => setResultsTab("review_required")}
               >
@@ -3386,8 +3388,8 @@ export default function ReconcileResultsPage() {
                   {(summary.review_required_count ?? 0).toLocaleString("en-IN")}
                 </span>
                 <div className="ml-2 text-base font-bold text-[#CBD5E1]">›</div>
-              </div>
-              <div
+              </button>
+              <button type="button"
                 className="flex cursor-pointer items-center border-b border-[#F8FAFC] px-6 py-3.5 transition-colors hover:bg-[#FAFAFA]"
                 onClick={() => setResultsTab("itc")}
               >
@@ -3401,8 +3403,8 @@ export default function ReconcileResultsPage() {
                   {formatInrCompact(summary.missed_itc_total_amount)}
                 </div>
                 <div className="ml-2 text-base font-bold text-[#CBD5E1]">›</div>
-              </div>
-              <div
+              </button>
+              <button type="button"
                 className="flex cursor-pointer items-center px-6 py-3.5 transition-colors hover:bg-[#FAFAFA]"
                 onClick={() => setResultsTab("risk")}
               >
@@ -3414,8 +3416,8 @@ export default function ReconcileResultsPage() {
                   {formatInrCompact(summary.wrongful_risk_total_amount)}
                 </div>
                 <div className="ml-2 text-base font-bold text-[#CBD5E1]">›</div>
-              </div>
-              <div
+              </button>
+              <button type="button"
                 className="flex cursor-pointer items-center border-t border-[#F8FAFC] px-6 py-3.5 transition-colors hover:bg-[#FAFAFA]"
                 onClick={() => setResultsTab("itc_on_hold")}
               >
@@ -3434,7 +3436,7 @@ export default function ReconcileResultsPage() {
                   {formatInrCompact(summary.itc_on_hold_total_amount ?? 0)}
                 </div>
                 <div className="ml-2 text-base font-bold text-[#CBD5E1]">›</div>
-              </div>
+              </button>
             </div>
           </div>
           );
@@ -3865,6 +3867,7 @@ export default function ReconcileResultsPage() {
                   }
                   renderItem={(row, i) => (
                     <DecisionInvoiceCard
+                      redesigned
                       key={row.id}
                       index={(itcPage - 1) * itcPageData.limit + i + 1}
                       gstin={row.supplier_gstin}
@@ -4436,6 +4439,7 @@ export default function ReconcileResultsPage() {
                   }
                   renderItem={(row, i) => (
                     <DecisionInvoiceCard
+                      redesigned
                       key={row.id}
                       index={(riskPage - 1) * riskPageData.limit + i + 1}
                       gstin={row.supplier_gstin}
@@ -5835,6 +5839,7 @@ export default function ReconcileResultsPage() {
 
                   return (
                     <DecisionInvoiceCard
+                      redesigned
                       key={row.id}
                       index={
                         (reviewRequiredData.page - 1) * reviewRequiredData.limit +

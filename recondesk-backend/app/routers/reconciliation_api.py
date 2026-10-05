@@ -3227,7 +3227,13 @@ def _build_reconcile_summary(
         )
         for api_row, _ in rr_pairs:
             prio = str(api_row.get("priority") or "LOW").upper()
-            status_val = str(api_row.get("decision_status") or "pending").lower()
+            # Cached invoice rows can predate a decision. Resolve the current
+            # status from the freshly loaded map, including legacy record IDs.
+            status_val = str(
+                _lookup_by_record_id(
+                    decision_statuses, str(api_row.get("id") or ""), "pending"
+                )
+            ).lower()
             if prio == "LOW" and status_val != "acted":
                 low_priority_review_count += 1
                 low_priority_review_itc_paise += int(round(float(api_row.get("amount") or 0) * 100))
