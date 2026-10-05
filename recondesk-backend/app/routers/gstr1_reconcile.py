@@ -1477,6 +1477,7 @@ async def _run_pipeline(
         parsed_gstr3b,
         filing_frequency=filing_freq,
         prior_records=prior_gstr1_records,
+        canonical_amendments=amendment_recon.get("canonical_amendments"),
     )
 
     _log.info(

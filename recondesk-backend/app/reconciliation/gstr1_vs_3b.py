@@ -19,7 +19,11 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Mapping, Sequence
+from typing import TYPE_CHECKING, Any, Mapping, Sequence
+
+if TYPE_CHECKING:
+    from app.models.canonical_amendment import CanonicalAmendment
+
 
 from app.rules.gstr1_mismatch_rules import (
     MismatchResult,
@@ -57,8 +61,8 @@ _ZERO_RATED_SECTIONS: frozenset[str] = frozenset({
 
 # Sections that represent credit/debit notes — these REDUCE liability.
 _CDN_SECTIONS: frozenset[str] = frozenset({
-    "cdnr", "cdnra",        # Credit/debit notes registered (& amendments)
-    "cdnur", "cdnura",      # Credit/debit notes unregistered (& amendments)
+    "cdnr", "cdnra", "cdna",  # Credit/debit notes registered (& amendments)
+    "cdnur", "cdnura",        # Credit/debit notes unregistered (& amendments)
 })
 
 # Sections excluded from the outward-supply tie-out (informational only).
@@ -70,7 +74,7 @@ _EXCLUDED_SECTIONS: frozenset[str] = frozenset({
 # original-row amount in the same GSTR-1 payload (portal Table 9* carries the
 # revised full value; summing b2b+b2ba for the same invoice double-counts).
 _AMENDMENT_SECTIONS: frozenset[str] = frozenset({
-    "b2ba", "b2cla", "b2csa", "expa", "cdnra", "cdnura",
+    "b2ba", "b2cla", "b2csa", "expa", "cdnra", "cdnura", "cdna",
 })
 
 
@@ -496,6 +500,7 @@ def aggregate_gstr1(
     include_cdn: bool = True,
     include_zero_rated: bool = False,
     prior_records: Sequence[Mapping[str, Any]] | None = None,
+    canonical_amendments: Sequence[CanonicalAmendment] | None = None,
 ) -> GSTR1Aggregate:
     """Sum GSTR-1 invoice-level records into an aggregate total for GSTR-3B tie-out.
 
@@ -511,10 +516,14 @@ def aggregate_gstr1(
         Default False so the taxable aggregate matches GSTR-3B Table 3.1(a)
         (``osup_det``), which excludes zero-rated supplies.
     prior_records : Sequence[Mapping] | None
-        Prior-period GSTR-1 records for evaluating Table 9 amendments.
-        Amendments are applied as economic differentials (amended - prior)
-        when the original document is verified in prior filings. Unmatched
-        amendments are never added as fresh current-period turnover.
+        Prior-period GSTR-1 records for evaluating Table 9 amendments via the
+        legacy diff-against-prior path.  Used only when canonical_amendments is None.
+    canonical_amendments : Sequence[CanonicalAmendment] | None
+        Pre-resolved amendment delta objects from ``process_gstr1_amendments``.
+        When provided, amendment rows in ``records`` are **skipped entirely** and
+        instead the signed ``delta_*_paise`` values from each resolved, latest-effective
+        canonical amendment are added.  This is the correct path for Run 8B and all
+        current-period amendment scenarios where originals come from the Sales Register.
 
     Returns
     -------
@@ -523,8 +532,10 @@ def aggregate_gstr1(
     """
     agg = GSTR1Aggregate()
 
+    # ── Legacy prior-period diff path ─────────────────────────────────────────
+    # Retained for backward compatibility (Run 5: originals found in prior GSTR-1).
     prior_by_key: dict[str, Mapping[str, Any]] = {}
-    if prior_records:
+    if prior_records and canonical_amendments is None:
         for pr in prior_records:
             k = _logical_invoice_key(pr)
             if k and k not in prior_by_key:
@@ -554,7 +565,11 @@ def aggregate_gstr1(
             continue
 
         if section in _AMENDMENT_SECTIONS or _is_amendment_row(rec):
-            # Table 9 amendments: apply differential against prior original if verified.
+            if canonical_amendments is not None:
+                # Amendment deltas are handled below via canonical_amendments list.
+                # Skip the raw amendment rows entirely to avoid double-counting.
+                continue
+            # Table 9 amendments: legacy path — apply differential against prior original.
             if prior_records and prior_by_key:
                 oinum = (
                     rec.get("original_invoice_number_raw")
@@ -594,7 +609,10 @@ def aggregate_gstr1(
                     agg.record_count += 1
                 continue
             elif prior_records:
+                # prior_records provided but original not found — skip silently
                 continue
+            # No prior records and no canonical_amendments: fall through to
+            # full-value aggregation (legacy unresolved amendment path).
 
         cat = _classify_gstr1_outward_record(rec)
         txval = _safe_int(rec.get("taxable_amount_paise"))
@@ -651,6 +669,31 @@ def aggregate_gstr1(
         agg.sgst_paise += sign * samt
         agg.cess_paise += sign * csamt
         agg.record_count += 1
+
+    # ── Amendment delta accumulation (canonical_amendments path) ──────────────
+    # Each resolved, latest-effective amendment contributes only its signed delta.
+    # Zero-economic amendments (number/date only) have delta == 0 and do not affect
+    # the aggregate.  Unresolved amendments have original_found=False and are excluded.
+    if canonical_amendments is not None:
+        for c in canonical_amendments:
+            if not c.original_found or not c.is_latest_effective_amendment:
+                continue
+            if c.is_zero_rated:
+                agg.zero_rated_taxable_paise += c.delta_taxable_paise
+                agg.zero_rated_igst_paise += c.delta_igst_paise
+                agg.zero_rated_cess_paise += c.delta_cess_paise
+                if include_zero_rated:
+                    agg.taxable_value_paise += c.delta_taxable_paise
+                    agg.igst_paise += c.delta_igst_paise
+                    agg.cess_paise += c.delta_cess_paise
+                    agg.record_count += 1
+            else:
+                agg.taxable_value_paise += c.delta_taxable_paise
+                agg.igst_paise += c.delta_igst_paise
+                agg.cgst_paise += c.delta_cgst_paise
+                agg.sgst_paise += c.delta_sgst_paise
+                agg.cess_paise += c.delta_cess_paise
+                agg.record_count += 1
 
     return agg
 
@@ -1128,6 +1171,7 @@ def reconcile_gstr1_vs_3b(
     include_zero_rated: bool = False,
     filing_frequency: str = "monthly",
     prior_records: Sequence[Mapping[str, Any]] | None = None,
+    canonical_amendments: Sequence[CanonicalAmendment] | None = None,
 ) -> TieOutResult:
     """Compare GSTR-1 invoice-level records against GSTR-3B summary.
 
@@ -1153,7 +1197,14 @@ def reconcile_gstr1_vs_3b(
         Filing frequency ('monthly' or 'qrmp'). Under QRMP, GSTR-1 is filed quarterly
         (due at quarter-end). In months 1 and 2 of a quarter, missing GSTR-1 is not flagged.
     prior_records : Sequence[Mapping] | None
-        Prior-period GSTR-1 records for evaluating Table 9 amendments.
+        Prior-period GSTR-1 records for evaluating Table 9 amendments (legacy path).
+        Used only when canonical_amendments is None.
+    canonical_amendments : Sequence[CanonicalAmendment] | None
+        Pre-resolved amendment delta objects from ``process_gstr1_amendments``.
+        When provided, amendment rows in ``gstr1_records`` are skipped and instead
+        ``delta_*_paise`` values from each resolved, latest-effective canonical
+        amendment are accumulated. This is the correct path for scenarios where
+        the original document is found in the Sales Register (no prior GSTR-1 needed).
 
     Returns
     -------
@@ -1183,6 +1234,7 @@ def reconcile_gstr1_vs_3b(
                 include_cdn=include_cdn,
                 include_zero_rated=include_zero_rated,
                 prior_records=prior_records,
+                canonical_amendments=canonical_amendments,
             )
             gstr1_by_rate = aggregate_gstr1_by_rate(
                 gstr1_records,
@@ -1203,20 +1255,30 @@ def reconcile_gstr1_vs_3b(
     gstr3b_summary = gstr3b_to_summary(parsed_gstr3b)
 
     # Aggregate GSTR-1
-    # If prior_records are provided, evaluate candidate models (differential vs gross outward turnover)
-    # and align with the model that best represents the GSTR-3B Table 3.1 declaration.
-    if prior_records:
+    # Score-based model selection: compare the candidate that uses amendment deltas
+    # (canonical_amendments path) against the raw full-value aggregate, and pick the
+    # one closer to the GSTR-3B Table 3.1(a) declaration.
+    #
+    # canonical_amendments path (new, preferred when available):
+    #   Amendment rows are skipped; delta_*_paise from canonical amendments are accumulated.
+    # prior_records diff path (legacy, Run 5 regression):
+    #   Amendment rows are diffed against prior-period original values.
+    # Full path (no amendments):
+    #   Amendment rows fall through and contribute full amended values (legacy fallback).
+    if canonical_amendments is not None or prior_records:
         gstr1_agg_diff = aggregate_gstr1(
             gstr1_records,
             include_cdn=include_cdn,
             include_zero_rated=include_zero_rated,
             prior_records=prior_records,
+            canonical_amendments=canonical_amendments,
         )
         gstr1_agg_full = aggregate_gstr1(
             gstr1_records,
             include_cdn=include_cdn,
             include_zero_rated=include_zero_rated,
             prior_records=None,
+            canonical_amendments=None,
         )
 
         score_diff = abs(gstr1_agg_diff.taxable_value_paise - gstr3b_summary.taxable_value_paise) + abs(
@@ -1226,7 +1288,7 @@ def reconcile_gstr1_vs_3b(
             gstr1_agg_full.total_tax_paise - gstr3b_summary.total_tax_paise
         )
 
-        if score_diff < score_full:
+        if score_diff <= score_full:
             gstr1_agg = gstr1_agg_diff
             gstr1_by_rate = aggregate_gstr1_by_rate(
                 gstr1_records,

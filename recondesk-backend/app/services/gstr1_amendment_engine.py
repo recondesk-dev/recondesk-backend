@@ -275,21 +275,57 @@ def build_canonical_amendment(
     chain_position: int = 1,
     is_latest_effective_amendment: bool = True,
 ) -> CanonicalAmendment:
-    """Build CanonicalAmendment with exact integer paise and rupee deltas."""
+    """Build CanonicalAmendment with exact integer paise and rupee deltas.
+
+    Amendment delta semantics
+    -------------------------
+    - For resolved amendments (original_found=True): delta = amended_signed - original_signed
+    - Debit note sign: positive (adds to liability)
+    - Credit note sign: negative (reduces liability)
+    - Zero-economic amendments (number/date only): all deltas are zero
+    - Unresolved amendments (original_found=False): delta = 0 for all fields
+      (the amendment is flagged via mismatch result; it is NOT silently counted)
+    """
     sec = str(amendment_rec.get("section") or "").lower().strip()
-    is_cn = (
-        _is_credit_note_type(amendment_rec.get("ntty"))
-        or _is_credit_note_type(amendment_rec.get("doc_type"))
-        or sec in ("cdnr", "cdnra", "cdna")
-    )
+
+    # ── Determine document type ──────────────────────────────────────────────
+    # Priority: explicit ntty/doc_type on amendment → source record document_type
+    # → invoice number prefix for debit notes (portal sometimes omits ntty on DNs)
+    ntty = str(amendment_rec.get("ntty") or amendment_rec.get("doc_type") or "").strip().upper()
+    orig_doc_type = str((original_rec.get("document_type") if original_rec else "") or "").strip().upper()
+
+    # Check debit note first (in case ntty is ambiguous)
     is_dn = (
-        _is_debit_note_type(amendment_rec.get("ntty"))
-        or _is_debit_note_type(amendment_rec.get("doc_type"))
+        _is_debit_note_type(ntty)
+        or _is_debit_note_type(orig_doc_type)
+        or bool(amendment_rec.get("is_debit_note"))
+        or bool(original_rec and original_rec.get("is_debit_note"))
     )
+    # Fallback: portal sometimes omits ntty on DN amendments — infer from invoice prefix
+    if not is_dn and not _is_credit_note_type(ntty):
+        inv_raw = str(
+            amendment_rec.get("invoice_number_raw")
+            or amendment_rec.get("invoice_number")
+            or amendment_rec.get("inum")
+            or amendment_rec.get("nt_num")
+            or ""
+        ).strip().upper()
+        if inv_raw[:3] in ("DN/", "DR/") or inv_raw[:3] in ("DN-", "DR-"):
+            is_dn = True
+
+    is_cn = False
+    if not is_dn:
+        is_cn = (
+            _is_credit_note_type(ntty)
+            or _is_credit_note_type(orig_doc_type)
+            or bool(amendment_rec.get("is_credit_note"))
+            or bool(original_rec and original_rec.get("is_credit_note"))
+            or sec in ("cdnr", "cdnra", "cdna", "cdnur", "cdnura")
+        )
 
     doc_type = "CREDIT_NOTE" if is_cn else ("DEBIT_NOTE" if is_dn else "INVOICE")
 
-    # Document identities
+    # ── Document identities ───────────────────────────────────────────────────
     amended_inv = str(
         amendment_rec.get("invoice_number_raw")
         or amendment_rec.get("invoice_number")
@@ -323,11 +359,10 @@ def build_canonical_amendment(
         or (str(original_rec.get("recipient_gstin") or original_rec.get("gstin") or "") if original_rec else None)
     )
 
-    # Values in paise
-    # For credit notes in Sales Register, raw amounts are already negative.
-    # In portal amendments, amounts are positive with ntty='C'.
-    # When calculating economic delta:
-    # If is_cn, amended amount contributes as negative to output liability.
+    # ── Signed paise values ───────────────────────────────────────────────────
+    # For credit notes, economic sign is negative (reduction in liability).
+    # In portal GSTR-1 JSON, CDN taxable amounts are reported as positive integers
+    # with ntty='C'.  The sign is applied here via amend_mult.
     amend_mult = -1 if is_cn else 1
     amend_tx_paise = _extract_paise_field(amendment_rec, "taxable_amount", "txval", "taxable")
     amend_igst_paise = _extract_paise_field(amendment_rec, "igst", "iamt")
@@ -336,6 +371,8 @@ def build_canonical_amendment(
     amend_cess_paise = _extract_paise_field(amendment_rec, "cess", "csamt")
 
     if original_rec:
+        # Sales Register credit notes carry negative amounts; portal amounts are positive.
+        # abs() normalises then applies orig_mult to get a consistent signed value.
         orig_mult = -1 if is_cn else 1
         orig_raw_tx = _extract_paise_field(original_rec, "taxable_amount", "txval", "taxable")
         orig_tx_paise = abs(orig_raw_tx) * orig_mult
@@ -344,6 +381,8 @@ def build_canonical_amendment(
         orig_sgst_paise = abs(_extract_paise_field(original_rec, "sgst", "samt")) * orig_mult
         orig_cess_paise = abs(_extract_paise_field(original_rec, "cess", "csamt")) * orig_mult
     else:
+        # Unresolved amendment: original not found — delta is zero to avoid
+        # silently inflating GSTR-3B liability.  The mismatch result handles review.
         orig_tx_paise = 0
         orig_igst_paise = 0
         orig_cgst_paise = 0
@@ -362,7 +401,7 @@ def build_canonical_amendment(
     delta_sgst_paise = effective_amend_sgst - orig_sgst_paise
     delta_cess_paise = effective_amend_cess - orig_cess_paise
 
-    # Classify amendment type
+    # ── Amendment type classification ─────────────────────────────────────────
     amendment_type = "NO_CHANGE"
     if orig_inv and amended_inv and normalize_invoice(orig_inv) != normalize_invoice(amended_inv):
         amendment_type = "INVOICE_NUMBER_AMENDMENT"
@@ -375,6 +414,17 @@ def build_canonical_amendment(
         str(original_rec.get("filing_period") or original_rec.get("fp") or "")
         if original_rec
         else None
+    )
+
+    # ── Zero-rated classification ─────────────────────────────────────────────
+    # Determine whether this amendment belongs to GSTR-3B Table 3.1(b) (zero-rated)
+    # rather than 3.1(a) (outward taxable supplies).
+    # Check amended record first; fall back to source record.
+    from app.reconciliation.gstr1_vs_3b import map_gstr1_supply_to_gstr3b_bucket, GSTR3BBucket
+    _zero_rated_bucket = GSTR3BBucket.TABLE_3_1_B_ZERO_RATED
+    is_zero_rated = (
+        map_gstr1_supply_to_gstr3b_bucket(amendment_rec) == _zero_rated_bucket
+        or (bool(original_rec) and map_gstr1_supply_to_gstr3b_bucket(original_rec) == _zero_rated_bucket)
     )
 
     return CanonicalAmendment(
@@ -424,6 +474,7 @@ def build_canonical_amendment(
         is_latest_effective_amendment=is_latest_effective_amendment,
         source_record=dict(original_rec) if original_rec else None,
         amendment_record=dict(amendment_rec),
+        is_zero_rated=is_zero_rated,
     )
 
 

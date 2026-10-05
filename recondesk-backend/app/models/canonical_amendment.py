@@ -73,6 +73,7 @@ class CanonicalAmendment:
 
     source_record: dict[str, Any] | None = None
     amendment_record: dict[str, Any] | None = None
+    is_zero_rated: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -120,4 +121,5 @@ class CanonicalAmendment:
             "chain_id": self.chain_id,
             "chain_position": self.chain_position,
             "is_latest_effective_amendment": self.is_latest_effective_amendment,
+            "is_zero_rated": self.is_zero_rated,
         }
