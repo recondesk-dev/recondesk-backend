@@ -445,12 +445,13 @@ class AuroraAuthClient:
     def get_user(self, jwt: Optional[str] = None) -> AuroraAuthResponse:
         return AuroraAuthResponse(user=None)
 
-    def _get_secret_hash(self, username: str, client_id: str, client_secret: str) -> str:
+    @staticmethod
+    def _get_secret_hash(username: str, client_id: str, client_secret: str) -> str:
         import base64
         import hashlib
         import hmac
         msg = username + client_id
-        dig = hmac.new(client_secret.encode("utf-8"), msg.encode("utf-8"), hashlib.sha256).digest()
+        dig = hmac.new(str(client_secret).encode("utf-8"), msg=str(msg).encode("utf-8"), digestmod=hashlib.sha256).digest()
         return base64.b64encode(dig).decode()
 
     def sign_up(self, params: Dict[str, Any]) -> AuroraAuthResponse:
@@ -536,11 +537,16 @@ class AuroraAuthClient:
 
     def sign_in_with_password(self, params: Dict[str, Any]) -> AuroraAuthResponse:
         import boto3
+        from botocore import UNSIGNED
+        from botocore.config import Config
         from app.config import get_settings
 
         s = get_settings()
         email = str(params.get("email") or "").strip().lower()
         password = str(params.get("password") or "")
+
+        logging.getLogger("botocore").setLevel(logging.INFO)
+        logging.getLogger("botocore.endpoint").setLevel(logging.INFO)
 
         cognito = boto3.client("cognito-idp", region_name=s.COGNITO_REGION)
         auth_params = {
@@ -553,16 +559,29 @@ class AuroraAuthClient:
             )
 
         auth_res = None
-        # Step 1: Attempt direct AWS Cognito authentication
+        # Step 1: Attempt direct AWS Cognito authentication (public initiate_auth flow first, then admin fallback)
         try:
-            auth_res = cognito.admin_initiate_auth(
-                UserPoolId=s.COGNITO_USER_POOL_ID,
+            cognito_pub = boto3.client(
+                "cognito-idp",
+                region_name=s.COGNITO_REGION,
+                config=Config(signature_version=UNSIGNED),
+            )
+            auth_res = cognito_pub.initiate_auth(
                 ClientId=s.COGNITO_CLIENT_ID,
-                AuthFlow="ADMIN_NO_SRP_AUTH",
+                AuthFlow="USER_PASSWORD_AUTH",
                 AuthParameters=auth_params,
             )
         except Exception as cognito_exc:
             _log.info("Cognito direct auth attempt for %s: %s", email, cognito_exc)
+            try:
+                auth_res = cognito.admin_initiate_auth(
+                    UserPoolId=s.COGNITO_USER_POOL_ID,
+                    ClientId=s.COGNITO_CLIENT_ID,
+                    AuthFlow="ADMIN_NO_SRP_AUTH",
+                    AuthParameters=auth_params,
+                )
+            except Exception as admin_exc:
+                _log.info("Cognito admin_initiate_auth fallback for %s: %s", email, admin_exc)
 
             # Step 2: Fallback for existing Supabase accounts during migration
             if s.SUPABASE_URL and s.SUPABASE_SERVICE_ROLE_KEY:

@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { setCognitoSessionCookies } from "@/lib/cognito/cookies";
 
 const API_URL = (
-  process.env.INTERNAL_API_URL ||
-  process.env.NEXT_PUBLIC_API_URL ||
+  (process.env.NODE_ENV === "production"
+    ? process.env.NEXT_PUBLIC_API_URL || process.env.INTERNAL_API_URL
+    : process.env.INTERNAL_API_URL || process.env.NEXT_PUBLIC_API_URL) ||
   "http://localhost:8000"
 ).replace(/\/+$/, "");
 
@@ -19,15 +20,26 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Call backend /auth/login (backed by AWS Cognito & Aurora)
-    const backendRes = await fetch(`${API_URL}/auth/login`, {
+    const payload = JSON.stringify({ email: email.trim(), password });
+    const forwardHeaders = {
+      "Content-Type": "application/json",
+      "X-Forwarded-For": request.headers.get("x-forwarded-for") || request.ip || "",
+    };
+
+    // Call backend /api/v1/auth/login with fallback to /auth/login
+    let backendRes = await fetch(`${API_URL}/api/v1/auth/login`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Forwarded-For": request.headers.get("x-forwarded-for") || request.ip || "",
-      },
-      body: JSON.stringify({ email: email.trim(), password }),
+      headers: forwardHeaders,
+      body: payload,
     });
+
+    if (backendRes.status === 404) {
+      backendRes = await fetch(`${API_URL}/auth/login`, {
+        method: "POST",
+        headers: forwardHeaders,
+        body: payload,
+      });
+    }
 
     const data = await backendRes.json();
 

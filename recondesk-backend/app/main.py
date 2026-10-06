@@ -427,6 +427,10 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
 # ── Routers ───────────────────────────────────────────────────────────────────
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["Auth"])
 app.include_router(cognito_auth_router, prefix="/api/v1/auth", tags=["Cognito Auth"])
+app.include_router(auth.router, prefix="/auth", tags=["Auth (Direct)"])
+app.include_router(auth.router, prefix="/api/auth", tags=["Auth (API)"])
+app.include_router(cognito_auth_router, prefix="/auth", tags=["Cognito Auth (Direct)"])
+app.include_router(cognito_auth_router, prefix="/api/auth", tags=["Cognito Auth (API)"])
 app.include_router(auth.webhook_router, prefix="/api/auth", tags=["Auth Webhook"])
 app.include_router(auth.test_router, prefix="/api/test", tags=["Test"])
 app.include_router(reconciliation.router, prefix="/api/v1/reconciliation", tags=["Reconciliation"])

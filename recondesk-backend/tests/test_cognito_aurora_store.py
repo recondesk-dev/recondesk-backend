@@ -741,15 +741,16 @@ class TestSafeRollbackSQL:
 # ─── 12. Rate Limiting and Log Sanitization Tests ────────────────────────────
 
 class TestRateLimitingAndLogSanitization:
-    def test_rate_limiting_on_account_linking_endpoints(self, monkeypatch):
+    def test_rate_limiting_on_account_linking_endpoints(self, monkeypatch, aurora_store):
         """Item 8: Check that account-linking requests are rate-limited."""
-        from app.main import app
         from app.main import app
         from app.cognito_config import CognitoConfig, get_cognito_config
         from app.cognito_verifier import get_current_cognito_claims
+        from app.cognito_aurora_store import get_identity_store
 
         app.dependency_overrides[get_cognito_config] = lambda: CognitoConfig(COGNITO_AUTH_ENABLED=True)
         app.dependency_overrides[get_current_cognito_claims] = lambda: {"sub": "test-sub", "email": "test@example.com", "email_verified": True}
+        app.dependency_overrides[get_identity_store] = lambda: aurora_store
 
         try:
             client = TestClient(app)
@@ -766,6 +767,7 @@ class TestRateLimitingAndLogSanitization:
         finally:
             app.dependency_overrides.pop(get_cognito_config, None)
             app.dependency_overrides.pop(get_current_cognito_claims, None)
+            app.dependency_overrides.pop(get_identity_store, None)
 
     def test_passwords_tokens_and_jwts_never_logged(self, sqlite_engine, aurora_store, caplog):
         """Item 8: Check that passwords, linking tokens, JWTs never appear in application logs."""

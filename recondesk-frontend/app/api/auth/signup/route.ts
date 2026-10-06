@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 
 const API_URL = (
-  process.env.INTERNAL_API_URL ||
-  process.env.NEXT_PUBLIC_API_URL ||
+  (process.env.NODE_ENV === "production"
+    ? process.env.NEXT_PUBLIC_API_URL || process.env.INTERNAL_API_URL
+    : process.env.INTERNAL_API_URL || process.env.NEXT_PUBLIC_API_URL) ||
   "http://localhost:8000"
 ).replace(/\/+$/, "");
 
@@ -18,21 +19,32 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Call backend /auth/signup (backed by AWS Cognito & Aurora)
-    const backendRes = await fetch(`${API_URL}/auth/signup`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Forwarded-For": request.headers.get("x-forwarded-for") || request.ip || "",
-      },
-      body: JSON.stringify({
-        email: email.trim(),
-        password,
-        full_name: full_name?.trim() || null,
-        firm_name: firm_name?.trim() || null,
-        phone: phone?.trim() || null,
-      }),
+    const payload = JSON.stringify({
+      email: email.trim(),
+      password,
+      full_name: full_name?.trim() || null,
+      firm_name: firm_name?.trim() || null,
+      phone: phone?.trim() || null,
     });
+    const forwardHeaders = {
+      "Content-Type": "application/json",
+      "X-Forwarded-For": request.headers.get("x-forwarded-for") || request.ip || "",
+    };
+
+    // Call backend /api/v1/auth/signup with fallback to /auth/signup
+    let backendRes = await fetch(`${API_URL}/api/v1/auth/signup`, {
+      method: "POST",
+      headers: forwardHeaders,
+      body: payload,
+    });
+
+    if (backendRes.status === 404) {
+      backendRes = await fetch(`${API_URL}/auth/signup`, {
+        method: "POST",
+        headers: forwardHeaders,
+        body: payload,
+      });
+    }
 
     const data = await backendRes.json();
 

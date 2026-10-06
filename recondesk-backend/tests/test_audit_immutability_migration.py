@@ -3,9 +3,14 @@
 from pathlib import Path
 
 
+BACKEND_DIR = Path(__file__).resolve().parent.parent
+
+
 def test_supabase_audit_immutability_migration_contents():
     """Verify Supabase migration enforces append-only trigger on audit_logs."""
-    migration_file = Path("supabase/migrations/20261006150000_audit_logs_immutability.sql")
+    migration_file = BACKEND_DIR / "supabase/migrations/20261006150000_audit_logs_immutability.sql"
+    if not migration_file.exists():
+        migration_file = Path("supabase/migrations/20261006150000_audit_logs_immutability.sql")
     assert migration_file.exists(), "Migration file 20261006150000_audit_logs_immutability.sql must exist"
     
     content = migration_file.read_text(encoding="utf-8")
@@ -17,7 +22,9 @@ def test_supabase_audit_immutability_migration_contents():
 
 def test_supabase_storage_offload_migration_contents():
     """Verify Supabase migration adds storage metadata columns to reconciliation_results."""
-    migration_file = Path("supabase/migrations/20261006140000_reconciliation_results_storage_offload.sql")
+    migration_file = BACKEND_DIR / "supabase/migrations/20261006140000_reconciliation_results_storage_offload.sql"
+    if not migration_file.exists():
+        migration_file = Path("supabase/migrations/20261006140000_reconciliation_results_storage_offload.sql")
     assert migration_file.exists(), "Migration file 20261006140000_reconciliation_results_storage_offload.sql must exist"
 
     content = migration_file.read_text(encoding="utf-8")
@@ -30,7 +37,9 @@ def test_supabase_storage_offload_migration_contents():
 
 def test_alembic_sprint2b_migration_contents():
     """Verify Alembic migration script defines upgrade and downgrade correctly."""
-    alembic_file = Path("alembic/versions/20261006140000_sprint2b_storage_and_audit.py")
+    alembic_file = BACKEND_DIR / "alembic/versions/20261006140000_sprint2b_storage_and_audit.py"
+    if not alembic_file.exists():
+        alembic_file = Path("alembic/versions/20261006140000_sprint2b_storage_and_audit.py")
     assert alembic_file.exists(), "Alembic migration 20261006140000_sprint2b_storage_and_audit.py must exist"
 
     content = alembic_file.read_text(encoding="utf-8")

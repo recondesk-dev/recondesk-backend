@@ -763,7 +763,7 @@ def get_identity_store() -> CognitoIdentityStore:
 
     from app.aurora import is_aurora_enabled, get_aurora_database_url
 
-    aurora_configured = bool(is_aurora_enabled() or get_aurora_database_url())
+    aurora_configured = bool(is_aurora_enabled() and get_aurora_database_url())
 
     if aurora_configured:
         try:
