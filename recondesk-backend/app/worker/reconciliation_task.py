@@ -1877,7 +1877,6 @@ def execute_reconciliation(self, run_id: str) -> None:
             {
                 "status": "FAILED",
                 "status_message": str(exc)[:2000],
-                "error_category": err_cat,
                 "updated_at": _now_iso(),
             },
         )

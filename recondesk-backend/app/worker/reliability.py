@@ -179,7 +179,7 @@ def claim_reconciliation_run(
     # Fetch current attempt count
     run_res = (
         client.table("reconciliation_run")
-        .select("id, status, attempt_count, client_gstin_id, period")
+        .select("id, status, retry_count, client_gstin_id, period")
         .eq("id", run_id)
         .limit(1)
         .execute()
@@ -198,17 +198,14 @@ def claim_reconciliation_run(
         )
         return False, current_row
 
-    current_attempt = int(current_row.get("attempt_count") or 0)
+    current_attempt = int(current_row.get("retry_count") or 0)
     new_attempt = current_attempt + 1
 
     update_payload: dict[str, Any] = {
         "status": target_status,
         "status_message": status_message,
-        "worker_task_id": task_id,
-        "attempt_count": new_attempt,
-        "correlation_id": cid,
+        "retry_count": new_attempt,
         "processing_started_at": now,
-        "last_heartbeat_at": now,
         "updated_at": now,
     }
 
@@ -224,10 +221,7 @@ def claim_reconciliation_run(
         # Also best-effort mirror to reconciliation_import_runs
         try:
             client.table("reconciliation_import_runs").update({
-                "worker_task_id": task_id,
-                "attempt_count": new_attempt,
-                "correlation_id": cid,
-                "last_heartbeat_at": now,
+                "status_message": status_message,
                 "updated_at": now,
             }).eq("id", run_id).execute()
         except Exception as exc:
@@ -274,10 +268,11 @@ class JobHeartbeat:
 
         now_iso = datetime.now(timezone.utc).isoformat()
         payload: dict[str, Any] = {
-            "last_heartbeat_at": now_iso,
-            "worker_task_id": self.task_id,
             "updated_at": now_iso,
         }
+        if self.table_name != "reconciliation_run":
+            payload["last_heartbeat_at"] = now_iso
+            payload["worker_task_id"] = self.task_id
         if status_message is not None:
             payload["status_message"] = status_message
         if progress_percent is not None:
@@ -288,7 +283,7 @@ class JobHeartbeat:
             if self.table_name == "reconciliation_run":
                 # Mirror to import wizard table
                 try:
-                    wiz_patch: dict[str, Any] = {"last_heartbeat_at": now_iso, "updated_at": now_iso}
+                    wiz_patch: dict[str, Any] = {"updated_at": now_iso}
                     if progress_percent is not None:
                         wiz_patch["progress_pct"] = progress_percent
                     if status_message is not None:

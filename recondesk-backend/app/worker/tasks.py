@@ -207,12 +207,27 @@ def _load_and_normalize_gstr2b_body_for_parse(
     return data
 
 
+_RECONCILIATION_RUN_COLUMNS = frozenset({
+    "id", "client_gstin_id", "period", "file_type", "file_hash", "r2_key",
+    "status", "progress_percent", "status_message", "gstr_records_imported",
+    "pr_records_imported", "failed_records", "total_records", "inserted_records",
+    "retry_count", "sanity_report", "created_at", "updated_at",
+    "processing_started_at", "completed_at", "run_summary", "matched_count",
+    "unmatched_count", "itc_at_risk", "wrongful_itc", "late_itc",
+    "matching_version", "rules_version", "decision_version", "gstr_period_end",
+    "is_locked", "finalized_at", "finalized_by", "paid_at", "created_by",
+    "table4_summary_id",
+})
+
+
 def _update_run(
     client: Client,
     run_id: str,
     fields: dict[str, Any],
 ) -> None:
-    client.table("reconciliation_run").update(fields).eq("id", run_id).execute()
+    safe_fields = {k: v for k, v in fields.items() if k in _RECONCILIATION_RUN_COLUMNS}
+    if safe_fields:
+        client.table("reconciliation_run").update(safe_fields).eq("id", run_id).execute()
     # Mirror engine progress into reconciliation_import_runs so the poll endpoint stays live.
     # reconciliation_import_runs uses the same run_id; this is a best-effort write (non-fatal).
     if "progress_percent" in fields or "status_message" in fields:
