@@ -4228,6 +4228,7 @@ def classify_sr_unmatched_exceptions(
 
     matched_by_key: dict[tuple, list[Mapping[str, Any]]] = {}
     matched_by_gstin: dict[str, list[Mapping[str, Any]]] = {}
+    matched_by_gstin_tx: dict[tuple[str, int], list[Mapping[str, Any]]] = {}
 
     for pair in matched_pairs or []:
         sr_rec = pair[0]
@@ -4239,6 +4240,8 @@ def classify_sr_unmatched_exceptions(
         gstin = clean_buyer_gstin(_get_field(sr_rec, "recipient_gstin", "gstin")) or ""
         if gstin:
             matched_by_gstin.setdefault(gstin, []).append(sr_rec)
+            tx_band = _safe_int(sr_rec.get("taxable_amount_paise")) // 100
+            matched_by_gstin_tx.setdefault((gstin, tx_band), []).append(sr_rec)
 
     identical_duplicates: list[tuple[Mapping[str, Any], MismatchResult]] = []
     conflicting_duplicates: list[tuple[Mapping[str, Any], MismatchResult]] = []
@@ -4293,7 +4296,10 @@ def classify_sr_unmatched_exceptions(
         r_norm = normalize_invoice(r_inv)
         r_date = _parse_date(r.get("invoice_date"))
 
-        candidates = matched_by_gstin.get(r_gstin, [])
+        r_band = r_tx // 100
+        candidates: list[Mapping[str, Any]] = []
+        for b in (r_band - 1, r_band, r_band + 1):
+            candidates.extend(matched_by_gstin_tx.get((r_gstin, b), []))
         found_reissue: tuple[Mapping[str, Any], str] | None = None
 
         for m_sr in candidates:
