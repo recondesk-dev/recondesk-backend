@@ -613,8 +613,8 @@ export function Gstr1ResultsView({
   );
 
   const resolvedRunId =
-    runIdProp || result.run_id
-      ? String(runIdProp || result.run_id)
+    result.run_id || runIdProp
+      ? String(result.run_id || runIdProp)
       : null;
   const gstr1aWindow =
     result.gstr1a_window ?? summary.gstr1a_window ?? null;

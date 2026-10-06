@@ -10,6 +10,7 @@ import {
 } from "@/components/reconcile/TallyRegisterImportHints";
 import { isApiError, registerUploadApi, type RegisterTypeDetection } from "@/lib/api";
 import {
+  clearGstr1Result,
   persistGstr1Result,
   runGstr1Reconcile,
 } from "@/lib/gstr1Reconcile";
@@ -172,6 +173,7 @@ function Gstr1ReconcileNewContent() {
       return;
     }
 
+    clearGstr1Result();
     setRunning(true);
     try {
       const result = await runGstr1Reconcile({

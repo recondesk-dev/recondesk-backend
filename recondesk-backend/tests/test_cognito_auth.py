@@ -83,7 +83,7 @@ def _sign_test_token(
 
 class TestCognitoConfig:
     def test_default_config_matches_development_environment(self):
-        cfg = CognitoConfig()
+        cfg = CognitoConfig(_env_file=None)
         assert cfg.COGNITO_REGION == "ap-south-1"
         assert cfg.COGNITO_USER_POOL_ID == "ap-south-1_uPECX7n1n"
         assert cfg.COGNITO_CLIENT_ID == "6f4k06431tco06co209hl2cenl"
@@ -604,9 +604,15 @@ class TestCognitoEndpoints:
             app.dependency_overrides.clear()
 
     def test_cognito_me_endpoint_fails_501_when_feature_flag_is_disabled(self, client):
-        resp = client.get("/api/v1/auth/cognito/me")
-        assert resp.status_code == 501
-        assert "disabled" in resp.json()["detail"].lower()
+        from app.cognito_config import get_cognito_config
+        test_cfg = CognitoConfig(COGNITO_AUTH_ENABLED=False)
+        app.dependency_overrides[get_cognito_config] = lambda: test_cfg
+        try:
+            resp = client.get("/api/v1/auth/cognito/me")
+            assert resp.status_code == 501
+            assert "disabled" in resp.json()["detail"].lower()
+        finally:
+            app.dependency_overrides.clear()
 
     def test_cognito_me_endpoint_requires_bearer_token(self, client):
         from app.cognito_config import get_cognito_config
@@ -677,7 +683,8 @@ class TestCognitoEndpoints:
         set_cognito_jwks_cache_for_testing(jwks)
 
         # Pre-seed a trusted administrative mapping in store
-        store = get_identity_store()
+        store = InMemoryCognitoIdentityStore()
+        app.dependency_overrides[get_identity_store] = lambda: store
         sub = str(uuid.uuid4())
         recondesk_user_id = str(uuid.uuid4())
         store.admin_provision_mapping(

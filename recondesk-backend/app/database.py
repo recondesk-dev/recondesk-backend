@@ -9,9 +9,18 @@ from app.config import get_settings, httpx_timeout_client
 
 
 @lru_cache
-def get_supabase() -> Client:
-    """Cached Supabase client using the service-role key (bypasses RLS)."""
+def get_supabase() -> Any:
+    """Cached client: returns AuroraClient if Aurora is enabled, else falls back to Supabase."""
+    from app.aurora import is_aurora_enabled, get_aurora_database_url
+    if is_aurora_enabled() and get_aurora_database_url():
+        from app.aurora_client import AuroraClient
+        return AuroraClient()
+
     s = get_settings()
+    if not (s.SUPABASE_URL and s.SUPABASE_SERVICE_ROLE_KEY):
+        from app.aurora_client import AuroraClient
+        return AuroraClient()
+
     opts = SyncClientOptions(
         httpx_client=httpx_timeout_client(),
         postgrest_client_timeout=120
@@ -20,9 +29,18 @@ def get_supabase() -> Client:
 
 
 @lru_cache
-def get_supabase_anon() -> Client:
-    """Cached Supabase client using the anon/public key (respects RLS)."""
+def get_supabase_anon() -> Any:
+    """Cached client using the anon/public key, or AuroraClient."""
+    from app.aurora import is_aurora_enabled, get_aurora_database_url
+    if is_aurora_enabled() and get_aurora_database_url():
+        from app.aurora_client import AuroraClient
+        return AuroraClient()
+
     s = get_settings()
+    if not (s.SUPABASE_URL and s.SUPABASE_ANON_KEY):
+        from app.aurora_client import AuroraClient
+        return AuroraClient()
+
     opts = SyncClientOptions(
         httpx_client=httpx_timeout_client(),
         postgrest_client_timeout=120
@@ -30,13 +48,13 @@ def get_supabase_anon() -> Client:
     return create_client(s.SUPABASE_URL, s.SUPABASE_ANON_KEY, options=opts)
 
 
-def supabase_client() -> Client:
-    """FastAPI dependency: returns the service-role Supabase client."""
+def supabase_client() -> Any:
+    """FastAPI dependency: returns the database client (AuroraClient or Supabase)."""
     return get_supabase()
 
 
-def get_db() -> Client:
-    """FastAPI dependency: returns the service-role Supabase client."""
+def get_db() -> Any:
+    """FastAPI dependency: returns the database client (AuroraClient or Supabase)."""
     return get_supabase()
 
 

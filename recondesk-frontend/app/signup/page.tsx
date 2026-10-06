@@ -177,67 +177,53 @@ function SignupForm() {
 
     setLoading(true);
 
-    const supabase = createClient();
-
-    const metadataRole =
-      inviteRoleRaw === "staff"
-        ? "Staff"
-        : inviteRoleRaw === "admin"
-          ? "Admin"
-          : "Admin";
-
-    const siteUrl = (
-      process.env.NEXT_PUBLIC_SITE_URL ?? window.location.origin
-    ).replace(/\/$/, "");
-    const { data, error } = await supabase.auth.signUp({
-      email: form.email,
-      password: form.password,
-      options: {
-        emailRedirectTo: `${siteUrl}/auth/callback`,
-        data: {
+    try {
+      const res = await fetch("/api/auth/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: form.email,
+          password: form.password,
           full_name: form.name,
           firm_name: form.firmName,
           phone: form.phone,
-          role: metadataRole,
-        },
-      },
-    });
+        }),
+      });
 
-    if (error) {
-      setError(error.message);
-      setLoading(false);
-      return;
-    }
+      const data = await res.json();
 
-    // When email enumeration protection is enabled, Supabase returns an empty identities array for existing users
-    if (data?.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
-      setError("An account with this email address already exists. Please sign in or reset your password.");
-      setLoading(false);
-      return;
-    }
-
-    if (inviteToken) {
-      const apiUrl = (
-        process.env.NEXT_PUBLIC_API_URL ?? DEFAULT_API_URL
-      ).replace(/\/$/, "");
-      try {
-        await fetch(
-          `${apiUrl}/api/team/accept/${encodeURIComponent(inviteToken)}`,
-          {
-            method: "POST",
-            headers: { Accept: "application/json" },
-          },
-        );
-      } catch {
-        /* Invitation can be completed via /team/accept/{token} if this fails */
+      if (!res.ok) {
+        setError(data.error || "Unable to complete sign up. Check your details and try again.");
+        setLoading(false);
+        return;
       }
+
+      if (inviteToken) {
+        const apiUrl = (
+          process.env.NEXT_PUBLIC_API_URL ?? DEFAULT_API_URL
+        ).replace(/\/$/, "");
+        try {
+          await fetch(
+            `${apiUrl}/api/team/accept/${encodeURIComponent(inviteToken)}`,
+            {
+              method: "POST",
+              headers: { Accept: "application/json" },
+            },
+          );
+        } catch {
+          /* Invitation can be completed via /team/accept/{token} if this fails */
+        }
+      }
+
+      clearCachedAuthRole();
+      await invalidateAuthProfileCache();
+
+      setLoading(false);
+      router.replace("/welcome");
+    } catch {
+      setError("An unexpected error occurred. Please try again.");
+      setLoading(false);
     }
-
-    clearCachedAuthRole();
-    await invalidateAuthProfileCache();
-
-    setLoading(false);
-    router.replace("/welcome");
   };
 
   return (

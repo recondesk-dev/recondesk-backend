@@ -48,12 +48,9 @@ export default function Header({ user, onMenuToggle }: HeaderProps) {
       } = await supabase.auth.getSession();
       if (session) {
         await supabase.auth.signOut();
-        router.push("/login");
-        router.refresh();
-        return;
       }
     } catch {
-      // Fall through to Cognito cleanup
+      // Ignored
     }
     window.location.href = "/api/auth/cognito-logout";
   };

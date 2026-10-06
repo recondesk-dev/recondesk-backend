@@ -32,7 +32,18 @@ function Gstr1ReconcileResultsContent() {
     let cancelled = false;
 
     async function load() {
-      const runId = queryRunId || loadGstr1RunId();
+      const mem = loadGstr1Result();
+
+      // In-memory result from current session upload has priority when no explicit URL param is set.
+      if (!queryRunId && mem) {
+        if (!cancelled) {
+          setResult(mem);
+          setResolvedRunId(mem.run_id ? String(mem.run_id) : null);
+        }
+        return;
+      }
+
+      const runId = queryRunId || (mem?.run_id ? String(mem.run_id) : null) || loadGstr1RunId();
       if (!cancelled) setResolvedRunId(runId);
 
       // Persisted runs: wait for auth, then fetch from the backend.
@@ -43,7 +54,6 @@ function Gstr1ReconcileResultsContent() {
           return;
         }
         // Same-tab upload already has the payload — show it while GET runs.
-        const mem = loadGstr1Result();
         const memMatches =
           !!mem && (!mem.run_id || String(mem.run_id) === runId);
         if (memMatches && !cancelled) {
@@ -61,7 +71,7 @@ function Gstr1ReconcileResultsContent() {
 
       // Ad-hoc run without client_gstin_id / run_id: in-memory only.
       if (!cancelled) {
-        setResult(loadGstr1Result());
+        setResult(mem);
       }
     }
 
@@ -108,7 +118,7 @@ function Gstr1ReconcileResultsContent() {
       result={result}
       onRunAgain={() => router.push(runAgainHref)}
       authToken={token}
-      runId={resolvedRunId ?? result.run_id ?? null}
+      runId={result.run_id ?? resolvedRunId ?? null}
     />
   );
 }

@@ -75,24 +75,27 @@ export default function LoginPage() {
 
     setLoading(true);
 
-    const supabase = createClient();
-    const { error: authError } = await supabase.auth.signInWithPassword({
-      email: email.trim(),
-      password,
-    });
+    try {
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim(), password }),
+      });
+      const data = await res.json();
 
-    if (authError) {
-      if (authError.message.toLowerCase().includes("email not confirmed")) {
-        setError("Please verify your email address before signing in. Check your inbox for the confirmation link.");
-      } else {
-        setError("Incorrect email or password");
+      if (!res.ok) {
+        setError(data.error || "Incorrect email or password");
+        setLoading(false);
+        return;
       }
-      setLoading(false);
-    } else {
+
       clearCachedAuthRole();
       await invalidateAuthProfileCache();
       router.push("/dashboard");
       router.refresh();
+    } catch {
+      setError("An unexpected error occurred. Please try again.");
+      setLoading(false);
     }
   };
 

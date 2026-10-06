@@ -31,7 +31,18 @@ function Gstr1aSummaryContent() {
     let cancelled = false;
 
     async function load() {
-      const runId = queryRunId || loadGstr1RunId();
+      const mem = loadGstr1Result();
+
+      // In-memory result from the just-run reconciliation has priority when no explicit ?run_id= is passed.
+      if (!queryRunId && mem) {
+        if (!cancelled) {
+          setResult(mem);
+          setResolvedRunId(mem.run_id ? String(mem.run_id) : null);
+        }
+        return;
+      }
+
+      const runId = queryRunId || (mem?.run_id ? String(mem.run_id) : null) || loadGstr1RunId();
       if (!cancelled) setResolvedRunId(runId);
 
       if (runId) {
@@ -40,7 +51,6 @@ function Gstr1aSummaryContent() {
           if (!cancelled) setResult(null);
           return;
         }
-        const mem = loadGstr1Result();
         const memMatches =
           !!mem && (!mem.run_id || String(mem.run_id) === runId);
         if (memMatches && !cancelled) {
@@ -57,7 +67,7 @@ function Gstr1aSummaryContent() {
       }
 
       if (!cancelled) {
-        setResult(loadGstr1Result());
+        setResult(mem);
       }
     }
 
@@ -94,7 +104,7 @@ function Gstr1aSummaryContent() {
     );
   }
 
-  const effectiveRunId = resolvedRunId ?? result.run_id ?? null;
+  const effectiveRunId = result.run_id ?? resolvedRunId ?? null;
   const backHref = effectiveRunId
     ? `/reconcile/gstr1/results?run_id=${encodeURIComponent(effectiveRunId)}`
     : "/reconcile/gstr1/results";

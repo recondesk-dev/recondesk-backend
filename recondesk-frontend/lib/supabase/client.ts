@@ -11,10 +11,9 @@ import {
  * `@supabase/supabase-js`) so PKCE + cookie storage matches middleware.
  */
 export function createClient() {
-  return createBrowserClient<Database>(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  );
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim() || "https://placeholder.supabase.co";
+  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim() || "placeholder-anon-key";
+  return createBrowserClient<Database>(url, key);
 }
 
 const ACCESS_TOKEN_PATH = "/api/auth/access-token";

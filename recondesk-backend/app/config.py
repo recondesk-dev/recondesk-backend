@@ -43,8 +43,8 @@ class Settings(BaseSettings):
         description="Explicit AWS Aurora connection string; required for Aurora operations (does not fallback to DATABASE_URL).",
     )
     AURORA_DB_ENABLED: bool = Field(
-        default=False,
-        description="Feature flag to enable Aurora DB layer for development testing.",
+        default=True,
+        description="Feature flag to enable Aurora DB layer as primary database.",
     )
     AURORA_SSL_MODE: Optional[str] = Field(
         default=None,
@@ -71,13 +71,13 @@ class Settings(BaseSettings):
         description="SQLAlchemy pool checkout timeout in seconds.",
     )
     AURORA_CONNECT_TIMEOUT_SECONDS: int = Field(
-        default=10,
+        default=30,
         description="Psycopg2 connection establishment timeout in seconds.",
     )
 
     # Amazon Cognito (Migration layer)
     COGNITO_AUTH_ENABLED: bool = Field(
-        default=False,
+        default=True,
         description="Feature flag for Amazon Cognito authentication layer.",
     )
     COGNITO_REGION: str = Field(
@@ -89,7 +89,7 @@ class Settings(BaseSettings):
         description="Cognito User Pool ID.",
     )
     COGNITO_CLIENT_ID: str = Field(
-        default="2qui5lp7if0g4lftbrag7o6sce",
+        default="6f4k06431tco06co209hl2cenl",
         description="Cognito App Client ID.",
     )
     COGNITO_CLIENT_SECRET: str = Field(
@@ -283,14 +283,16 @@ def validate_production_secrets() -> None:
         raise RuntimeError("JWT secret must be at least 32 characters")
     if not is_prod:
         return
+
+    # Aurora PostgreSQL is primary; fallback to DATABASE_URL if configured
+    db_conn = s.AURORA_DATABASE_URL or s.DATABASE_URL or s.SUPABASE_DATABASE_URL
+
     required: dict[str, str] = {
         "JWT_SECRET or SECRET_KEY": s.jwt_signing_key,
-        "DATABASE_URL": s.DATABASE_URL,
+        "DATABASE_URL or AURORA_DATABASE_URL": db_conn,
         "RAZORPAY_KEY_SECRET": s.RAZORPAY_KEY_SECRET,
         "R2_SECRET_ACCESS_KEY": s.R2_SECRET_ACCESS_KEY,
         "REDIS_URL": s.REDIS_URL,
-        "SUPABASE_URL": s.SUPABASE_URL,
-        "SUPABASE_SERVICE_ROLE_KEY": s.SUPABASE_SERVICE_ROLE_KEY,
     }
     missing = [k for k, v in required.items() if not (str(v or "").strip())]
     if missing:

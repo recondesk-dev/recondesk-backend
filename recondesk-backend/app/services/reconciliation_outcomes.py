@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 import threading
 import time
@@ -12,6 +13,8 @@ from datetime import date, datetime
 from typing import Any, List, Optional, Tuple, TypeVar
 
 from supabase import Client
+
+_log = logging.getLogger("recondesk.reconciliation_outcomes")
 
 from app.constants import ChangeReason, DecisionNext, DecisionWhat, DecisionWhy
 from app.services import reconciliation_record_adapter as rec_adapt

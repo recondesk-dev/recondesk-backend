@@ -2,7 +2,7 @@
  * Types + client for POST /api/gstr1-reconcile (sales-side GSTR-1 check).
  */
 
-import { apiFetch, isApiError } from "./api";
+import { apiFetch, isApiError } from "@/lib/api";
 
 /** @deprecated Full payloads must never be written here — kept only to clear legacy data. */
 export const GSTR1_RECONCILE_STORAGE_KEY = "recondesk.gstr1_reconcile.result";
@@ -704,6 +704,9 @@ export function loadGstr1Result(): Gstr1ReconcileResult | null {
 }
 
 export function loadGstr1RunId(): string | null {
+  if (_ephemeralGstr1Result?.run_id) {
+    return String(_ephemeralGstr1Result.run_id).trim() || null;
+  }
   if (typeof window === "undefined") return null;
   clearLegacyGstr1ResultStorage();
   try {

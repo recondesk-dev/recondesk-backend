@@ -1,0 +1,654 @@
+"""Aurora PostgreSQL client adapter providing a Supabase/PostgREST-compatible API.
+
+Translates PostgREST-style method chaining (.table().select().eq().execute())
+into parameterized SQL executed directly on AWS Aurora PostgreSQL via SQLAlchemy.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+from typing import Any, Dict, List, Optional, Union
+from uuid import UUID
+
+from sqlalchemy import text
+from sqlalchemy.engine import Row
+
+from app.aurora import get_aurora_engine
+
+_log = logging.getLogger("recondesk.aurora.client")
+
+
+class APIResponse:
+    """Supabase-compatible APIResponse object."""
+
+    def __init__(self, data: Any, count: Optional[int] = None):
+        self.data = data
+        self.count = count if count is not None else (len(data) if isinstance(data, list) else (1 if data is not None else 0))
+
+    def __repr__(self) -> str:
+        return f"<APIResponse count={self.count}>"
+
+
+class AuroraTableQuery:
+    """Builder that compiles chained PostgREST calls into parameterized SQL for Aurora."""
+
+    def __init__(self, table_name: str):
+        # Validate table name to prevent SQL injection
+        self.table_name = table_name.strip().replace('"', "")
+        self._action = "select"  # select | insert | update | delete | upsert
+        self._select_cols = "*"
+        self._where_clauses: List[str] = []
+        self._params: Dict[str, Any] = {}
+        self._order_by: List[str] = []
+        self._limit: Optional[int] = None
+        self._offset: Optional[int] = None
+        self._single = False
+        self._maybe_single = False
+        self._count_mode: Optional[str] = None
+        self._data_payload: Optional[Union[Dict[str, Any], List[Dict[str, Any]]]] = None
+        self._on_conflict_col = "id"
+        self._param_counter = 0
+
+    def _next_param(self, prefix: str = "p") -> str:
+        self._param_counter += 1
+        return f"{prefix}_{self._param_counter}"
+
+    # ── Actions ───────────────────────────────────────────────────────────────
+
+    def select(self, columns: str = "*", count: Optional[str] = None) -> AuroraTableQuery:
+        self._action = "select"
+        self._select_cols = columns if columns and columns.strip() else "*"
+        self._count_mode = count
+        return self
+
+    def insert(self, data: Union[Dict[str, Any], List[Dict[str, Any]]], upsert: bool = False) -> AuroraTableQuery:
+        self._action = "upsert" if upsert else "insert"
+        self._data_payload = data
+        return self
+
+    def update(self, data: Dict[str, Any]) -> AuroraTableQuery:
+        self._action = "update"
+        self._data_payload = data
+        return self
+
+    def delete(self) -> AuroraTableQuery:
+        self._action = "delete"
+        return self
+
+    def upsert(self, data: Union[Dict[str, Any], List[Dict[str, Any]]], on_conflict: str = "id") -> AuroraTableQuery:
+        self._action = "upsert"
+        self._data_payload = data
+        self._on_conflict_col = on_conflict
+        return self
+
+    # ── Filters ───────────────────────────────────────────────────────────────
+
+    def eq(self, column: str, value: Any) -> AuroraTableQuery:
+        col = column.strip().replace('"', "")
+        if value is None:
+            self._where_clauses.append(f'"{col}" IS NULL')
+        else:
+            p = self._next_param("eq")
+            self._where_clauses.append(f'"{col}" = :{p}')
+            self._params[p] = value
+        return self
+
+    def neq(self, column: str, value: Any) -> AuroraTableQuery:
+        col = column.strip().replace('"', "")
+        if value is None:
+            self._where_clauses.append(f'"{col}" IS NOT NULL')
+        else:
+            p = self._next_param("neq")
+            self._where_clauses.append(f'"{col}" != :{p}')
+            self._params[p] = value
+        return self
+
+    def gt(self, column: str, value: Any) -> AuroraTableQuery:
+        col = column.strip().replace('"', "")
+        p = self._next_param("gt")
+        self._where_clauses.append(f'"{col}" > :{p}')
+        self._params[p] = value
+        return self
+
+    def gte(self, column: str, value: Any) -> AuroraTableQuery:
+        col = column.strip().replace('"', "")
+        p = self._next_param("gte")
+        self._where_clauses.append(f'"{col}" >= :{p}')
+        self._params[p] = value
+        return self
+
+    def lt(self, column: str, value: Any) -> AuroraTableQuery:
+        col = column.strip().replace('"', "")
+        p = self._next_param("lt")
+        self._where_clauses.append(f'"{col}" < :{p}')
+        self._params[p] = value
+        return self
+
+    def lte(self, column: str, value: Any) -> AuroraTableQuery:
+        col = column.strip().replace('"', "")
+        p = self._next_param("lte")
+        self._where_clauses.append(f'"{col}" <= :{p}')
+        self._params[p] = value
+        return self
+
+    def like(self, column: str, pattern: str) -> AuroraTableQuery:
+        col = column.strip().replace('"', "")
+        p = self._next_param("like")
+        self._where_clauses.append(f'"{col}" LIKE :{p}')
+        self._params[p] = pattern
+        return self
+
+    def ilike(self, column: str, pattern: str) -> AuroraTableQuery:
+        col = column.strip().replace('"', "")
+        p = self._next_param("ilike")
+        self._where_clauses.append(f'"{col}" ILIKE :{p}')
+        self._params[p] = pattern
+        return self
+
+    def is_(self, column: str, value: Any) -> AuroraTableQuery:
+        col = column.strip().replace('"', "")
+        if value is None or str(value).lower() in ("null", "none"):
+            self._where_clauses.append(f'"{col}" IS NULL')
+        elif str(value).lower() == "true":
+            self._where_clauses.append(f'"{col}" IS TRUE')
+        elif str(value).lower() == "false":
+            self._where_clauses.append(f'"{col}" IS FALSE')
+        elif str(value).lower() in ("not null", "not_null"):
+            self._where_clauses.append(f'"{col}" IS NOT NULL')
+        return self
+
+    def in_(self, column: str, values: Any) -> AuroraTableQuery:
+        col = column.strip().replace('"', "")
+        if not values:
+            self._where_clauses.append("1=0")
+            return self
+        val_list = list(values)
+        param_names = []
+        for v in val_list:
+            p = self._next_param("in")
+            param_names.append(f":{p}")
+            self._params[p] = v
+        self._where_clauses.append(f'"{col}" IN ({", ".join(param_names)})')
+        return self
+
+    def match(self, query_dict: Dict[str, Any]) -> AuroraTableQuery:
+        for k, v in query_dict.items():
+            self.eq(k, v)
+        return self
+
+    # ── Ordering & Pagination ─────────────────────────────────────────────────
+
+    def order(self, column: str, desc: bool = False, nullsfirst: bool = False) -> AuroraTableQuery:
+        col = column.strip().replace('"', "")
+        direction = "DESC" if desc else "ASC"
+        nulls = "NULLS FIRST" if nullsfirst else "NULLS LAST"
+        self._order_by.append(f'"{col}" {direction} {nulls}')
+        return self
+
+    def limit(self, count: int) -> AuroraTableQuery:
+        self._limit = count
+        return self
+
+    def offset(self, count: int) -> AuroraTableQuery:
+        self._offset = count
+        return self
+
+    def range(self, start: int, end: int) -> AuroraTableQuery:
+        self._offset = start
+        self._limit = end - start + 1
+        return self
+
+    def single(self) -> AuroraTableQuery:
+        self._single = True
+        self._limit = 1
+        return self
+
+    def maybe_single(self) -> AuroraTableQuery:
+        self._maybe_single = True
+        self._limit = 1
+        return self
+
+    # ── Execution ─────────────────────────────────────────────────────────────
+
+    def _build_where_clause(self) -> str:
+        if not self._where_clauses:
+            return ""
+        return " WHERE " + " AND ".join(self._where_clauses)
+
+    def _clean_select_cols(self) -> str:
+        if not self._select_cols or self._select_cols.strip() == "*":
+            return "*"
+        # PostgREST allows comma-separated column names, e.g. "id, email, full_name"
+        cols = [c.strip() for c in self._select_cols.split(",") if c.strip()]
+        cleaned = []
+        for c in cols:
+            # Handle functions or raw stars
+            if "(" in c or c == "*":
+                cleaned.append(c)
+            else:
+                cleaned.append(f'"{c}"')
+        return ", ".join(cleaned)
+
+    def execute(self) -> APIResponse:
+        engine = get_aurora_engine()
+
+        with engine.connect() as conn:
+            if self._action == "select":
+                cols_sql = self._clean_select_cols()
+                sql = f'SELECT {cols_sql} FROM public."{self.table_name}"{self._build_where_clause()}'
+                if self._order_by:
+                    sql += " ORDER BY " + ", ".join(self._order_by)
+                if self._limit is not None:
+                    sql += f" LIMIT {int(self._limit)}"
+                if self._offset is not None:
+                    sql += f" OFFSET {int(self._offset)}"
+
+                res = conn.execute(text(sql), self._params)
+                rows = [dict(r._mapping) for r in res.fetchall()]
+
+                # Serialization cleanup: Convert UUIDs and JSON fields if needed
+                for r in rows:
+                    for k, v in r.items():
+                        if isinstance(v, UUID):
+                            r[k] = str(v)
+
+                if self._single:
+                    if not rows:
+                        raise RuntimeError(f"JSON object requested, multiple (or no) rows returned for {self.table_name}")
+                    return APIResponse(rows[0])
+                if self._maybe_single:
+                    return APIResponse(rows[0] if rows else None)
+                return APIResponse(rows)
+
+            elif self._action == "insert":
+                if not self._data_payload:
+                    return APIResponse([])
+                records = self._data_payload if isinstance(self._data_payload, list) else [self._data_payload]
+                if not records:
+                    return APIResponse([])
+
+                inserted_rows: List[Dict[str, Any]] = []
+                for rec in records:
+                    cols = list(rec.keys())
+                    p_names = []
+                    item_params = dict(self._params)
+                    for col in cols:
+                        p = self._next_param("ins")
+                        p_names.append(f":{p}")
+                        val = rec[col]
+                        if isinstance(val, (dict, list)):
+                            val = json.dumps(val)
+                        item_params[p] = val
+
+                    col_names = ", ".join([f'"{c}"' for c in cols])
+                    val_placeholders = ", ".join(p_names)
+                    sql = f'INSERT INTO public."{self.table_name}" ({col_names}) VALUES ({val_placeholders}) RETURNING *'
+                    res = conn.execute(text(sql), item_params)
+                    for r in res.fetchall():
+                        d = dict(r._mapping)
+                        for k, v in d.items():
+                            if isinstance(v, UUID):
+                                d[k] = str(v)
+                        inserted_rows.append(d)
+                conn.commit()
+
+                if self._single or (isinstance(self._data_payload, dict) and self._single):
+                    return APIResponse(inserted_rows[0] if inserted_rows else None)
+                return APIResponse(inserted_rows if isinstance(self._data_payload, list) else (inserted_rows or [self._data_payload]))
+
+            elif self._action == "update":
+                if not self._data_payload or not isinstance(self._data_payload, dict):
+                    return APIResponse([])
+                set_clauses = []
+                update_params = dict(self._params)
+                for col, val in self._data_payload.items():
+                    p = self._next_param("upd")
+                    set_clauses.append(f'"{col}" = :{p}')
+                    if isinstance(val, (dict, list)):
+                        val = json.dumps(val)
+                    update_params[p] = val
+
+                where_sql = self._build_where_clause()
+                sql = f'UPDATE public."{self.table_name}" SET {", ".join(set_clauses)}{where_sql} RETURNING *'
+                res = conn.execute(text(sql), update_params)
+                conn.commit()
+                rows = [dict(r._mapping) for r in res.fetchall()]
+                for r in rows:
+                    for k, v in r.items():
+                        if isinstance(v, UUID):
+                            r[k] = str(v)
+                if self._single:
+                    return APIResponse(rows[0] if rows else None)
+                return APIResponse(rows)
+
+            elif self._action == "delete":
+                where_sql = self._build_where_clause()
+                sql = f'DELETE FROM public."{self.table_name}"{where_sql} RETURNING *'
+                res = conn.execute(text(sql), self._params)
+                conn.commit()
+                rows = [dict(r._mapping) for r in res.fetchall()]
+                for r in rows:
+                    for k, v in r.items():
+                        if isinstance(v, UUID):
+                            r[k] = str(v)
+                return APIResponse(rows)
+
+            elif self._action == "upsert":
+                if not self._data_payload:
+                    return APIResponse([])
+                records = self._data_payload if isinstance(self._data_payload, list) else [self._data_payload]
+                upserted_rows: List[Dict[str, Any]] = []
+
+                conflict_cols = [c.strip().replace('"', "") for c in self._on_conflict_col.split(",") if c.strip()]
+                conflict_sql = ", ".join([f'"{c}"' for c in conflict_cols])
+
+                for rec in records:
+                    cols = list(rec.keys())
+                    p_names = []
+                    item_params = dict(self._params)
+                    for col in cols:
+                        p = self._next_param("ups")
+                        p_names.append(f":{p}")
+                        val = rec[col]
+                        if isinstance(val, (dict, list)):
+                            val = json.dumps(val)
+                        item_params[p] = val
+
+                    col_names = ", ".join([f'"{c}"' for c in cols])
+                    val_placeholders = ", ".join(p_names)
+
+                    # EXCLUDED update columns
+                    update_cols = [c for c in cols if c not in conflict_cols]
+                    if update_cols:
+                        do_update = ", ".join([f'"{c}" = EXCLUDED."{c}"' for c in update_cols])
+                        conflict_action = f"DO UPDATE SET {do_update}"
+                    else:
+                        conflict_action = "DO NOTHING"
+
+                    sql = (
+                        f'INSERT INTO public."{self.table_name}" ({col_names}) '
+                        f'VALUES ({val_placeholders}) '
+                        f'ON CONFLICT ({conflict_sql}) {conflict_action} '
+                        f'RETURNING *'
+                    )
+                    res = conn.execute(text(sql), item_params)
+                    for r in res.fetchall():
+                        d = dict(r._mapping)
+                        for k, v in d.items():
+                            if isinstance(v, UUID):
+                                d[k] = str(v)
+                        upserted_rows.append(d)
+                conn.commit()
+                return APIResponse(upserted_rows if isinstance(self._data_payload, list) else (upserted_rows or [self._data_payload]))
+
+        return APIResponse([])
+
+
+class AuroraAuthUser:
+    """Mock user object matching Supabase User structure."""
+
+    def __init__(self, id: str, email: str, user_metadata: Optional[Dict[str, Any]] = None):
+        self.id = id
+        self.email = email
+        self.user_metadata = user_metadata or {}
+
+
+class AuroraAuthSession:
+    """Session object providing access_token and refresh_token."""
+
+    def __init__(self, access_token: str, refresh_token: Optional[str] = None):
+        self.access_token = access_token
+        self.refresh_token = refresh_token
+
+
+class AuroraAuthResponse:
+    """Mock auth response matching Supabase auth response structure."""
+
+    def __init__(self, user: Optional[AuroraAuthUser] = None, session: Optional[AuroraAuthSession] = None):
+        self.user = user
+        self.session = session
+
+
+class AuroraAuthAdmin:
+    """Supabase-compatible auth.admin adapter backed by Aurora & Cognito."""
+
+    def get_user_by_id(self, user_id: str) -> AuroraAuthResponse:
+        engine = get_aurora_engine()
+        with engine.connect() as conn:
+            res = conn.execute(
+                text("SELECT id, email, full_name, phone, role FROM public.user_profiles WHERE id = :uid LIMIT 1"),
+                {"uid": user_id},
+            )
+            row = res.first()
+            if not row:
+                return AuroraAuthResponse(user=None)
+            d = dict(row._mapping)
+            user = AuroraAuthUser(
+                id=str(d["id"]),
+                email=str(d.get("email") or ""),
+                user_metadata={
+                    "full_name": d.get("full_name"),
+                    "phone": d.get("phone"),
+                    "role": d.get("role"),
+                },
+            )
+            return AuroraAuthResponse(user=user)
+
+
+class AuroraAuthClient:
+    """Cognito and Aurora-backed auth client adapter."""
+
+    def __init__(self):
+        self.admin = AuroraAuthAdmin()
+
+    def get_user(self, jwt: Optional[str] = None) -> AuroraAuthResponse:
+        return AuroraAuthResponse(user=None)
+
+    def _get_secret_hash(self, username: str, client_id: str, client_secret: str) -> str:
+        import base64
+        import hashlib
+        import hmac
+        msg = username + client_id
+        dig = hmac.new(client_secret.encode("utf-8"), msg.encode("utf-8"), hashlib.sha256).digest()
+        return base64.b64encode(dig).decode()
+
+    def sign_up(self, params: Dict[str, Any]) -> AuroraAuthResponse:
+        import uuid
+        import boto3
+        from app.config import get_settings
+
+        s = get_settings()
+        email = str(params.get("email") or "").strip().lower()
+        password = str(params.get("password") or "")
+        options = params.get("options") or {}
+        data = options.get("data") or {}
+
+        # 1. Check if email already exists in Aurora user_profiles
+        engine = get_aurora_engine()
+        with engine.connect() as conn:
+            existing = conn.execute(
+                text("SELECT id FROM public.user_profiles WHERE LOWER(email) = :em LIMIT 1"),
+                {"em": email},
+            ).first()
+            if existing:
+                # Already exists
+                return AuroraAuthResponse(user=None)
+
+        user_id = str(uuid.uuid4())
+        cognito_sub = None
+
+        # 2. Register in AWS Cognito
+        try:
+            cognito = boto3.client("cognito-idp", region_name=s.COGNITO_REGION)
+            user_attrs = [
+                {"Name": "email", "Value": email},
+                {"Name": "email_verified", "Value": "true"},
+            ]
+            phone = str(data.get("phone") or "").strip()
+            if phone:
+                norm_phone = phone if phone.startswith("+") else ("+91" + phone if len(phone) == 10 else "+" + phone)
+                user_attrs.append({"Name": "phone_number", "Value": norm_phone})
+            if data.get("full_name"):
+                user_attrs.append({"Name": "name", "Value": str(data["full_name"])})
+
+            cognito_res = cognito.admin_create_user(
+                UserPoolId=s.COGNITO_USER_POOL_ID,
+                Username=email,
+                UserAttributes=user_attrs,
+                MessageAction="SUPPRESS",
+            )
+            cognito.admin_set_user_password(
+                UserPoolId=s.COGNITO_USER_POOL_ID,
+                Username=email,
+                Password=password,
+                Permanent=True,
+            )
+            for a in cognito_res.get("User", {}).get("Attributes", []):
+                if a["Name"] == "sub":
+                    cognito_sub = a["Value"]
+        except Exception as exc:
+            _log.warning("Cognito sign_up exception for %s: %s", email, exc)
+            raise
+
+        # 3. Create trusted identity mapping in Aurora
+        if cognito_sub:
+            with engine.connect() as conn:
+                conn.execute(
+                    text("""
+                        INSERT INTO public.cognito_user_mappings
+                        (id, cognito_user_pool_id, cognito_sub, user_id, email, mapping_method, is_verified, provisioned_by)
+                        VALUES (:id, :pool, :sub, :uid, :em, 'admin_provisioned', true, 'signup')
+                        ON CONFLICT (cognito_user_pool_id, cognito_sub) DO NOTHING
+                    """),
+                    {
+                        "id": str(uuid.uuid4()),
+                        "pool": s.COGNITO_USER_POOL_ID,
+                        "sub": cognito_sub,
+                        "uid": user_id,
+                        "em": email,
+                    },
+                )
+                conn.commit()
+
+        user = AuroraAuthUser(id=user_id, email=email, user_metadata=data)
+        return AuroraAuthResponse(user=user)
+
+    def sign_in_with_password(self, params: Dict[str, Any]) -> AuroraAuthResponse:
+        import boto3
+        from app.config import get_settings
+
+        s = get_settings()
+        email = str(params.get("email") or "").strip().lower()
+        password = str(params.get("password") or "")
+
+        cognito = boto3.client("cognito-idp", region_name=s.COGNITO_REGION)
+        auth_params = {
+            "USERNAME": email,
+            "PASSWORD": password,
+        }
+        if s.COGNITO_CLIENT_SECRET:
+            auth_params["SECRET_HASH"] = self._get_secret_hash(
+                email, s.COGNITO_CLIENT_ID, s.COGNITO_CLIENT_SECRET
+            )
+
+        auth_res = None
+        # Step 1: Attempt direct AWS Cognito authentication
+        try:
+            auth_res = cognito.admin_initiate_auth(
+                UserPoolId=s.COGNITO_USER_POOL_ID,
+                ClientId=s.COGNITO_CLIENT_ID,
+                AuthFlow="ADMIN_NO_SRP_AUTH",
+                AuthParameters=auth_params,
+            )
+        except Exception as cognito_exc:
+            _log.info("Cognito direct auth attempt for %s: %s", email, cognito_exc)
+
+            # Step 2: Fallback for existing Supabase accounts during migration
+            if s.SUPABASE_URL and s.SUPABASE_SERVICE_ROLE_KEY:
+                try:
+                    import httpx
+                    # Verify password against Supabase Auth endpoint
+                    sb_url = f"{s.SUPABASE_URL.rstrip('/')}/auth/v1/token?grant_type=password"
+                    with httpx.Client(timeout=10.0) as http_client:
+                        resp = http_client.post(
+                            sb_url,
+                            json={"email": email, "password": password},
+                            headers={
+                                "apikey": s.SUPABASE_SERVICE_ROLE_KEY,
+                                "Content-Type": "application/json",
+                            },
+                        )
+                    if resp.status_code == 200:
+                        _log.info("Supabase password verified; migrating %s to AWS Cognito", email)
+                        # Seamlessly create and set permanent password in Cognito
+                        try:
+                            cognito.admin_create_user(
+                                UserPoolId=s.COGNITO_USER_POOL_ID,
+                                Username=email,
+                                UserAttributes=[
+                                    {"Name": "email", "Value": email},
+                                    {"Name": "email_verified", "Value": "true"},
+                                ],
+                                MessageAction="SUPPRESS",
+                            )
+                        except Exception:
+                            pass
+                        cognito.admin_set_user_password(
+                            UserPoolId=s.COGNITO_USER_POOL_ID,
+                            Username=email,
+                            Password=password,
+                            Permanent=True,
+                        )
+                        # Re-authenticate against Cognito
+                        auth_res = cognito.admin_initiate_auth(
+                            UserPoolId=s.COGNITO_USER_POOL_ID,
+                            ClientId=s.COGNITO_CLIENT_ID,
+                            AuthFlow="ADMIN_NO_SRP_AUTH",
+                            AuthParameters=auth_params,
+                        )
+                except Exception as sb_exc:
+                    _log.warning("Supabase migration fallback failed: %s", sb_exc)
+
+        if not auth_res:
+            return AuroraAuthResponse(user=None, session=None)
+
+        tokens = auth_res.get("AuthenticationResult", {})
+        access_token = tokens.get("AccessToken")
+        refresh_token = tokens.get("RefreshToken")
+
+        if not access_token:
+            return AuroraAuthResponse(user=None, session=None)
+
+        # Step 3: Resolve mapped user_id from Aurora user_profiles
+        engine = get_aurora_engine()
+        with engine.connect() as conn:
+            prof = conn.execute(
+                text("SELECT id, email, full_name, phone, role FROM public.user_profiles WHERE LOWER(email) = :em LIMIT 1"),
+                {"em": email},
+            ).first()
+            if not prof:
+                return AuroraAuthResponse(user=None, session=None)
+
+            user_id = str(prof.id)
+            user = AuroraAuthUser(
+                id=user_id,
+                email=str(prof.email),
+                user_metadata={
+                    "full_name": prof.full_name,
+                    "phone": prof.phone,
+                    "role": prof.role,
+                },
+            )
+            session = AuroraAuthSession(access_token=access_token, refresh_token=refresh_token)
+            return AuroraAuthResponse(user=user, session=session)
+
+
+class AuroraClient:
+    """High-level client providing the PostgREST / Supabase interface over Aurora."""
+
+    def __init__(self):
+        self.auth = AuroraAuthClient()
+
+    def table(self, table_name: str) -> AuroraTableQuery:
+        return AuroraTableQuery(table_name)
