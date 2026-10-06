@@ -14,6 +14,10 @@ from app.models.user import (
     ProfileUpdateRequest,
     UserProfileResponse,
 )
+from app.services.tenancy_sync import (
+    mirror_user_profile_update_to_aurora,
+    mirror_user_profile_upsert_to_aurora,
+)
 
 router = APIRouter()
 _log = logging.getLogger(__name__)
@@ -66,6 +70,7 @@ async def onboarding_complete(current_user: dict = Depends(get_current_active_us
     get_supabase().table("user_profiles").update({"onboarding_completed": True}).eq(
         "id", uid
     ).execute()
+    mirror_user_profile_update_to_aurora(uid, {"onboarding_completed": True})
     return {"success": True}
 
 
@@ -76,6 +81,7 @@ async def set_demo_tour_seen(current_user: dict = Depends(get_current_active_use
     get_supabase().table("user_profiles").update({"demo_tour_seen": True}).eq(
         "id", uid
     ).execute()
+    mirror_user_profile_update_to_aurora(uid, {"demo_tour_seen": True})
     return {"success": True}
 
 
@@ -86,6 +92,7 @@ async def set_showcase_seen(current_user: dict = Depends(get_current_active_user
     get_supabase().table("user_profiles").update({"showcase_seen": True}).eq(
         "id", uid
     ).execute()
+    mirror_user_profile_update_to_aurora(uid, {"showcase_seen": True})
     return {"success": True}
 
 
@@ -137,17 +144,20 @@ async def update_profile(
     try:
         if existing:
             sb.table("user_profiles").update(profile_fields).eq("id", uid).execute()
+            mirror_user_profile_update_to_aurora(uid, profile_fields)
         else:
             insert_row = {"id": uid, **profile_fields}
             if stored_email:
                 insert_row["email"] = stored_email
             try:
                 sb.table("user_profiles").insert(insert_row).execute()
+                mirror_user_profile_upsert_to_aurora(insert_row, uid)
             except Exception as exc:  # noqa: BLE001
                 if _pg_unique_violation(exc):
                     sb.table("user_profiles").update(profile_fields).eq(
                         "id", uid
                     ).execute()
+                    mirror_user_profile_update_to_aurora(uid, profile_fields)
                 else:
                     raise
     except Exception as exc:  # noqa: BLE001
@@ -195,6 +205,9 @@ async def update_auto_approve_threshold(
             sb.table("user_profiles").update(
                 {"auto_approve_confidence_threshold": threshold}
             ).eq("id", uid).execute()
+            mirror_user_profile_update_to_aurora(
+                uid, {"auto_approve_confidence_threshold": threshold}
+            )
         else:
             insert_row = {
                 "id": uid,
@@ -205,6 +218,7 @@ async def update_auto_approve_threshold(
             if email:
                 insert_row["email"] = email
             sb.table("user_profiles").insert(insert_row).execute()
+            mirror_user_profile_upsert_to_aurora(insert_row, uid)
     except Exception as exc:  # noqa: BLE001
         _log.exception("Failed to update auto-approve threshold for user_id=%s", uid)
         msg = str(exc)

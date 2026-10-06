@@ -4,10 +4,10 @@ import logging
 from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response, status
-from supabase_auth import User
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from app.auth import (
+    AuthenticatedUser,
     get_current_active_user,
     get_current_user,
     get_current_user_id,
@@ -28,6 +28,7 @@ from app.utils.email import (
     send_welcome_email,
 )
 from app.utils.email_domain import validate_email_mx
+from app.utils.phone import assert_phone_not_registered
 from app.utils.login_throttle import (
     is_login_locked,
     record_login_failure,
@@ -111,6 +112,17 @@ async def signup(
     firm_name = str(payload.firm_name or "").strip()
     phone = str(payload.phone or "").strip() if payload.phone else ""
 
+    # Reject duplicate mobile numbers to prevent fake accounts
+    if phone:
+        session = None
+        try:
+            from app.aurora import is_aurora_enabled, get_aurora_session
+            if is_aurora_enabled():
+                session = get_aurora_session()
+        except Exception:
+            session = None
+        assert_phone_not_registered(phone, session=session, db=db)
+
     try:
         auth_response = db.auth.sign_up(
             {
@@ -182,6 +194,8 @@ async def signup(
         db.table("user_profiles").update(
             {"role": "admin", "full_name": full_name or None}
         ).eq("id", user_id).execute()
+        from app.services.tenancy_sync import mirror_user_profile_upsert_to_aurora
+        mirror_user_profile_upsert_to_aurora(profile, user_id)
     except Exception as exc:  # noqa: BLE001
         _log.error("Profile insert failed: %s", type(exc).__name__)
         raise HTTPException(
@@ -212,6 +226,8 @@ async def onboarding_complete(
     get_supabase().table("user_profiles").update({"onboarding_completed": True}).eq(
         "id", uid
     ).execute()
+    from app.services.tenancy_sync import mirror_user_profile_update_to_aurora
+    mirror_user_profile_update_to_aurora(uid, {"onboarding_completed": True})
     return {"success": True}
 
 
@@ -267,6 +283,9 @@ async def webhook_signup(
             entity_id=user_id,
         )
         return {"received": True}
+
+    from app.services.tenancy_sync import mirror_user_profile_upsert_to_aurora
+    mirror_user_profile_upsert_to_aurora(profile, user_id)
 
     email = str(profile.get("email") or "").strip()
     if not email:
@@ -371,7 +390,7 @@ async def login(request: Request, payload: LoginRequest):
 @limiter.limit("200/minute")
 async def logout(
     request: Request,
-    user: User = Depends(get_current_user),
+    user: AuthenticatedUser = Depends(get_current_user),
 ):
     """Sign out the currently authenticated user."""
     db = get_db()
@@ -381,13 +400,14 @@ async def logout(
         "LOGOUT",
         "user",
         str(user.id),
-        {},
+        {"auth_provider": user.auth_provider},
         ip_address=ip,
     )
-    try:
-        db.auth.sign_out()
-    except Exception:
-        pass
+    if user.auth_provider == "supabase":
+        try:
+            db.auth.sign_out()
+        except Exception:
+            pass
 
 
 # ── GET /auth/me ─────────────────────────────────────────────────────────────

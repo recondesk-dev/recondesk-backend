@@ -68,18 +68,38 @@ _USER_PROFILE_SUBSCRIPTION_SELECT = "gstin_limit, subscription_ends_at"
 
 
 def _is_invited_user(
-    client: Client,
+    client: Any = None,
     *,
-    user_id: str,
-    email: str | None,
+    user_id: Optional[str] = None,
+    email: str | None = None,
 ) -> bool:
     """True when the user joined via a team invite (accepted or pending)."""
+    # Support calling as _is_invited_user(user_id)
+    if user_id is None and isinstance(client, str):
+        user_id = client
+        client = None
+
     uid = (user_id or "").strip()
     em = (email or "").strip().lower()
+
+    # 1. Phase 3C: Try Aurora tenancy repository first
+    if uid:
+        try:
+            from app.repositories.tenancy import get_tenancy_repository
+            repo = get_tenancy_repository()
+            if repo is not None:
+                tm = repo.get_team_membership(uid)
+                if tm is not None:
+                    return True
+        except Exception:
+            pass
+
+    # 2. Supabase fallback
+    sb = client or get_supabase()
     try:
         if uid:
             member = (
-                client.table("team_members")
+                sb.table("team_members")
                 .select("id")
                 .eq("member_user_id", uid)
                 .limit(1)
@@ -89,7 +109,7 @@ def _is_invited_user(
                 return True
         if em:
             invite = (
-                client.table("team_members")
+                sb.table("team_members")
                 .select("id")
                 .eq("invited_email", em)
                 .limit(1)
@@ -103,16 +123,35 @@ def _is_invited_user(
 
 
 def resolve_user_role(
-    raw_role: Any,
+    raw_role: Any = None,
     *,
-    user_id: str,
-    email: str | None,
+    user_id: Optional[str] = None,
+    email: str | None = None,
     client: Client | None = None,
 ) -> str:
     """Return canonical role: staff if invited, otherwise admin (workspace owner)."""
+    target_uid = str(
+        user_id
+        or (raw_role if isinstance(raw_role, str) and raw_role not in ("admin", "owner", "staff") else "")
+        or ""
+    ).strip()
+
+    # 1. Phase 3C: Try Aurora tenancy repository first
+    if target_uid:
+        try:
+            from app.repositories.tenancy import get_tenancy_repository
+            repo = get_tenancy_repository()
+            if repo is not None:
+                aurora_role = repo.get_user_role(target_uid)
+                if aurora_role is not None:
+                    return aurora_role
+        except Exception:
+            pass
+
+    # 2. Existing Supabase resolution
     del raw_role  # stored value may be wrong; always derive from invite status
     sb = client or get_supabase()
-    if _is_invited_user(sb, user_id=user_id, email=email):
+    if _is_invited_user(sb, user_id=target_uid, email=email):
         return "staff"
     return "admin"
 
@@ -120,15 +159,34 @@ def resolve_user_role(
 def get_user_profile(user_id: str) -> Optional[dict]:
     """Fetch a single row from *user_profiles* by primary key.
 
-    Returns the row dict, or None if not found / on error.
-    Missing or invalid *role* values are resolved and persisted when possible.
+    Phase 3B Dual-Read:
+    1. If Aurora tenancy repository is configured and returns a profile, return it.
+    2. If Aurora is disabled, unavailable, or the profile is missing in Aurora,
+       safely fall back to the established Supabase implementation.
     """
+    uid = str(user_id or "").strip()
+    if not uid:
+        return None
+
+    # 1. Attempt Aurora tenancy read
+    try:
+        from app.repositories.tenancy import get_tenancy_repository
+        repo = get_tenancy_repository()
+        if repo is not None:
+            aurora_prof = repo.get_user_profile(uid)
+            if aurora_prof is not None:
+                return aurora_prof
+    except Exception:
+        # Aurora infrastructure failure: fall through to established Supabase path
+        pass
+
+    # 2. Established Supabase query
     try:
         client = get_supabase()
         result = (
             client.table("user_profiles")
             .select(_USER_PROFILE_SELECT)
-            .eq("id", user_id)
+            .eq("id", uid)
             .single()
             .execute()
         )
@@ -149,6 +207,8 @@ def get_user_profile(user_id: str) -> Optional[dict]:
                 client.table("user_profiles").update({"role": resolved}).eq(
                     "id", user_id
                 ).execute()
+                from app.services.tenancy_sync import mirror_user_profile_update_to_aurora
+                mirror_user_profile_update_to_aurora(user_id, {"role": resolved})
             except Exception:
                 pass
         # Optional column (alembic 20260714). Fail soft if migration not applied yet.
@@ -206,6 +266,11 @@ def ensure_user_profile(
 
     profile = get_user_profile(uid)
     if profile is not None:
+        try:
+            from app.services.tenancy_sync import mirror_user_profile_upsert_to_aurora
+            mirror_user_profile_upsert_to_aurora(profile, uid)
+        except Exception:
+            pass
         return profile
 
     sb = client or get_supabase()
@@ -228,8 +293,17 @@ def ensure_user_profile(
 
     try:
         res = sb.table("user_profiles").insert(insert_payload).execute()
+        from app.services.tenancy_sync import mirror_user_profile_upsert_to_aurora
+        created = res.data[0] if (res.data and len(res.data) > 0) else insert_payload
+        mirror_user_profile_upsert_to_aurora(created, uid)
         if res.data and len(res.data) > 0:
             return res.data[0]
         return get_user_profile(uid) or insert_payload
     except Exception:
-        return get_user_profile(uid) or insert_payload
+        fallback = get_user_profile(uid) or insert_payload
+        try:
+            from app.services.tenancy_sync import mirror_user_profile_upsert_to_aurora
+            mirror_user_profile_upsert_to_aurora(fallback, uid)
+        except Exception:
+            pass
+        return fallback

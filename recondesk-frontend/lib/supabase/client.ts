@@ -27,10 +27,32 @@ const ACCESS_TOKEN_PATH = "/api/auth/access-token";
  */
 export async function fetchAccessTokenFromServer(): Promise<string | false> {
   try {
-    const res = await fetch(ACCESS_TOKEN_PATH, {
+    let res = await fetch(ACCESS_TOKEN_PATH, {
       credentials: "same-origin",
       cache: "no-store",
     });
+
+    // Dual-Auth Phase 2B: If unauthenticated (401), attempt a single Cognito refresh
+    // to handle an expired Cognito access token.
+    if (res.status === 401) {
+      try {
+        const refreshRes = await fetch("/api/auth/cognito-refresh", {
+          method: "POST",
+          credentials: "same-origin",
+          cache: "no-store",
+        });
+        if (refreshRes.ok) {
+          // Retry access token fetch once with refreshed cookies
+          res = await fetch(ACCESS_TOKEN_PATH, {
+            credentials: "same-origin",
+            cache: "no-store",
+          });
+        }
+      } catch {
+        // Refresh failed; fail closed to unauthenticated
+      }
+    }
+
     if (!res.ok) return false;
     const body = (await res.json()) as { access_token?: string | null };
     const t = body.access_token;

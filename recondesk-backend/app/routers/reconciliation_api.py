@@ -5188,6 +5188,36 @@ def _list_reconciliation_run_rows_for_clients(
     per_chunk_cap: int,
 ) -> list[dict[str, Any]]:
     """Merge runs across client id chunks (PostgREST ``in`` size limits)."""
+    raw_sf = (status_filter or "").strip()
+    norm_status: Optional[str] = None
+    if raw_sf:
+        norm = raw_sf.upper()
+        if norm == "FAILED":
+            norm_status = "FAILED"
+        elif norm in (RunStatus.PENDING, RunStatus.PROCESSING, RunStatus.COMPLETED, RunStatus.FINAL):
+            norm_status = norm
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="invalid status filter",
+            )
+
+    # 1. Dual-read: check Aurora reconciliation repository first
+    try:
+        from app.repositories.reconciliation import get_reconciliation_repository
+        repo = get_reconciliation_repository()
+        if repo is not None:
+            aurora_runs = repo.list_runs(
+                client_ids,
+                status_filter=norm_status,
+                limit=per_chunk_cap,
+            )
+            if aurora_runs is not None:
+                return aurora_runs
+    except Exception as exc:
+        _log.warning("Aurora list_runs failed: %s", type(exc).__name__)
+
+    # 2. Supabase fallback
     rows_out: list[dict[str, Any]] = []
     for i in range(0, len(client_ids), _CHUNK_CLIENT_IDS):
         chunk = client_ids[i : i + _CHUNK_CLIENT_IDS]
@@ -5202,24 +5232,11 @@ def _list_reconciliation_run_rows_for_clients(
             )
             .in_("client_gstin_id", chunk)
         )
-        raw_sf = (status_filter or "").strip()
-        if raw_sf:
-            norm = raw_sf.upper()
-            if norm == "FAILED":
+        if norm_status:
+            if norm_status == "FAILED":
                 q = q.in_("status", ["FAILED", "failed"])
-            elif norm == RunStatus.PENDING:
-                q = q.eq("status", RunStatus.PENDING)
-            elif norm == RunStatus.PROCESSING:
-                q = q.eq("status", RunStatus.PROCESSING)
-            elif norm == RunStatus.COMPLETED:
-                q = q.eq("status", RunStatus.COMPLETED)
-            elif norm == RunStatus.FINAL:
-                q = q.eq("status", RunStatus.FINAL)
             else:
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                    detail="invalid status filter",
-                )
+                q = q.eq("status", norm_status)
         try:
             res = q.order("created_at", desc=True).limit(per_chunk_cap).execute()
         except Exception:
@@ -5573,7 +5590,7 @@ async def delete_reconcile_run(
 
     rid = _parse_uuid(run_id, "run_id")
     sb = get_supabase()
-    assert_run_accessible(sb, rid, current_user)
+    run_row = assert_run_accessible(sb, rid, current_user)
 
     try:
         full = (
@@ -5583,12 +5600,12 @@ async def delete_reconcile_run(
             .limit(1)
             .execute()
         )
-        if not full.data:
+        row = full.data[0] if (full and full.data) else run_row
+        if not row:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="run not found",
             )
-        row = full.data[0]
 
         r2_keys: list[str] = []
         stored_key = row.get("r2_key")
@@ -5624,43 +5641,45 @@ async def delete_reconcile_run(
             )
             import_row = None
 
-        # Prefer a single DB transaction via RPC when the migration is applied.
-        used_rpc = False
-        try:
-            sb.rpc("delete_reconciliation_run_cascade", {"p_run_id": rid}).execute()
-            used_rpc = True
-            _log.info("delete_reconcile_run used RPC cascade for run_id=%s", rid)
-        except Exception as rpc_exc:
-            rpc_msg = str(rpc_exc).lower()
-            rpc_missing = any(
-                token in rpc_msg
-                for token in (
-                    "could not find the function",
-                    "pgrst202",
-                    "does not exist",
-                    "42883",
-                    "23503",
-                    "foreign key",
+        # 1. Authoritative primary deletion: Supabase
+        if full and full.data:
+            # Prefer a single DB transaction via RPC when the migration is applied.
+            used_rpc = False
+            try:
+                sb.rpc("delete_reconciliation_run_cascade", {"p_run_id": rid}).execute()
+                used_rpc = True
+                _log.info("delete_reconcile_run used RPC cascade for run_id=%s", rid)
+            except Exception as rpc_exc:
+                rpc_msg = str(rpc_exc).lower()
+                rpc_missing = any(
+                    token in rpc_msg
+                    for token in (
+                        "could not find the function",
+                        "pgrst202",
+                        "does not exist",
+                        "42883",
+                        "23503",
+                        "foreign key",
+                    )
                 )
-            )
-            if not rpc_missing:
-                raise
-            _log.warning(
-                "delete_reconciliation_run_cascade RPC unavailable or failed for run_id=%s "
-                "(%s); falling back to ordered deletes",
-                rid,
-                rpc_exc,
-            )
-            # 1) Non-cascading FK blockers (Table 4 summaries, reversal ledger, reclaim events)
-            _clear_table4_and_ledger_for_run(sb, rid)
-            # 2) Non-cascading FK blockers (invoice_tracking)
-            _clear_invoice_tracking_for_run(sb, rid)
-            # 3) Tables without FK to reconciliation_run
-            _safe_delete_by_eq(sb, "rule37_actions", "run_id", rid)
-            if import_row:
-                _safe_delete_by_eq(sb, "reconciliation_import_runs", "id", rid)
-            # 4) Parent — remaining children cascade via ON DELETE CASCADE
-            sb.table("reconciliation_run").delete().eq("id", rid).execute()
+                if not rpc_missing:
+                    raise
+                _log.warning(
+                    "delete_reconciliation_run_cascade RPC unavailable or failed for run_id=%s "
+                    "(%s); falling back to ordered deletes",
+                    rid,
+                    rpc_exc,
+                )
+                # 1) Non-cascading FK blockers (Table 4 summaries, reversal ledger, reclaim events)
+                _clear_table4_and_ledger_for_run(sb, rid)
+                # 2) Non-cascading FK blockers (invoice_tracking)
+                _clear_invoice_tracking_for_run(sb, rid)
+                # 3) Tables without FK to reconciliation_run
+                _safe_delete_by_eq(sb, "rule37_actions", "run_id", rid)
+                if import_row:
+                    _safe_delete_by_eq(sb, "reconciliation_import_runs", "id", rid)
+                # 4) Parent — remaining children cascade via ON DELETE CASCADE
+                sb.table("reconciliation_run").delete().eq("id", rid).execute()
 
         # R2 cleanup is best-effort and must not roll back a successful DB delete.
         seen: set[str] = set()
@@ -5685,6 +5704,15 @@ async def delete_reconcile_run(
                 "reconciliation_run row still present after delete "
                 f"(rpc={used_rpc})"
             )
+
+        # 2. Secondary datastore cleanup: Aurora replica
+        try:
+            from app.repositories.reconciliation import get_reconciliation_repository
+            repo = get_reconciliation_repository()
+            if repo is not None:
+                repo.delete_run_cascade(rid)
+        except Exception as exc:
+            _log.warning("Aurora delete_run_cascade failed: %s", type(exc).__name__)
 
         await log_action(
             uid,

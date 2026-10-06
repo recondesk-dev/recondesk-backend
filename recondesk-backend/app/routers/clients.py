@@ -10,16 +10,20 @@ from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import JSONResponse
-from supabase_auth import User
 from pydantic import BaseModel, ConfigDict
 
-from app.auth import get_current_active_user, get_current_user, require_admin
+from app.auth import AuthenticatedUser, get_current_active_user, get_current_user, require_admin
 from app.database import ensure_user_profile, get_supabase, get_user_profile
 from app.routers.reconciliation_api import _parse_uuid
 from app.services.billing_gate import assert_gstin_capacity
 from app.services.firm_access import list_accessible_client_gstin_ids
 from app.services.carry_forward import get_chronic_risks
 from app.services.gstin_verification import verify_gstin as _verify_gstin
+from app.services.tenancy_sync import (
+    mirror_client_create_to_aurora,
+    mirror_client_delete_to_aurora,
+    mirror_client_update_to_aurora,
+)
 from app.utils.audit import log_audit
 from app.utils.redis_cache import invalidate_user_dashboard
 
@@ -81,7 +85,7 @@ class GSTINValidateRequest(BaseModel):
 @router.post("/validate-gstin")
 async def validate_gstin_endpoint(
     body: GSTINValidateRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: AuthenticatedUser = Depends(get_current_user),
 ):
     """Normalize GSTIN; always 200 with {valid: bool, ...}."""
     raw = body.gstin
@@ -135,6 +139,17 @@ class AssignClientBody(BaseModel):
 
 
 def _resolve_firm_owner(sb, uid: str, role: str | None = None) -> str:
+    # Phase 3C: Try Aurora tenancy repository first
+    try:
+        from app.repositories.tenancy import get_tenancy_repository
+        repo = get_tenancy_repository()
+        if repo is not None:
+            owner_id = repo.get_firm_owner_id_for_user(uid)
+            if owner_id is not None:
+                return owner_id
+    except Exception:
+        pass
+
     user_role = (role or "").strip().lower()
     if user_role in ("admin", "owner"):
         return uid
@@ -216,10 +231,26 @@ def serialize_client(row: dict[str, Any] | None) -> dict[str, Any] | None:
 
 @router.get("")
 async def list_clients(current_user: dict = Depends(get_current_active_user)):
-    sb = get_supabase()
-    uid = str(current_user.get("id", ""))
+    uid = str(current_user.get("id", "")).strip()
     prof = get_user_profile(uid) or {}
     role = (current_user.get("role") or prof.get("role") or "").strip().lower()
+
+    # 1. Dual-Read: Check Aurora tenancy repository first
+    aurora_clients = None
+    try:
+        from app.repositories.tenancy import get_tenancy_repository
+        repo = get_tenancy_repository()
+        if repo is not None:
+            aurora_clients = repo.list_accessible_clients(uid, role=role, limit=500)
+    except Exception as exc:
+        _log.warning("Aurora bulk client read failed: %s", type(exc).__name__)
+        aurora_clients = None
+
+    if aurora_clients is not None:
+        return aurora_clients
+
+    # 2. Aurora miss: Supabase fallback
+    sb = get_supabase()
     if role in ("admin", "owner") or not role:
         res = (
             sb.table("client_gstins")
@@ -323,6 +354,8 @@ async def create_client(
             or str(body.legal_name or "").strip()
             or g
         )
+        restored_data = dict(out.data or {})
+        mirror_client_create_to_aurora(restored_data, owner, current_user_id=uid)
         await log_audit(
             sb,
             current_user,
@@ -336,7 +369,7 @@ async def create_client(
         invalidate_user_dashboard(owner)
         return JSONResponse(
             status_code=status.HTTP_200_OK,
-            content=serialize_client(dict(out.data or {})),
+            content=serialize_client(dict(restored_data or out.data or {})),
         )
 
     try:
@@ -384,6 +417,7 @@ async def create_client(
                 .execute()
             )
             if raced.data:
+                mirror_client_create_to_aurora(raced.data[0], owner, current_user_id=uid)
                 return JSONResponse(
                     status_code=status.HTTP_200_OK,
                     content=serialize_client(raced.data[0]),
@@ -396,6 +430,8 @@ async def create_client(
         .single()
         .execute()
     )
+    created_data = dict(out.data or ins)
+    mirror_client_create_to_aurora(created_data, owner, current_user_id=uid)
     client_label = (
         str(body.trade_name or "").strip()
         or str(body.legal_name or "").strip()
@@ -452,10 +488,57 @@ async def get_client(
     current_user: dict = Depends(get_current_active_user),
 ):
     cid = _parse_uuid(client_id, "client_id")
-    sb = get_supabase()
-    uid = str(current_user.get("id", ""))
+    uid = str(current_user.get("id", "")).strip()
     prof = get_user_profile(uid) or {}
     role = (current_user.get("role") or prof.get("role") or "").strip().lower()
+
+    # 1. Dual-Read: Check Aurora tenancy repository first
+    repo = None
+    aurora_client = None
+    try:
+        from app.repositories.tenancy import get_tenancy_repository
+        repo = get_tenancy_repository()
+        if repo is not None:
+            aurora_client = repo.get_client_gstin(cid)
+    except Exception:
+        # Aurora infrastructure failure: fall through to established Supabase path
+        aurora_client = None
+
+    if aurora_client is not None:
+        # Authoritative Aurora hit: DO NOT query Supabase under any circumstances
+        if not aurora_client.get("is_active", True):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied",
+            )
+
+        if role in ("admin", "owner") or not role:
+            ownership_ok = (
+                repo.verify_firm_ownership(cid, uid)
+                if repo is not None
+                else (str(aurora_client.get("firm_owner_id", "")).strip() == uid)
+            )
+            if ownership_ok is not True:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="not allowed",
+                )
+        else:
+            assignment_ok = (
+                repo.verify_staff_assignment(cid, uid)
+                if repo is not None
+                else (str(aurora_client.get("assigned_to", "")).strip() == uid)
+            )
+            if assignment_ok is not True:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="not allowed",
+                )
+
+        return aurora_client
+
+    # 2. Aurora miss: Supabase fallback
+    sb = get_supabase()
     res = (
         sb.table("client_gstins")
         .select("*")
@@ -568,6 +651,7 @@ async def update_client(
             updates["assigned_to"] = None
     if updates:
         sb.table("client_gstins").update(updates).eq("id", cid).execute()
+        mirror_client_update_to_aurora(cid, updates, fo, current_user_id=uid)
     out = (
         sb.table("client_gstins")
         .select("*")
@@ -634,6 +718,7 @@ async def assign_client(
             )
 
     sb.table("client_gstins").update({"assigned_to": assignee_id}).eq("id", cid).execute()
+    mirror_client_update_to_aurora(cid, {"assigned_to": assignee_id}, fo, current_user_id=admin_id)
     out = (
         sb.table("client_gstins")
         .select("*")
@@ -671,6 +756,7 @@ async def delete_client(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied",
         )
+    mirror_client_delete_to_aurora(cid, uid, current_user_id=uid)
     row = ex.data[0]
     client_label = (
         str(row.get("trade_name") or "").strip()

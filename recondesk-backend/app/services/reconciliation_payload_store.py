@@ -258,7 +258,7 @@ def build_run_summary_metrics(
         "clean_matched_count": matched_count,
         "review_required_count": review_required_count,
         "total_linked_count": matched_count + review_required_count,
-        "unmatched_count": missed_itc_count + wrongful_count,
+        "unmatched_count": missed_itc_count + wrongful_count + unmatched_notes_count,
         "itc_at_risk": itc_at_risk_total,
         "missed_itc_paise": itc_missed,
         "matched_itc_paise": int(matched_itc_paise or 0),
@@ -408,7 +408,6 @@ def save_reconciliation_results(
         len((payload.get("engine") or {}).get("matched") or []),
         len((payload.get("engine") or {}).get("missed_itc") or []),
     )
-
     storage_pref = (os.environ.get("RECONCILIATION_PAYLOAD_STORAGE") or settings.RECONCILIATION_PAYLOAD_STORAGE or "auto").lower()
     storage_type = "db"
     storage_path: str | None = None
@@ -479,6 +478,20 @@ def save_reconciliation_results(
                 raise RuntimeError(f"reconciliation_results legacy insert failed: {res_ins.error}")
         else:
             raise
+
+    # 2. Secondary datastore: Aurora replica (non-fatal if Aurora unconfigured/fails)
+    try:
+        from app.repositories.reconciliation import get_reconciliation_repository
+        repo = get_reconciliation_repository()
+        if repo is not None:
+            compressed_payload = base64.b64encode(compressed_bytes).decode("utf-8")
+            repo.save_reconciliation_results(
+                run_id=run_id,
+                payload=compressed_payload,
+                created_at=created_at,
+            )
+    except Exception as exc:
+        _log.warning("Aurora save_reconciliation_results failed: %s", type(exc).__name__)
 
     return {
         "storage_type": storage_type,

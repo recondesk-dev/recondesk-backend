@@ -73,62 +73,110 @@ def _redact_gstin_in_strings(obj: Any) -> Any:
     return obj
 
 
-def _staff_firm_owner_id(db: Client, uid: str) -> Optional[str]:
+def _staff_firm_owner_id(db: Any = None, uid: Optional[str] = None) -> Optional[str]:
     """Firm owner id for a staff member via team membership / client assignment.
 
     There is no ``user_profiles.firm_id`` column in this codebase; the firm anchor
     for staff is ``team_members.firm_owner_id`` (or ``client_gstins.assigned_to``).
     """
-    tm = (
-        db.table("team_members")
-        .select("firm_owner_id")
-        .eq("member_user_id", uid)
-        .eq("is_active", True)
-        .limit(1)
-        .execute()
-    )
-    if tm.data and tm.data[0].get("firm_owner_id"):
-        return str(tm.data[0]["firm_owner_id"])
-    cg = (
-        db.table("client_gstins")
-        .select("firm_owner_id")
-        .eq("assigned_to", uid)
-        .eq("is_active", True)
-        .limit(1)
-        .execute()
-    )
-    if cg.data and cg.data[0].get("firm_owner_id"):
-        return str(cg.data[0]["firm_owner_id"])
+    # Support both _staff_firm_owner_id(db, uid) and _staff_firm_owner_id(uid)
+    if uid is None and db is not None and isinstance(db, str):
+        uid = db
+        db = None
+
+    target_uid = str(uid or "").strip()
+    if not target_uid:
+        return None
+
+    # 1. Phase 3C: Try Aurora tenancy repository first
+    try:
+        from app.repositories.tenancy import get_tenancy_repository
+        repo = get_tenancy_repository()
+        if repo is not None:
+            owner_id = repo.get_firm_owner_id_for_user(target_uid)
+            if owner_id is not None:
+                return owner_id
+    except Exception:
+        pass
+
+    # 2. Supabase fallback
+    client = db or get_supabase()
+    try:
+        tm = (
+            client.table("team_members")
+            .select("firm_owner_id")
+            .eq("member_user_id", target_uid)
+            .eq("is_active", True)
+            .limit(1)
+            .execute()
+        )
+        if tm.data and tm.data[0].get("firm_owner_id"):
+            return str(tm.data[0]["firm_owner_id"])
+        cg = (
+            client.table("client_gstins")
+            .select("firm_owner_id")
+            .eq("assigned_to", target_uid)
+            .eq("is_active", True)
+            .limit(1)
+            .execute()
+        )
+        if cg.data and cg.data[0].get("firm_owner_id"):
+            return str(cg.data[0]["firm_owner_id"])
+    except Exception:
+        pass
     return None
 
 
-def resolve_firm_id(db: Client, user: Mapping[str, Any] | dict) -> Optional[str]:
+def resolve_firm_id(db: Any = None, user: Any = None) -> Optional[str]:
     """Resolve the workspace owner id (firm anchor) for the acting user.
 
     Precedence:
       1. Explicit ``user['firm_id']`` when present.
-      2. role == 'admin' → the user's own id.
-      3. role == 'staff' → firm owner via team membership / client assignment.
-      4. On any failure → log and return ``None`` (row still inserts).
+      2. Aurora tenancy repository resolution for user id.
+      3. role == 'admin' → the user's own id.
+      4. role == 'staff' → firm owner via team membership / client assignment.
+      5. On any failure → log and return ``None`` (row still inserts).
     """
-    # 1. Explicit firm_id supplied by the caller's user context.
-    explicit = str(user.get("firm_id") or "").strip()
-    if explicit:
-        return explicit
+    # Support both resolve_firm_id(db, user) and resolve_firm_id(user_or_uid)
+    if user is None and db is not None and not hasattr(db, "table"):
+        user = db
+        db = None
 
-    uid = str(user.get("id", "") or "").strip()
+    explicit = ""
+    uid = ""
+    if isinstance(user, (Mapping, dict)):
+        explicit = str(user.get("firm_id") or "").strip()
+        if explicit:
+            return explicit
+        uid = str(user.get("id", "") or "").strip()
+    elif isinstance(user, str):
+        uid = user.strip()
+
     if not uid:
         logger.warning("audit firm_id unresolved: user context has no id")
         return None
 
-    role = str(user.get("role") or "").strip().lower()
+    # 1. Phase 3C: Try Aurora tenancy repository first
+    try:
+        from app.repositories.tenancy import get_tenancy_repository
+        repo = get_tenancy_repository()
+        if repo is not None:
+            owner_id = repo.get_firm_owner_id_for_user(uid)
+            if owner_id is not None:
+                return owner_id
+    except Exception:
+        pass
+
+    client = db or get_supabase()
+    role = str(user.get("role") if isinstance(user, (Mapping, dict)) else "" or "").strip().lower()
     if not role:
         try:
+            email = user.get("email") if isinstance(user, (Mapping, dict)) else None
             role = resolve_user_role(
-                user.get("role"),
+                role,
                 user_id=uid,
-                email=user.get("email"),
-                client=db,
+                email=email,
+                client=client,
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning("audit role resolution failed for user_id=%s: %s", uid, exc)
@@ -140,7 +188,7 @@ def resolve_firm_id(db: Client, user: Mapping[str, Any] | dict) -> Optional[str]
 
     # 3. Staff → derive the firm owner.
     try:
-        owner = _staff_firm_owner_id(db, uid)
+        owner = _staff_firm_owner_id(client, uid)
         if owner:
             return owner
     except Exception as exc:  # noqa: BLE001

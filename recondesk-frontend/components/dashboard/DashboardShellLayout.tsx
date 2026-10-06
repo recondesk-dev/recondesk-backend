@@ -486,8 +486,19 @@ export default function DashboardShellLayout({
 
   async function handleSignOut(): Promise<void> {
     clearOnboardingDoneCookie();
-    await supabase.auth.signOut();
-    router.push("/login");
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (session) {
+        await supabase.auth.signOut();
+        router.push("/login");
+        return;
+      }
+    } catch {
+      // Fall through to Cognito cleanup
+    }
+    window.location.href = "/api/auth/cognito-logout";
   }
 
   const tNav = useTranslations("nav");

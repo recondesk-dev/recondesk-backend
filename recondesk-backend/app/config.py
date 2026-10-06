@@ -36,6 +36,71 @@ class Settings(BaseSettings):
     )
     REDIS_URL: str = "redis://localhost:6379/0"
 
+    # AWS Aurora / PostgreSQL (Migration layer)
+    AURORA_DATABASE_URL: str = Field(
+        default="",
+        validation_alias=AliasChoices("AURORA_DATABASE_URL", "AURORA_DB_URL"),
+        description="Explicit AWS Aurora connection string; required for Aurora operations (does not fallback to DATABASE_URL).",
+    )
+    AURORA_DB_ENABLED: bool = Field(
+        default=False,
+        description="Feature flag to enable Aurora DB layer for development testing.",
+    )
+    AURORA_SSL_MODE: Optional[str] = Field(
+        default=None,
+        description="SSL mode for Aurora connections (e.g. 'require', 'verify-ca', 'verify-full', 'disable').",
+    )
+    AURORA_SSL_CERT_PATH: Optional[str] = Field(
+        default=None,
+        description="Path to CA certificate bundle (e.g. global-bundle.pem) when using verify-ca or verify-full.",
+    )
+    AURORA_POOL_SIZE: int = Field(
+        default=2,
+        description="SQLAlchemy connection pool size for Aurora (conservative development default).",
+    )
+    AURORA_MAX_OVERFLOW: int = Field(
+        default=0,
+        description="SQLAlchemy connection pool max overflow for Aurora (conservative development default).",
+    )
+    AURORA_POOL_RECYCLE_SECONDS: int = Field(
+        default=1800,
+        description="SQLAlchemy pool recycle timeout in seconds to handle Aurora DNS failovers.",
+    )
+    AURORA_POOL_TIMEOUT_SECONDS: int = Field(
+        default=30,
+        description="SQLAlchemy pool checkout timeout in seconds.",
+    )
+    AURORA_CONNECT_TIMEOUT_SECONDS: int = Field(
+        default=10,
+        description="Psycopg2 connection establishment timeout in seconds.",
+    )
+
+    # Amazon Cognito (Migration layer)
+    COGNITO_AUTH_ENABLED: bool = Field(
+        default=False,
+        description="Feature flag for Amazon Cognito authentication layer.",
+    )
+    COGNITO_REGION: str = Field(
+        default="ap-south-1",
+        description="AWS region for Cognito User Pool.",
+    )
+    COGNITO_USER_POOL_ID: str = Field(
+        default="ap-south-1_uPECX7n1n",
+        description="Cognito User Pool ID.",
+    )
+    COGNITO_CLIENT_ID: str = Field(
+        default="2qui5lp7if0g4lftbrag7o6sce",
+        description="Cognito App Client ID.",
+    )
+    COGNITO_CLIENT_SECRET: str = Field(
+        default="",
+        description="Cognito App Client Secret (Server-side only).",
+    )
+    COGNITO_REDIRECT_URI: str = Field(
+        default="http://localhost:3000/api/auth/cognito/callback",
+        description="Cognito OAuth Callback URL.",
+    )
+
     # Supabase
     SUPABASE_URL: str = ""
     SUPABASE_ANON_KEY: str = ""
