@@ -354,11 +354,39 @@ async def upload_vendor_portal_file(token: str, file: UploadFile = File(...)):
             detail="Only PDF and Image files (PNG, JPG) are allowed.",
         )
 
+    import os
+    ext = os.path.splitext(file.filename or "")[1].lower()
+    if ext not in {".pdf", ".png", ".jpg", ".jpeg"}:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only files with .pdf, .png, .jpg, or .jpeg extensions are allowed.",
+        )
+
     content = await file.read()
+    if not content:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Uploaded file is empty.",
+        )
     if len(content) > 10 * 1024 * 1024:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="File size exceeds 10 MB limit.",
+        )
+
+    # Magic byte inspection for security
+    is_valid_format = False
+    if ext == ".pdf" or file.content_type == "application/pdf":
+        is_valid_format = content.startswith(b"%PDF")
+    elif ext == ".png" or file.content_type == "image/png":
+        is_valid_format = content.startswith(b"\x89PNG\r\n\x1a\n")
+    elif ext in {".jpg", ".jpeg"} or file.content_type in {"image/jpeg", "image/jpg"}:
+        is_valid_format = content.startswith(b"\xff\xd8\xff") or content.startswith(b"\xff\xd8")
+
+    if not is_valid_format:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid file signature. File content does not match allowed PDF or image types.",
         )
 
     import re

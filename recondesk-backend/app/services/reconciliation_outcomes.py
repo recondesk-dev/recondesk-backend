@@ -1581,6 +1581,16 @@ import gzip
 import base64
 
 def _decode_if_compressed(data: Any) -> Any:
+    if isinstance(data, dict) and data.get("_storage") == "r2":
+        path = data.get("path")
+        if path:
+            try:
+                from app.services.r2_service import download_file_from_r2
+                raw = download_file_from_r2(path)
+                return json.loads(gzip.decompress(raw).decode("utf-8"))
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).error(f"Failed to load R2 payload pointer {path}: {e}")
     if isinstance(data, str) and not data.strip().startswith(("{", "[")):
         try:
             return json.loads(gzip.decompress(base64.b64decode(data)).decode("utf-8"))
@@ -1593,7 +1603,8 @@ def _decode_if_compressed(data: Any) -> Any:
 def _merge_payload_blobs(record_data: Any, payload: Any) -> dict[str, Any]:
     payload = _decode_if_compressed(payload)
     if isinstance(payload, dict) and payload:
-        return payload
+        if payload.get("_storage") != "r2":
+            return payload
     if isinstance(payload, str) and payload.strip().startswith(("{", "[")):
         try:
             d = json.loads(payload)
@@ -1622,7 +1633,7 @@ def load_payload(sb: Client, run_id: str) -> dict[str, Any]:
         return hit
     r = (
         sb.table("reconciliation_results")
-        .select("record_data, payload")
+        .select("*")
         .eq("run_id", run_id)
         .limit(1)
         .execute()
@@ -1631,7 +1642,32 @@ def load_payload(sb: Client, run_id: str) -> dict[str, Any]:
         out: dict[str, Any] = {}
     else:
         row = r.data[0]
-        out = _merge_payload_blobs(row.get("record_data"), row.get("payload"))
+        storage_type = str(row.get("storage_type") or "").lower()
+        storage_path = row.get("storage_path")
+        payload_val = row.get("payload")
+
+        # Resolve R2 external storage
+        if storage_type == "r2" or (isinstance(payload_val, dict) and payload_val.get("_storage") == "r2"):
+            path = storage_path or (payload_val.get("path") if isinstance(payload_val, dict) else None)
+            if path:
+                try:
+                    from app.services.r2_service import download_file_from_r2
+                    raw_bytes = download_file_from_r2(path)
+                    out = json.loads(gzip.decompress(raw_bytes).decode("utf-8"))
+                except Exception as exc:
+                    import logging
+                    logging.getLogger(__name__).error(
+                        "Failed to load R2 payload for run_id=%s from path %s: %s; falling back to DB blobs",
+                        run_id,
+                        path,
+                        exc,
+                    )
+                    out = _merge_payload_blobs(row.get("record_data"), payload_val)
+            else:
+                out = _merge_payload_blobs(row.get("record_data"), payload_val)
+        else:
+            out = _merge_payload_blobs(row.get("record_data"), payload_val)
+
     cache[ck] = out
     return out
 

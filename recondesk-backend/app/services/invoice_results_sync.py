@@ -12,7 +12,10 @@ from typing import Any, Optional, Tuple
 
 from supabase import Client
 
-from app.services.reconciliation_outcomes import RULE37_CONCERNS
+from app.services.reconciliation_outcomes import (
+    RULE37_CONCERNS,
+    _merge_payload_blobs,
+)
 
 
 def _as_dict(blob: Any) -> dict[str, Any]:
@@ -30,11 +33,8 @@ def _as_dict(blob: Any) -> dict[str, Any]:
 
 
 def _merged_result_doc(record_data: Any, payload: Any) -> dict[str, Any]:
-    """Prefer *payload* when present, otherwise *record_data*."""
-    p = _as_dict(payload)
-    if p:
-        return p
-    return _as_dict(record_data)
+    """Prefer *payload* when present, otherwise *record_data* (supports R2 and gzip)."""
+    return _merge_payload_blobs(record_data, payload)
 
 
 def _rule37_items(doc: dict[str, Any]) -> list[dict[str, Any]]:

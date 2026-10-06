@@ -51,6 +51,10 @@ class Settings(BaseSettings):
     R2_BUCKET_NAME: str = "recondesk-uploads"
     R2_PUBLIC_URL: str = ""
 
+    # Reconciliation Results Storage Offload (Sprint 2B)
+    RECONCILIATION_PAYLOAD_STORAGE: str = "auto"  # "auto", "r2", "db"
+    RECONCILIATION_PAYLOAD_PREFIX: str = "reconciliation-payloads"
+
     # Celery / Redis — set IMPORT_USE_CELERY=true when a Celery worker is running,
     # false to force synchronous in-process imports (no worker needed).
     # Unset (None) → falls back to APP_ENV heuristic (production = True).

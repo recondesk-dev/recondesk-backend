@@ -44,8 +44,9 @@ export async function middleware(request: NextRequest) {
     const skipRedirect =
       pathname.startsWith("/login") ||
       pathname.startsWith("/signup") ||
+      pathname.startsWith("/forgot-password") ||
       pathname.startsWith("/auth") ||
-      pathname.startsWith("/team") ||
+      pathname.startsWith("/team/accept") ||
       pathname.startsWith("/api") ||
       pathname.startsWith("/_next") ||
       pathname === "/favicon.ico" ||
@@ -85,9 +86,28 @@ export async function middleware(request: NextRequest) {
       data: { user },
     } = await supabase.auth.getUser();
     if (!user) {
-      if (pathname === "/welcome") {
+      const isProtectedRoute =
+        pathname === "/welcome" ||
+        pathname.startsWith("/dashboard") ||
+        pathname.startsWith("/clients") ||
+        pathname.startsWith("/reconcile") ||
+        pathname.startsWith("/reconciliations") ||
+        pathname.startsWith("/runs") ||
+        pathname.startsWith("/billing") ||
+        pathname.startsWith("/einvoicing") ||
+        pathname.startsWith("/filing") ||
+        pathname.startsWith("/manage-data") ||
+        pathname.startsWith("/settings") ||
+        pathname.startsWith("/vendors") ||
+        pathname.startsWith("/upload");
+
+      if (isProtectedRoute) {
         const url = request.nextUrl.clone();
         url.pathname = "/login";
+        const redirectParam = pathname + request.nextUrl.search;
+        if (redirectParam && redirectParam !== "/login" && redirectParam !== "/welcome") {
+          url.searchParams.set("redirectTo", redirectParam);
+        }
         return NextResponse.redirect(url);
       }
       return response;
@@ -117,8 +137,6 @@ export async function middleware(request: NextRequest) {
       }
     }
 
-    // NO ROUTE GUARD BLOCKS ACCESS TO THE REST OF THE APP.
-    // A CA can skip the showcase and go straight to /dashboard or /clients immediately.
     return response;
   } catch {
     return passThrough(request);

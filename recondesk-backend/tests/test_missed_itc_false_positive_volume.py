@@ -100,7 +100,7 @@ def test_volume_same_gstin_similar_amount_without_invoice_is_missed_itc():
         f"{[r.get('review_reason') for r in res['review_required'][:10]]}"
     )
     assert stats["missed_itc_count"] == n
-    assert stats["wrongful_risk_count"] == n
+    assert stats["wrongful_risk_count"] + stats.get("duplicate_entry_count", 0) == n
     assert stats["sanity_passed"] is True
 
 

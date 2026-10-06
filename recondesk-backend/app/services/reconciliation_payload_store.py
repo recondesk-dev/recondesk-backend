@@ -335,9 +335,50 @@ def payload_json_byte_size(payload: dict[str, Any]) -> int:
     return len(json.dumps(payload, separators=(",", ":")).encode("utf-8"))
 
 
-import gzip
 import base64
+import gzip
 import json
+import os
+
+from app.config import get_settings
+from app.services.r2_service import (
+    delete_file_from_r2,
+    is_r2_configured,
+    upload_bytes_to_r2,
+)
+
+
+def delete_reconciliation_payload(client: Client, run_id: str) -> None:
+    """Delete reconciliation_results row and any associated external R2 object."""
+    settings = get_settings()
+    prefix = (settings.RECONCILIATION_PAYLOAD_PREFIX or "reconciliation-payloads").strip().strip("/")
+    try:
+        res = (
+            client.table("reconciliation_results")
+            .select("storage_type, storage_path, payload")
+            .eq("run_id", run_id)
+            .limit(1)
+            .execute()
+        )
+        if res.data:
+            row = res.data[0]
+            st = row.get("storage_type")
+            sp = row.get("storage_path")
+            p = row.get("payload")
+            path = sp or (p.get("path") if isinstance(p, dict) and p.get("_storage") == "r2" else None)
+            if (st == "r2" or path) and path:
+                clean_path = str(path).strip()
+                # Security: prevent path traversal or deletion outside expected prefix
+                if ".." not in clean_path and clean_path.startswith(f"{prefix}/"):
+                    delete_file_from_r2(clean_path)
+    except Exception as exc:
+        _log.warning("Could not delete external R2 payload for run_id=%s: %s", run_id, exc)
+
+    try:
+        client.table("reconciliation_results").delete().eq("run_id", run_id).execute()
+    except Exception as exc:
+        _log.warning("Could not delete reconciliation_results row for run_id=%s: %s", run_id, exc)
+
 
 def save_reconciliation_results(
     client: Client,
@@ -345,31 +386,103 @@ def save_reconciliation_results(
     payload: dict[str, Any],
     *,
     created_at: str,
-) -> None:
-    """Replace reconciliation_results row; log payload size for large-run diagnostics."""
-    size_mb = payload_json_byte_size(payload) / (1024 * 1024)
+) -> dict[str, Any]:
+    """Persist reconciliation_results.
+    
+    Supports externalized object storage (Cloudflare R2) with automatic PostgreSQL
+    fallback. Stores storage_type, storage_path, and size metrics.
+    """
+    settings = get_settings()
+    raw_json_str = json.dumps(payload)
+    raw_bytes = raw_json_str.encode("utf-8")
+    raw_size_bytes = len(raw_bytes)
+    compressed_bytes = gzip.compress(raw_bytes)
+    compressed_size_bytes = len(compressed_bytes)
+
+    size_mb = raw_size_bytes / (1024 * 1024)
     _log.info(
-        "reconciliation_results save run_id=%s payload_bytes=%.2fMB matched=%s missed=%s",
+        "reconciliation_results save run_id=%s payload_bytes=%.2fMB (compressed=%.2fMB) matched=%s missed=%s",
         run_id,
         size_mb,
+        compressed_size_bytes / (1024 * 1024),
         len((payload.get("engine") or {}).get("matched") or []),
         len((payload.get("engine") or {}).get("missed_itc") or []),
     )
-    
-    payload_str = json.dumps(payload)
-    compressed_payload = base64.b64encode(gzip.compress(payload_str.encode("utf-8"))).decode("utf-8")
-    
-    client.table("reconciliation_results").delete().eq("run_id", run_id).execute()
-    res_ins = (
-        client.table("reconciliation_results")
-        .insert(
-            {
+
+    storage_pref = (os.environ.get("RECONCILIATION_PAYLOAD_STORAGE") or settings.RECONCILIATION_PAYLOAD_STORAGE or "auto").lower()
+    storage_type = "db"
+    storage_path: str | None = None
+    row_payload: Any = None
+
+    if storage_pref in ("auto", "r2") and is_r2_configured():
+        clean_run_id = os.path.basename(str(run_id).strip())
+        prefix = (settings.RECONCILIATION_PAYLOAD_PREFIX or "reconciliation-payloads").strip().strip("/")
+        target_path = f"{prefix}/{clean_run_id}.json.gz"
+        try:
+            upload_bytes_to_r2(compressed_bytes, target_path, content_type="application/gzip")
+            storage_type = "r2"
+            storage_path = target_path
+            row_payload = {
+                "_storage": "r2",
+                "path": target_path,
+                "size": raw_size_bytes,
+                "compressed_size": compressed_size_bytes,
+            }
+            _log.info("Persisted reconciliation payload for run_id=%s to R2 at %s", run_id, target_path)
+        except Exception as exc:
+            _log.warning(
+                "Failed to offload reconciliation payload to R2 for run_id=%s (%s); falling back to DB",
+                run_id,
+                exc,
+            )
+            storage_type = "db"
+            storage_path = None
+
+    if storage_type == "db":
+        compressed_b64 = base64.b64encode(compressed_bytes).decode("utf-8")
+        row_payload = compressed_b64
+
+    # Remove previous row if any
+    try:
+        client.table("reconciliation_results").delete().eq("run_id", run_id).execute()
+    except Exception as exc:
+        _log.warning("reconciliation_results delete prior row warning for run_id=%s: %s", run_id, exc)
+
+    full_row = {
+        "run_id": run_id,
+        "storage_type": storage_type,
+        "storage_path": storage_path,
+        "payload_size_bytes": raw_size_bytes,
+        "compressed_size_bytes": compressed_size_bytes,
+        "payload": row_payload,
+        "created_at": created_at,
+    }
+
+    try:
+        res_ins = client.table("reconciliation_results").insert(full_row).execute()
+        if res_ins.data is None and getattr(res_ins, "error", None):
+            raise RuntimeError(f"reconciliation_results insert failed: {res_ins.error}")
+    except Exception as exc:
+        err_str = str(exc).lower()
+        if "storage_type" in err_str or "column" in err_str:
+            _log.warning(
+                "Storage metadata columns not found on reconciliation_results; inserting legacy row schema: %s",
+                exc,
+            )
+            legacy_row = {
                 "run_id": run_id,
-                "payload": compressed_payload,
+                "payload": row_payload,
                 "created_at": created_at,
             }
-        )
-        .execute()
-    )
-    if res_ins.data is None and getattr(res_ins, "error", None):
-        raise RuntimeError(f"reconciliation_results insert failed: {res_ins.error}")
+            res_ins = client.table("reconciliation_results").insert(legacy_row).execute()
+            if res_ins.data is None and getattr(res_ins, "error", None):
+                raise RuntimeError(f"reconciliation_results legacy insert failed: {res_ins.error}")
+        else:
+            raise
+
+    return {
+        "storage_type": storage_type,
+        "storage_path": storage_path,
+        "payload_size_bytes": raw_size_bytes,
+        "compressed_size_bytes": compressed_size_bytes,
+    }

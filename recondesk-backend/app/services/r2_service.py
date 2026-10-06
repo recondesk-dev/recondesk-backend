@@ -6,14 +6,23 @@ import boto3
 from botocore.config import Config
 from botocore.exceptions import ClientError
 
-from app.config import settings
+from app.config import get_r2_s3_endpoint_url, settings
 from app.models.upload import UploadResponse
+
+
+def is_r2_configured() -> bool:
+    """Return True if R2/S3 object storage credentials and endpoint are configured."""
+    try:
+        endpoint = get_r2_s3_endpoint_url()
+        return bool(endpoint and settings.R2_ACCESS_KEY_ID and settings.R2_SECRET_ACCESS_KEY)
+    except Exception:
+        return False
 
 
 def _get_r2_client():
     return boto3.client(
         "s3",
-        endpoint_url=f"https://{settings.R2_ACCOUNT_ID}.r2.cloudflarestorage.com",
+        endpoint_url=get_r2_s3_endpoint_url(),
         aws_access_key_id=settings.R2_ACCESS_KEY_ID,
         aws_secret_access_key=settings.R2_SECRET_ACCESS_KEY,
         config=Config(signature_version="s3v4"),
@@ -26,12 +35,12 @@ def generate_file_key(original_filename: str, user_id: str) -> str:
     return f"uploads/{user_id}/{uuid.uuid4()}.{ext}"
 
 
-def upload_file_to_r2(
+def upload_bytes_to_r2(
     file_content: bytes,
     file_key: str,
     content_type: str = "application/octet-stream",
 ) -> str:
-    """Upload bytes to R2 and return the public URL."""
+    """Upload raw bytes to R2 object storage at file_key."""
     client = _get_r2_client()
     client.put_object(
         Bucket=settings.R2_BUCKET_NAME,
@@ -39,6 +48,23 @@ def upload_file_to_r2(
         Body=file_content,
         ContentType=content_type,
     )
+    return file_key
+
+
+def download_file_from_r2(file_key: str) -> bytes:
+    """Download object bytes from R2 object storage at file_key."""
+    client = _get_r2_client()
+    resp = client.get_object(Bucket=settings.R2_BUCKET_NAME, Key=file_key)
+    return resp["Body"].read()
+
+
+def upload_file_to_r2(
+    file_content: bytes,
+    file_key: str,
+    content_type: str = "application/octet-stream",
+) -> str:
+    """Upload bytes to R2 and return the public URL."""
+    upload_bytes_to_r2(file_content, file_key, content_type)
     return f"{settings.R2_PUBLIC_URL}/{file_key}"
 
 
