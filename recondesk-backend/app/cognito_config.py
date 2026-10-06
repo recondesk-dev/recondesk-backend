@@ -29,12 +29,12 @@ class CognitoConfig(BaseSettings):
         description="AWS region hosting the Cognito User Pool.",
     )
     COGNITO_USER_POOL_ID: str = Field(
-        default="ap-south-1_nvlPYMvFh",
+        default="ap-south-1_uPECX7n1n",
         validation_alias=AliasChoices("COGNITO_USER_POOL_ID", "COGNITO_POOL_ID"),
         description="Cognito User Pool ID.",
     )
     COGNITO_CLIENT_ID: str = Field(
-        default="2qui5lp7if0g4lftbrag7o6sce",
+        default="6f4k06431tco06co209hl2cenl",
         validation_alias=AliasChoices("COGNITO_CLIENT_ID", "COGNITO_APP_CLIENT_ID"),
         description="Cognito App Client ID.",
     )

@@ -60,8 +60,8 @@ def rsa_key_pair():
 def cognito_test_config():
     return CognitoConfig(
         COGNITO_REGION="ap-south-1",
-        COGNITO_USER_POOL_ID="ap-south-1_nvlPYMvFh",
-        COGNITO_CLIENT_ID="2qui5lp7if0g4lftbrag7o6sce",
+        COGNITO_USER_POOL_ID="ap-south-1_uPECX7n1n",
+        COGNITO_CLIENT_ID="6f4k06431tco06co209hl2cenl",
         COGNITO_CLIENT_SECRET="test-server-side-secret-do-not-leak",
         COGNITO_REDIRECT_URI="http://localhost:3000/api/auth/cognito/callback",
         COGNITO_LOGOUT_URI="http://localhost:3000/login",
@@ -85,8 +85,8 @@ class TestCognitoConfig:
     def test_default_config_matches_development_environment(self):
         cfg = CognitoConfig()
         assert cfg.COGNITO_REGION == "ap-south-1"
-        assert cfg.COGNITO_USER_POOL_ID == "ap-south-1_nvlPYMvFh"
-        assert cfg.COGNITO_CLIENT_ID == "2qui5lp7if0g4lftbrag7o6sce"
+        assert cfg.COGNITO_USER_POOL_ID == "ap-south-1_uPECX7n1n"
+        assert cfg.COGNITO_CLIENT_ID == "6f4k06431tco06co209hl2cenl"
         assert cfg.COGNITO_REDIRECT_URI == "http://localhost:3000/api/auth/cognito/callback"
         assert cfg.COGNITO_LOGOUT_URI == "http://localhost:3000/login"
         assert cfg.COGNITO_AUTH_ENABLED is False  # Safe default: disabled
@@ -573,8 +573,8 @@ class TestCognitoEndpoints:
         assert resp.status_code == 200
         data = resp.json()
         assert data["region"] == "ap-south-1"
-        assert data["user_pool_id"] == "ap-south-1_nvlPYMvFh"
-        assert data["client_id"] == "2qui5lp7if0g4lftbrag7o6sce"
+        assert data["user_pool_id"] == "ap-south-1_uPECX7n1n"
+        assert data["client_id"] == "6f4k06431tco06co209hl2cenl"
         assert data["redirect_uri"] == "http://localhost:3000/api/auth/cognito/callback"
         assert "client_secret" not in data
         assert "has_client_secret" in data
@@ -669,8 +669,8 @@ class TestCognitoEndpoints:
         priv, _, jwks = rsa_key_pair
         test_cfg = CognitoConfig(
             COGNITO_REGION="ap-south-1",
-            COGNITO_USER_POOL_ID="ap-south-1_nvlPYMvFh",
-            COGNITO_CLIENT_ID="2qui5lp7if0g4lftbrag7o6sce",
+            COGNITO_USER_POOL_ID="ap-south-1_uPECX7n1n",
+            COGNITO_CLIENT_ID="6f4k06431tco06co209hl2cenl",
             COGNITO_AUTH_ENABLED=True,
         )
         app.dependency_overrides[get_cognito_config] = lambda: test_cfg

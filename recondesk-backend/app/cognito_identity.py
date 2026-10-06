@@ -60,7 +60,7 @@ class CognitoIdentityMapping:
     email: str
     mapping_method: str  # 'admin_provisioned' | 'verified_link_token'
     verified: bool = False
-    cognito_user_pool_id: str = "ap-south-1_nvlPYMvFh"
+    cognito_user_pool_id: str = "ap-south-1_uPECX7n1n"
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
@@ -138,7 +138,7 @@ class CognitoIdentityStore:
 class InMemoryCognitoIdentityStore(CognitoIdentityStore):
     """Thread-safe in-memory store for unit tests, local development, and mocking."""
 
-    def __init__(self, default_pool_id: str = "ap-south-1_nvlPYMvFh") -> None:
+    def __init__(self, default_pool_id: str = "ap-south-1_uPECX7n1n") -> None:
         self.default_pool_id = default_pool_id
         # Keyed by (pool_id, sub) and (pool_id, user_id)
         self._mappings_by_sub: dict[tuple[str, str], CognitoIdentityMapping] = {}

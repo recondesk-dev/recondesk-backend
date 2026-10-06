@@ -28,6 +28,7 @@ from app.utils.email import (
     send_welcome_email,
 )
 from app.utils.email_domain import validate_email_mx
+from app.utils.phone import assert_phone_not_registered
 from app.utils.login_throttle import (
     is_login_locked,
     record_login_failure,
@@ -110,6 +111,17 @@ async def signup(
     full_name = str(payload.full_name or "").strip()
     firm_name = str(payload.firm_name or "").strip()
     phone = str(payload.phone or "").strip() if payload.phone else ""
+
+    # Reject duplicate mobile numbers to prevent fake accounts
+    if phone:
+        session = None
+        try:
+            from app.aurora import is_aurora_enabled, get_aurora_session
+            if is_aurora_enabled():
+                session = get_aurora_session()
+        except Exception:
+            session = None
+        assert_phone_not_registered(phone, session=session, db=db)
 
     try:
         auth_response = db.auth.sign_up(

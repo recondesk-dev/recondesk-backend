@@ -84,7 +84,7 @@ class Settings(BaseSettings):
         description="AWS region for Cognito User Pool.",
     )
     COGNITO_USER_POOL_ID: str = Field(
-        default="ap-south-1_nvlPYMvFh",
+        default="ap-south-1_uPECX7n1n",
         description="Cognito User Pool ID.",
     )
     COGNITO_CLIENT_ID: str = Field(
