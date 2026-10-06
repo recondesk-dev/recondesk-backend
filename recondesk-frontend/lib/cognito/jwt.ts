@@ -1,5 +1,3 @@
-import crypto from "crypto";
-
 export interface CognitoOAuthConfig {
   region: string;
   userPoolId: string;
@@ -112,11 +110,39 @@ interface ParsedJwtHeader {
   typ?: string;
 }
 
+function base64UrlDecode(str: string): Uint8Array {
+  let base64 = str.replace(/-/g, "+").replace(/_/g, "/");
+  while (base64.length % 4) {
+    base64 += "=";
+  }
+  const binaryString = atob(base64);
+  const bytes = new Uint8Array(binaryString.length);
+  for (let i = 0; i < binaryString.length; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return bytes;
+}
+
+function base64UrlDecodeJson<T>(str: string): T {
+  const bytes = base64UrlDecode(str);
+  const text = new TextDecoder().decode(bytes);
+  return JSON.parse(text) as T;
+}
+
+function constantTimeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let result = 0;
+  for (let i = 0; i < a.length; i++) {
+    result |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return result === 0;
+}
+
 function parseJwtParts(token: string): {
   header: ParsedJwtHeader;
   payload: Record<string, unknown>;
   signingInput: string;
-  signature: Buffer;
+  signature: Uint8Array;
 } {
   const clean = (token || "").trim();
   const parts = clean.split(".");
@@ -129,33 +155,56 @@ function parseJwtParts(token: string): {
   let payload: Record<string, unknown>;
 
   try {
-    header = JSON.parse(Buffer.from(headerB64, "base64url").toString("utf-8"));
+    header = base64UrlDecodeJson<ParsedJwtHeader>(headerB64);
   } catch {
     throw new Error("Failed to parse JWT header JSON");
   }
 
   try {
-    payload = JSON.parse(Buffer.from(payloadB64, "base64url").toString("utf-8"));
+    payload = base64UrlDecodeJson<Record<string, unknown>>(payloadB64);
   } catch {
     throw new Error("Failed to parse JWT payload JSON");
   }
 
-  const signature = Buffer.from(signatureB64, "base64url");
+  const signature = base64UrlDecode(signatureB64);
   const signingInput = `${headerB64}.${payloadB64}`;
 
   return { header, payload, signingInput, signature };
 }
 
-function verifyRs256Signature(
+async function verifyRs256Signature(
   signingInput: string,
-  signature: Buffer,
+  signature: Uint8Array,
   jwk: CognitoJWK
-): boolean {
+): Promise<boolean> {
   try {
-    const publicKey = crypto.createPublicKey({ key: jwk as any, format: "jwk" });
-    const verifier = crypto.createVerify("RSA-SHA256");
-    verifier.update(signingInput);
-    return verifier.verify(publicKey, signature);
+    const subtle = globalThis.crypto?.subtle;
+    if (!subtle) {
+      throw new Error("Web Crypto API (crypto.subtle) is not available");
+    }
+    const publicKey = await subtle.importKey(
+      "jwk",
+      {
+        kty: jwk.kty,
+        n: jwk.n,
+        e: jwk.e,
+        alg: "RS256",
+        ext: true,
+      },
+      {
+        name: "RSASSA-PKCS1-v1_5",
+        hash: { name: "SHA-256" },
+      },
+      false,
+      ["verify"]
+    );
+    const data = new TextEncoder().encode(signingInput);
+    return await subtle.verify(
+      "RSASSA-PKCS1-v1_5",
+      publicKey,
+      signature as unknown as BufferSource,
+      data as unknown as BufferSource
+    );
   } catch (err: unknown) {
     const reason = err instanceof Error ? err.message : String(err);
     console.warn(`[Cognito JWT] RS256 signature verification internal error: ${reason}`);
@@ -204,7 +253,7 @@ export async function verifyCognitoIdToken(params: {
     throw new Error(`No matching public key found in JWKS for kid: ${header.kid}`);
   }
 
-  const isSigValid = verifyRs256Signature(signingInput, signature, jwk);
+  const isSigValid = await verifyRs256Signature(signingInput, signature, jwk);
   if (!isSigValid) {
     throw new Error("Cognito ID token signature verification failed");
   }
@@ -244,12 +293,7 @@ export async function verifyCognitoIdToken(params: {
     throw new Error("Cognito ID token missing 'nonce' claim");
   }
 
-  const nonceMatches =
-    claims.nonce.length === expectedNonce.length &&
-    crypto.timingSafeEqual(
-      Buffer.from(claims.nonce, "utf-8"),
-      Buffer.from(expectedNonce, "utf-8")
-    );
+  const nonceMatches = constantTimeEqual(claims.nonce, expectedNonce);
 
   if (!nonceMatches) {
     throw new Error("Nonce mismatch: ID token nonce does not match login attempt");
@@ -294,7 +338,7 @@ export async function verifyCognitoAccessToken(params: {
     throw new Error(`No matching public key found in JWKS for kid: ${header.kid}`);
   }
 
-  const isSigValid = verifyRs256Signature(signingInput, signature, jwk);
+  const isSigValid = await verifyRs256Signature(signingInput, signature, jwk);
   if (!isSigValid) {
     throw new Error("Cognito Access token signature verification failed");
   }
