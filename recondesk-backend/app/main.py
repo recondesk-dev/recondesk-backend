@@ -118,7 +118,7 @@ def _stuck_job_tick() -> None:
         # Check active jobs whose heartbeat or start timestamp has gone silent
         stuck_runs = (
             supabase.table("reconciliation_run")
-            .select("id, status, processing_started_at, updated_at, worker_task_id, attempt_count")
+            .select("id, status, processing_started_at, updated_at")
             .in_("status", list(_STUCK_STATUSES))
             .execute()
         )
