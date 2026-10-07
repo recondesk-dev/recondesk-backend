@@ -155,14 +155,41 @@ def is_aurora_enabled() -> bool:
     return bool(get_settings().AURORA_DB_ENABLED)
 
 
+def resolve_aurora_secret_url() -> Optional[str]:
+    """Attempt to fetch the latest Aurora master credentials dynamically from AWS Secrets Manager."""
+    try:
+        import boto3
+        import json
+        import urllib.parse
+        s = get_settings()
+        region = getattr(s, "COGNITO_REGION", None) or getattr(s, "AWS_REGION", None) or "ap-south-1"
+        sm = boto3.client("secretsmanager", region_name=region)
+        val = sm.get_secret_value(SecretId="rds!cluster-e7b4db19-88b2-4a9e-bed1-f59bc1d44ee1")
+        data = json.loads(val.get("SecretString", "{}"))
+        username = data.get("username", "Recondesk")
+        password = data.get("password")
+        if username and password:
+            encoded_pwd = urllib.parse.quote_plus(password)
+            sec_url = f"postgresql+psycopg2://{username}:{encoded_pwd}@recondesk.cluster-cre2mcouo1xv.ap-south-1.rds.amazonaws.com:5432/recondesk?sslmode=require"
+            _log.info("Successfully resolved active Aurora credentials from AWS Secrets Manager")
+            return sec_url
+    except Exception as exc:
+        _log.debug("AWS Secrets Manager resolution unavailable: %s", exc)
+    return None
+
+
 def get_aurora_database_url() -> str:
     """Retrieve the explicit database URL for Aurora.
 
     Requires an explicit AURORA_DATABASE_URL (or AURORA_DB_URL).
-    Does not fallback to DATABASE_URL to avoid accidentally connecting to Supabase.
+    Falls back to AWS Secrets Manager if URL is not configured.
     """
     s = get_settings()
     raw = (s.AURORA_DATABASE_URL or "").strip()
+    if not raw:
+        sec = resolve_aurora_secret_url()
+        if sec:
+            return normalize_database_url(sec)
     return normalize_database_url(raw)
 
 
@@ -304,6 +331,24 @@ def get_aurora_engine() -> Engine:
             if _engine is None:
                 _engine = create_aurora_engine()
     return _engine
+
+
+def reset_aurora_engine_with_secrets_manager() -> Optional[Engine]:
+    """Recreate the Aurora engine using credentials dynamically fetched from AWS Secrets Manager."""
+    global _engine, _session_factory
+    sec_url = resolve_aurora_secret_url()
+    if sec_url:
+        _log.info("Refreshing Aurora connection with credentials from AWS Secrets Manager")
+        with _lock:
+            try:
+                if _engine:
+                    _engine.dispose()
+            except Exception:
+                pass
+            _engine = create_aurora_engine(db_url=sec_url)
+            _session_factory = None
+            return _engine
+    return None
 
 
 def get_aurora_sessionmaker(engine: Optional[Engine] = None) -> sessionmaker[Session]:

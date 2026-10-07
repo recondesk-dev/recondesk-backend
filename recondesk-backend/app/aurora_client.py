@@ -711,15 +711,36 @@ class AuroraAuthClient:
             return AuroraAuthResponse(user=None, session=None)
 
         # Step 3: Resolve mapped user_id from Aurora user_profiles
+        from sqlalchemy.exc import OperationalError
+        from app.aurora import reset_aurora_engine_with_secrets_manager
+
         engine = get_aurora_engine()
-        with engine.connect() as conn:
-            prof = conn.execute(
-                text("SELECT id, email, full_name, phone, role FROM public.user_profiles WHERE LOWER(email) = :em LIMIT 1"),
-                {"em": email},
-            ).first()
-            if not prof:
-                _log.warning("AuroraAuthClient.sign_in_with_password: No user_profiles record found for email %s", email)
-                return AuroraAuthResponse(user=None, session=None)
+        prof = None
+        try:
+            with engine.connect() as conn:
+                prof = conn.execute(
+                    text("SELECT id, email, full_name, phone, role FROM public.user_profiles WHERE LOWER(email) = :em LIMIT 1"),
+                    {"em": email},
+                ).first()
+        except OperationalError as op_err:
+            if "password authentication failed" in str(op_err):
+                _log.warning("Aurora password authentication failed; attempting recovery via AWS Secrets Manager")
+                new_engine = reset_aurora_engine_with_secrets_manager()
+                if new_engine:
+                    engine = new_engine
+                    with engine.connect() as conn:
+                        prof = conn.execute(
+                            text("SELECT id, email, full_name, phone, role FROM public.user_profiles WHERE LOWER(email) = :em LIMIT 1"),
+                            {"em": email},
+                        ).first()
+                else:
+                    raise
+            else:
+                raise
+
+        if not prof:
+            _log.warning("AuroraAuthClient.sign_in_with_password: No user_profiles record found for email %s", email)
+            return AuroraAuthResponse(user=None, session=None)
 
             user_id = str(prof.id)
 
