@@ -1,6 +1,6 @@
 import { apiFetch } from "@/lib/api";
 
-const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000").replace(/\/+$/, "");
+const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? "https://api.recondesk.in").replace(/\/+$/, "");
 
 export interface VendorRiskSummary {
   supplier_gstin: string;

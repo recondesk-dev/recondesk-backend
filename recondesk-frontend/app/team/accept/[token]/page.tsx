@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 
 import { useToast } from "@/components/providers/ToastProvider";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "https://api.recondesk.in";
 
 export default function AcceptInvitePage({
   params,

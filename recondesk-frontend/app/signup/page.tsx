@@ -20,7 +20,7 @@ import {
 import { suggestEmailCorrection } from "@/lib/email-typo";
 import { Eye, EyeOff, UserPlus } from "lucide-react";
 
-const DEFAULT_API_URL = "http://localhost:8000";
+const DEFAULT_API_URL = "https://api.recondesk.in";
 
 type SignupFieldErrors = {
   name?: string;

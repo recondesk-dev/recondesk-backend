@@ -10,7 +10,7 @@ import { formatINR } from "@/lib/format";
 import { setOnboardingDoneCookie } from "@/lib/onboarding-cookie";
 import { createClient, subscribeAccessToken } from "@/lib/supabase/client";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "https://api.recondesk.in";
 
 function CelebrateContent() {
   const searchParams = useSearchParams();

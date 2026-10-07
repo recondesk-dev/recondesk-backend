@@ -4,7 +4,7 @@ import { COGNITO_COOKIE_NAMES } from "@/lib/cognito/cookies";
 import { verifyCognitoAccessToken } from "@/lib/cognito/jwt";
 import { resolveBackendProxyAuth } from "@/lib/cognito/sessionBridge";
 
-const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000").replace(
+const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? "https://api.recondesk.in").replace(
   /\/+$/,
   ""
 );

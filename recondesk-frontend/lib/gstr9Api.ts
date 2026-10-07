@@ -162,7 +162,7 @@ export async function downloadGstr9Json(
   fy: string,
   token: string
 ): Promise<Blob> {
-  const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+  const API_URL = process.env.NEXT_PUBLIC_API_URL || "https://api.recondesk.in";
   const res = await fetch(
     `${API_URL}/api/gstr9/clients/${clientId}/export/json?fy=${encodeURIComponent(fy)}`,
     {
@@ -182,7 +182,7 @@ export async function downloadGstr9cJson(
   auditedTax: number,
   token: string
 ): Promise<Blob> {
-  const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+  const API_URL = process.env.NEXT_PUBLIC_API_URL || "https://api.recondesk.in";
   const query = `fy=${encodeURIComponent(fy)}&audited_turnover=${auditedTurnover}&audited_itc=${auditedItc}&audited_tax=${auditedTax}`;
   const res = await fetch(
     `${API_URL}/api/gstr9c/clients/${clientId}/gstr9c/export/json?${query}`,

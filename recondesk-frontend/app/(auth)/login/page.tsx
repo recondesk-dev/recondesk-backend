@@ -91,8 +91,7 @@ export default function LoginPage() {
 
       clearCachedAuthRole();
       await invalidateAuthProfileCache();
-      router.push("/dashboard");
-      router.refresh();
+      window.location.href = "/dashboard";
     } catch {
       setError("An unexpected error occurred. Please try again.");
       setLoading(false);

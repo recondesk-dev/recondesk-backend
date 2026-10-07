@@ -172,7 +172,7 @@ export async function POST(request: Request) {
       } = await supabase.auth.getSession();
       const token = session?.access_token;
       if (token) {
-        const backendUrl = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(
+        const backendUrl = (process.env.NEXT_PUBLIC_API_URL || "https://api.recondesk.in").replace(
           /\/$/,
           ""
         );

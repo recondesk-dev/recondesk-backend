@@ -45,10 +45,9 @@ export async function lookupCognitoMapping(
 
   const baseApiUrl = (
     apiUrl ||
-    (process.env.NODE_ENV === "production"
-      ? process.env.NEXT_PUBLIC_API_URL || process.env.INTERNAL_API_URL
-      : process.env.INTERNAL_API_URL || process.env.NEXT_PUBLIC_API_URL) ||
-    "http://localhost:8000"
+    (process.env.INTERNAL_API_URL ||
+      process.env.NEXT_PUBLIC_API_URL ||
+      "https://api.recondesk.in")
   ).replace(/\/+$/, "");
 
   try {

@@ -162,7 +162,7 @@ export async function downloadBatchExcelExport(
   batchId: string,
   token: string
 ): Promise<Blob> {
-  const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+  const API_URL = process.env.NEXT_PUBLIC_API_URL || "https://api.recondesk.in";
   const res = await fetch(`${API_URL}/api/multi-period/batches/${batchId}/export/excel`, {
     method: "GET",
     headers: {

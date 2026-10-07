@@ -160,7 +160,7 @@ import { useAccessToken } from "@/lib/hooks/useAccessToken";
 
 const DEFAULT_AUTO_APPROVE_THRESHOLD = 95;
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "https://api.recondesk.in";
 
 function formatPeriod(period: string): string {
   if (!period) return "";
