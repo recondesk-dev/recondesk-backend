@@ -28,23 +28,7 @@ export async function resolveAccessTokenBridge({
   getCognitoCookie: () => string | null | undefined;
   verifyCognitoToken: (token: string) => Promise<unknown>;
 }): Promise<AccessTokenBridgeResult> {
-  // 1. Supabase session check (production priority)
-  try {
-    const supabaseToken = await getSupabaseToken();
-    if (supabaseToken && supabaseToken.trim().length > 0) {
-      return {
-        status: 200,
-        body: {
-          access_token: supabaseToken.trim(),
-          provider: "supabase",
-        },
-      };
-    }
-  } catch {
-    // Supabase read failed; proceed to check Cognito
-  }
-
-  // 2. Cognito access-token cookie check (development / migration bridge)
+  // 1. Cognito access-token cookie check (AWS Cognito Production Auth priority)
   const cognitoToken = getCognitoCookie();
   if (cognitoToken && cognitoToken.trim().length > 0) {
     try {
@@ -59,8 +43,23 @@ export async function resolveAccessTokenBridge({
     } catch (err: unknown) {
       const detail = err instanceof Error ? err.message : "Verification failed";
       console.warn(`[Access Token Route] Cognito token verification failed: ${detail}`);
-      // Do NOT fall back to Supabase - fail closed
     }
+  }
+
+  // 2. Legacy fallback: Supabase session check
+  try {
+    const supabaseToken = await getSupabaseToken();
+    if (supabaseToken && supabaseToken.trim().length > 0) {
+      return {
+        status: 200,
+        body: {
+          access_token: supabaseToken.trim(),
+          provider: "supabase",
+        },
+      };
+    }
+  } catch {
+    // Supabase read failed; proceed to unauthenticated
   }
 
   // 3. Unauthenticated / invalid session
@@ -86,17 +85,7 @@ export async function resolveBackendProxyAuth({
     return incomingAuthHeader.trim();
   }
 
-  // 2. Dual-Auth Precedence: Try Supabase session first (production priority)
-  try {
-    const supabaseToken = await getSupabaseToken();
-    if (supabaseToken && supabaseToken.trim().length > 0) {
-      return `Bearer ${supabaseToken.trim()}`;
-    }
-  } catch {
-    // Supabase failed; proceed to Cognito
-  }
-
-  // 3. Fallback to Cognito access token cookie if Supabase session is absent
+  // 2. Primary: Cognito access token cookie
   const cognitoToken = getCognitoToken();
   if (cognitoToken && cognitoToken.trim().length > 0) {
     try {
@@ -105,9 +94,17 @@ export async function resolveBackendProxyAuth({
     } catch (err: unknown) {
       const detail = err instanceof Error ? err.message : "Verification failed";
       console.warn(`[backend proxy] Cognito access token verification failed: ${detail}`);
-      // Leave unauthenticated so backend fails closed
-      return null;
     }
+  }
+
+  // 3. Legacy Fallback: Supabase session
+  try {
+    const supabaseToken = await getSupabaseToken();
+    if (supabaseToken && supabaseToken.trim().length > 0) {
+      return `Bearer ${supabaseToken.trim()}`;
+    }
+  } catch {
+    // Supabase failed; unauthenticated
   }
 
   return null;

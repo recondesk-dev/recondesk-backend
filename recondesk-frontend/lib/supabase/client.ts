@@ -61,6 +61,26 @@ export async function fetchAccessTokenFromServer(): Promise<string | false> {
   }
 }
 
+export function purgeSupabaseLocalStorage(): void {
+  if (typeof window === "undefined") return;
+  try {
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const key = localStorage.key(i);
+      if (key && (key.startsWith("sb-") || key.includes("supabase"))) {
+        localStorage.removeItem(key);
+      }
+    }
+    for (let i = sessionStorage.length - 1; i >= 0; i--) {
+      const key = sessionStorage.key(i);
+      if (key && (key.startsWith("sb-") || key.includes("supabase"))) {
+        sessionStorage.removeItem(key);
+      }
+    }
+  } catch {
+    // Ignore storage errors in private/sandboxed contexts
+  }
+}
+
 /**
  * Subscribe to the JWT used for backend API calls.
  *
@@ -111,6 +131,21 @@ export function subscribeAccessToken(onToken: (accessToken: string | false) => v
 
   async function resolveToken(): Promise<void> {
     if (cancelled) return;
+
+    // 1. Check server-side route FIRST (reads Cognito HttpOnly cookies)
+    try {
+      const fromServer = await fetchAccessTokenFromServer();
+      if (cancelled) return;
+      if (typeof fromServer === "string" && fromServer.length > 0) {
+        purgeSupabaseLocalStorage();
+        emit(fromServer);
+        return;
+      }
+    } catch (err) {
+      console.warn("[auth] fetchAccessTokenFromServer() failed:", err);
+    }
+
+    // 2. Legacy fallback to Supabase browser session only if server returned no token
     try {
       const { data: sessionData } = await supabase.auth.getSession();
       if (cancelled) return;
@@ -120,19 +155,11 @@ export function subscribeAccessToken(onToken: (accessToken: string | false) => v
         return;
       }
     } catch (err) {
-      // Browser client threw (network error, bad config) — fall through to
-      // the server-side route which reads HttpOnly session cookies.
-      console.warn("[auth] getSession() failed, trying server route:", err);
-      if (cancelled) return;
+      console.warn("[auth] getSession() failed:", err);
     }
-    try {
-      const fromServer = await fetchAccessTokenFromServer();
-      if (cancelled) return;
-      emit(typeof fromServer === "string" && fromServer.length > 0 ? fromServer : false);
-    } catch (err) {
-      console.warn("[auth] fetchAccessTokenFromServer() failed:", err);
-      emit(false);
-    }
+
+    if (cancelled) return;
+    emit(false);
   }
 
   void resolveToken();
@@ -151,15 +178,8 @@ export function subscribeAccessToken(onToken: (accessToken: string | false) => v
       clearCachedAuthRole();
       void invalidateAuthProfileCache();
     }
-    if (session?.access_token) {
-      emit(session.access_token);
-      return;
-    }
-    // INITIAL_SESSION or TOKEN_REFRESHED with no browser-visible session:
-    // session may be in HttpOnly cookies — ask the server route.
-    if (event === "INITIAL_SESSION" || event === "TOKEN_REFRESHED") {
-      void resolveToken();
-    }
+    // Always resolve through server token first to ensure active Cognito session wins
+    void resolveToken();
   });
 
   return () => {

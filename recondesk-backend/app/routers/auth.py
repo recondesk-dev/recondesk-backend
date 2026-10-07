@@ -377,10 +377,12 @@ async def login(request: Request, payload: LoginRequest):
                 "is_active": profile.get("is_active", True),
             }
         )
+    refresh_token = getattr(auth_response.session, "refresh_token", None) if auth_response.session else None
     return LoginResponse(
         access_token=access_token,
         user=user_dict,
         role=role,
+        refresh_token=refresh_token,
     )
 
 

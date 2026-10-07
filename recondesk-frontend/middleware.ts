@@ -84,38 +84,36 @@ export async function middleware(request: NextRequest) {
       },
     });
 
-    let user = null;
-    try {
-      const {
-        data: { user: sbUser },
-      } = await supabase.auth.getUser();
-      user = sbUser;
-    } catch {
-      // Supabase decommissioned or network unreachable; safely continue to Cognito
-    }
-    // Dual-Auth Precedence (Phase 2B):
-    // 1. Existing Supabase authentication (Supabase wins if both present)
-    // 2. Cognito access-token cookie (verified locally via verifyCognitoAccessToken)
-    // 3. Unauthenticated
     let isAuthenticated = false;
     let authProvider: "supabase" | "cognito" | null = null;
 
-    if (user) {
-      isAuthenticated = true;
-      authProvider = "supabase";
-    } else {
-      // Check Cognito access token cookie
-      const cognitoToken = request.cookies.get(COGNITO_COOKIE_NAMES.ACCESS_TOKEN)?.value;
-      if (cognitoToken && cognitoToken.trim().length > 0) {
-        try {
-          await verifyCognitoAccessToken({ token: cognitoToken.trim() });
+    // 1. Check Cognito access token cookie first (Primary AWS Auth)
+    const cognitoToken = request.cookies.get(COGNITO_COOKIE_NAMES.ACCESS_TOKEN)?.value;
+    if (cognitoToken && cognitoToken.trim().length > 0) {
+      try {
+        await verifyCognitoAccessToken({ token: cognitoToken.trim() });
+        isAuthenticated = true;
+        authProvider = "cognito";
+      } catch (err: unknown) {
+        const detail = err instanceof Error ? err.message : "Verification failed";
+        console.warn(`[middleware] Cognito token verification failed: ${detail}`);
+      }
+    }
+
+    // 2. Legacy fallback to Supabase only if Cognito is not present
+    let user = null;
+    if (!isAuthenticated) {
+      try {
+        const {
+          data: { user: sbUser },
+        } = await supabase.auth.getUser();
+        if (sbUser) {
+          user = sbUser;
           isAuthenticated = true;
-          authProvider = "cognito";
-        } catch (err: unknown) {
-          const detail = err instanceof Error ? err.message : "Verification failed";
-          console.warn(`[middleware] Cognito token verification failed: ${detail}`);
-          // Fails closed: remains unauthenticated; do not trust or reinterpret as Supabase
+          authProvider = "supabase";
         }
+      } catch {
+        // Supabase decommissioned or network unreachable
       }
     }
 

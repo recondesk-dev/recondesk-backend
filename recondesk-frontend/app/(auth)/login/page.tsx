@@ -4,14 +4,14 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Logo } from "@/components/ui/Logo";
-import { createClient } from "@/lib/supabase/client";
+import { createClient, purgeSupabaseLocalStorage } from "@/lib/supabase/client";
 import { EMAIL_VALIDATION_MESSAGE, isValidEmail } from "@/lib/auth-validation";
 import {
   clearCachedAuthRole,
   invalidateAuthProfileCache,
 } from "@/lib/auth-profile";
 import { Eye, EyeOff, LogIn } from "lucide-react";
-import React from "react";
+import React, { useEffect } from "react";
 
 const INPUT_ERROR_CLASS =
   "border-red-300 focus:border-red-400 focus:ring-red-500/20";
@@ -62,6 +62,10 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<LoginFieldErrors>({});
 
+  useEffect(() => {
+    purgeSupabaseLocalStorage();
+  }, []);
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -90,6 +94,13 @@ export default function LoginPage() {
       }
 
       clearCachedAuthRole();
+      purgeSupabaseLocalStorage();
+      try {
+        const sb = createClient();
+        await sb.auth.signOut({ scope: "local" });
+      } catch {
+        // Ignore local signOut error
+      }
       await invalidateAuthProfileCache();
       window.location.href = "/dashboard";
     } catch {

@@ -51,14 +51,23 @@ export async function POST(request: NextRequest) {
 
     const response = NextResponse.json({
       success: true,
+      access_token: data.access_token,
       user: data.user,
       role: data.role,
     });
+
+    // Clear any stale Supabase cookies
+    for (const cookie of request.cookies.getAll()) {
+      if (cookie.name.startsWith("sb-") || cookie.name.includes("supabase")) {
+        response.cookies.delete(cookie.name);
+      }
+    }
 
     // Set server-only Cognito session cookie
     if (data.access_token) {
       setCognitoSessionCookies(response, {
         accessToken: data.access_token,
+        refreshToken: data.refresh_token,
         request,
       });
     }

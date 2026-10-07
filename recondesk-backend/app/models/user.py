@@ -68,6 +68,7 @@ class LoginResponse(StrictModel):
     token_type: str = "bearer"
     user: dict
     role: str
+    refresh_token: Optional[str] = None
 
 
 class UserProfileResponse(StrictModel):
