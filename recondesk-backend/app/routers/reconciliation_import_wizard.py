@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
@@ -173,7 +174,7 @@ async def create_run(
     data = res.data[0]
     ws.audit(sb, data["id"], user_id, "run_created", {"period": period_iso})
     invalidate_user_dashboard(user_id)
-    return JSONResponse(status_code=status.HTTP_201_CREATED, content=data)
+    return JSONResponse(status_code=status.HTTP_201_CREATED, content=jsonable_encoder(data))
 
 
 @router.get("/runs/{run_id}")

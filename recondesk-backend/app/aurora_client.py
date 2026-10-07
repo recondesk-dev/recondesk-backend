@@ -6,6 +6,8 @@ into parameterized SQL executed directly on AWS Aurora PostgreSQL via SQLAlchemy
 
 from __future__ import annotations
 
+from datetime import date, datetime
+from decimal import Decimal
 import json
 import logging
 from typing import Any, Dict, List, Optional, Union
@@ -17,6 +19,24 @@ from sqlalchemy.engine import Row
 from app.aurora import get_aurora_engine
 
 _log = logging.getLogger("recondesk.aurora.client")
+
+
+def _serialize_value(v: Any) -> Any:
+    if isinstance(v, UUID):
+        return str(v)
+    if isinstance(v, (datetime, date)):
+        return v.isoformat()
+    if isinstance(v, Decimal):
+        return float(v)
+    if isinstance(v, dict):
+        return {k: _serialize_value(val) for k, val in v.items()}
+    if isinstance(v, list):
+        return [_serialize_value(item) for item in v]
+    return v
+
+
+def _serialize_row(d: Dict[str, Any]) -> Dict[str, Any]:
+    return {k: _serialize_value(v) for k, v in d.items()}
 
 
 class APIResponse:
@@ -301,13 +321,7 @@ class AuroraTableQuery:
                     sql += f" OFFSET {int(self._offset)}"
 
                 res = conn.execute(text(sql), self._params)
-                rows = [dict(r._mapping) for r in res.fetchall()]
-
-                # Serialization cleanup: Convert UUIDs and JSON fields if needed
-                for r in rows:
-                    for k, v in r.items():
-                        if isinstance(v, UUID):
-                            r[k] = str(v)
+                rows = [_serialize_row(dict(r._mapping)) for r in res.fetchall()]
 
                 if self._single:
                     if not rows:
@@ -347,11 +361,7 @@ class AuroraTableQuery:
                     sql = f'INSERT INTO public."{self.table_name}" ({col_names}) VALUES ({val_placeholders}) RETURNING *'
                     res = conn.execute(text(sql), item_params)
                     for r in res.fetchall():
-                        d = dict(r._mapping)
-                        for k, v in d.items():
-                            if isinstance(v, UUID):
-                                d[k] = str(v)
-                        inserted_rows.append(d)
+                        inserted_rows.append(_serialize_row(dict(r._mapping)))
                 conn.commit()
 
                 if self._single or (isinstance(self._data_payload, dict) and self._single):
@@ -379,11 +389,7 @@ class AuroraTableQuery:
                 sql = f'UPDATE public."{self.table_name}" SET {", ".join(set_clauses)}{where_sql} RETURNING *'
                 res = conn.execute(text(sql), update_params)
                 conn.commit()
-                rows = [dict(r._mapping) for r in res.fetchall()]
-                for r in rows:
-                    for k, v in r.items():
-                        if isinstance(v, UUID):
-                            r[k] = str(v)
+                rows = [_serialize_row(dict(r._mapping)) for r in res.fetchall()]
                 if self._single:
                     return APIResponse(rows[0] if rows else None)
                 return APIResponse(rows)
@@ -393,11 +399,7 @@ class AuroraTableQuery:
                 sql = f'DELETE FROM public."{self.table_name}"{where_sql} RETURNING *'
                 res = conn.execute(text(sql), self._params)
                 conn.commit()
-                rows = [dict(r._mapping) for r in res.fetchall()]
-                for r in rows:
-                    for k, v in r.items():
-                        if isinstance(v, UUID):
-                            r[k] = str(v)
+                rows = [_serialize_row(dict(r._mapping)) for r in res.fetchall()]
                 return APIResponse(rows)
 
             elif self._action == "upsert":
@@ -445,11 +447,7 @@ class AuroraTableQuery:
                     )
                     res = conn.execute(text(sql), item_params)
                     for r in res.fetchall():
-                        d = dict(r._mapping)
-                        for k, v in d.items():
-                            if isinstance(v, UUID):
-                                d[k] = str(v)
-                        upserted_rows.append(d)
+                        upserted_rows.append(_serialize_row(dict(r._mapping)))
                 conn.commit()
                 return APIResponse(upserted_rows if isinstance(self._data_payload, list) else (upserted_rows or [self._data_payload]))
 
