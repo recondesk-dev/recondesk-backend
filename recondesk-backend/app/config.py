@@ -85,15 +85,15 @@ class Settings(BaseSettings):
         description="AWS region for Cognito User Pool.",
     )
     COGNITO_USER_POOL_ID: str = Field(
-        default="ap-south-1_uPECX7n1n",
+        default="ap-south-1_nvlPYMvFh",
         description="Cognito User Pool ID.",
     )
     COGNITO_CLIENT_ID: str = Field(
-        default="6f4k06431tco06co209hl2cenl",
+        default="2qui5lp7if0g4lftbrag7o6sce",
         description="Cognito App Client ID.",
     )
     COGNITO_CLIENT_SECRET: str = Field(
-        default="",
+        default="55vbhfh2kij0crl7c1tf39go9g034n7flvocgt0a508gcg5uht6",
         description="Cognito App Client Secret (Server-side only).",
     )
     COGNITO_REDIRECT_URI: str = Field(

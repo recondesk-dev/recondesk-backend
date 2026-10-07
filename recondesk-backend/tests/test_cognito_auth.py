@@ -85,8 +85,8 @@ class TestCognitoConfig:
     def test_default_config_matches_development_environment(self):
         cfg = CognitoConfig(_env_file=None)
         assert cfg.COGNITO_REGION == "ap-south-1"
-        assert cfg.COGNITO_USER_POOL_ID == "ap-south-1_uPECX7n1n"
-        assert cfg.COGNITO_CLIENT_ID == "6f4k06431tco06co209hl2cenl"
+        assert cfg.COGNITO_USER_POOL_ID == "ap-south-1_nvlPYMvFh"
+        assert cfg.COGNITO_CLIENT_ID == "2qui5lp7if0g4lftbrag7o6sce"
         assert cfg.COGNITO_REDIRECT_URI == "http://localhost:3000/api/auth/cognito/callback"
         assert cfg.COGNITO_LOGOUT_URI == "http://localhost:3000/login"
         assert cfg.COGNITO_AUTH_ENABLED is False  # Safe default: disabled
@@ -573,8 +573,8 @@ class TestCognitoEndpoints:
         assert resp.status_code == 200
         data = resp.json()
         assert data["region"] == "ap-south-1"
-        assert data["user_pool_id"] == "ap-south-1_uPECX7n1n"
-        assert data["client_id"] == "6f4k06431tco06co209hl2cenl"
+        assert data["user_pool_id"] == "ap-south-1_nvlPYMvFh"
+        assert data["client_id"] == "2qui5lp7if0g4lftbrag7o6sce"
         assert data["redirect_uri"] == "http://localhost:3000/api/auth/cognito/callback"
         assert "client_secret" not in data
         assert "has_client_secret" in data
@@ -683,7 +683,7 @@ class TestCognitoEndpoints:
         set_cognito_jwks_cache_for_testing(jwks)
 
         # Pre-seed a trusted administrative mapping in store
-        store = InMemoryCognitoIdentityStore()
+        store = InMemoryCognitoIdentityStore(default_pool_id=test_cfg.COGNITO_USER_POOL_ID)
         app.dependency_overrides[get_identity_store] = lambda: store
         sub = str(uuid.uuid4())
         recondesk_user_id = str(uuid.uuid4())

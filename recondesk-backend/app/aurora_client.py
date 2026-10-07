@@ -706,6 +706,40 @@ class AuroraAuthClient:
                 return AuroraAuthResponse(user=None, session=None)
 
             user_id = str(prof.id)
+
+            # Auto-sync identity mapping in Aurora
+            id_token = tokens.get("IdToken")
+            cognito_sub = None
+            if id_token:
+                try:
+                    import jwt as pyjwt
+                    unverified = pyjwt.decode(id_token, options={"verify_signature": False})
+                    cognito_sub = unverified.get("sub")
+                except Exception:
+                    pass
+            if cognito_sub:
+                try:
+                    import uuid
+                    conn.execute(
+                        text("""
+                            INSERT INTO public.cognito_user_mappings
+                            (id, cognito_user_pool_id, cognito_sub, user_id, email, mapping_method, is_verified, provisioned_by)
+                            VALUES (:id, :pool, :sub, :uid, :em, 'cognito_sub_match', true, 'login')
+                            ON CONFLICT (cognito_user_pool_id, cognito_sub) DO UPDATE
+                            SET user_id = EXCLUDED.user_id, email = EXCLUDED.email
+                        """),
+                        {
+                            "id": str(uuid.uuid4()),
+                            "pool": s.COGNITO_USER_POOL_ID,
+                            "sub": cognito_sub,
+                            "uid": user_id,
+                            "em": email,
+                        },
+                    )
+                    conn.commit()
+                except Exception as map_err:
+                    _log.warning("Auto-sync cognito mapping exception: %s", map_err)
+
             user = AuroraAuthUser(
                 id=user_id,
                 email=str(prof.email),

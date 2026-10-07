@@ -29,19 +29,19 @@ class CognitoConfig(BaseSettings):
         description="AWS region hosting the Cognito User Pool.",
     )
     COGNITO_USER_POOL_ID: str = Field(
-        default="ap-south-1_uPECX7n1n",
+        default="ap-south-1_nvlPYMvFh",
         validation_alias=AliasChoices("COGNITO_USER_POOL_ID", "COGNITO_POOL_ID"),
         description="Cognito User Pool ID.",
     )
     COGNITO_CLIENT_ID: str = Field(
-        default="6f4k06431tco06co209hl2cenl",
+        default="2qui5lp7if0g4lftbrag7o6sce",
         validation_alias=AliasChoices("COGNITO_CLIENT_ID", "COGNITO_APP_CLIENT_ID"),
         description="Cognito App Client ID.",
     )
 
     # Server-Side Secret (Must NEVER be logged or leaked to frontend)
     COGNITO_CLIENT_SECRET: str = Field(
-        default="",
+        default="55vbhfh2kij0crl7c1tf39go9g034n7flvocgt0a508gcg5uht6",
         validation_alias=AliasChoices("COGNITO_CLIENT_SECRET", "COGNITO_APP_CLIENT_SECRET"),
         description="Cognito App Client Secret for server-to-server token exchange.",
     )
