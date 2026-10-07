@@ -60,9 +60,9 @@ def _task_error_detail(exc: BaseException) -> str:
     return msg
 
 
-def _supabase() -> Client:
-    s = get_settings()
-    return create_client(s.SUPABASE_URL, s.SUPABASE_SERVICE_ROLE_KEY)
+def _supabase() -> Any:
+    from app.database import get_supabase
+    return get_supabase()
 
 
 def _s3():

@@ -84,9 +84,15 @@ export async function middleware(request: NextRequest) {
       },
     });
 
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+    let user = null;
+    try {
+      const {
+        data: { user: sbUser },
+      } = await supabase.auth.getUser();
+      user = sbUser;
+    } catch {
+      // Supabase decommissioned or network unreachable; safely continue to Cognito
+    }
     // Dual-Auth Precedence (Phase 2B):
     // 1. Existing Supabase authentication (Supabase wins if both present)
     // 2. Cognito access-token cookie (verified locally via verifyCognitoAccessToken)

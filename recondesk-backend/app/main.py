@@ -118,7 +118,7 @@ def _stuck_job_tick() -> None:
         # Check active jobs whose heartbeat or start timestamp has gone silent
         stuck_runs = (
             supabase.table("reconciliation_run")
-            .select("id, status, processing_started_at, last_heartbeat_at, worker_task_id, attempt_count")
+            .select("id, status, processing_started_at, updated_at, worker_task_id, attempt_count")
             .in_("status", list(_STUCK_STATUSES))
             .execute()
         )
@@ -132,8 +132,8 @@ def _stuck_job_tick() -> None:
         if not rid:
             continue
 
-        # Evaluate liveness via heartbeat first, then fallback to processing_started_at
-        last_beat_str = run.get("last_heartbeat_at") or run.get("processing_started_at")
+        # Evaluate liveness via updated_at or processing_started_at
+        last_beat_str = run.get("last_heartbeat_at") or run.get("updated_at") or run.get("processing_started_at")
         if not last_beat_str:
             # If neither timestamp is set, job was never claimed or initiated
             continue
@@ -232,14 +232,14 @@ def _run_async_job_sync(coro_fn) -> None:
     _asyncio.run(coro_fn())
 
 
-SUPABASE_CHECK_TIMEOUT_SECONDS = 10.0
+DATABASE_CHECK_TIMEOUT_SECONDS = 10.0
 
 
-def _verify_supabase_connection() -> None:
-    _log.info("Startup: Checking Supabase database connectivity...")
-    supabase = get_supabase()
-    supabase.table("client_gstins").select("id").limit(1).execute()
-    _log.info("Startup: Supabase database connection verified successfully.")
+def _verify_database_connection() -> None:
+    _log.info("Startup: Checking database connectivity (AWS Aurora PostgreSQL)...")
+    db = get_supabase()
+    db.table("client_gstins").select("id").limit(1).execute()
+    _log.info("Startup: Database connection verified successfully.")
 
 
 def _log_db_locks(db_url: str) -> None:
@@ -309,9 +309,10 @@ def _run_alembic_upgrade():
         else:
             _log.info("Startup: Alembic database migration to head completed successfully.")
 
-        if db_url:
+        from app.aurora import is_aurora_enabled, normalize_database_url
+        if db_url and not is_aurora_enabled():
             import sqlalchemy as sa
-            eng = sa.create_engine(db_url)
+            eng = sa.create_engine(normalize_database_url(db_url))
             with eng.connect() as conn:
                 conn.execute(sa.text("NOTIFY pgrst, 'reload schema';"))
                 conn.commit()
@@ -331,16 +332,16 @@ def _run_alembic_upgrade():
 async def lifespan(app: FastAPI):
     _log.info("Startup: Beginning application startup sequence...")
 
-    # 1. Verify Supabase connection with strict 10s timeout
+    # 1. Verify database connection with strict 10s timeout
     try:
         await asyncio.wait_for(
-            asyncio.to_thread(_verify_supabase_connection),
-            timeout=SUPABASE_CHECK_TIMEOUT_SECONDS,
+            asyncio.to_thread(_verify_database_connection),
+            timeout=DATABASE_CHECK_TIMEOUT_SECONDS,
         )
     except asyncio.TimeoutError:
-        _log.error("Startup ERROR: Supabase connection check timed out after 10s!")
+        _log.error("Startup ERROR: Database connection check timed out after 10s!")
     except Exception as e:
-        _log.exception("Startup WARNING: Supabase connection check failed: %s", e)
+        _log.exception("Startup WARNING: Database connection check failed: %s", e)
 
     # 2. Run Alembic migrations as a subprocess with true OS process termination on timeout
     try:

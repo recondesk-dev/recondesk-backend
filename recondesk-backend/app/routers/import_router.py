@@ -31,10 +31,9 @@ MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 ALLOWED_PR_EXT = {".xlsx", ".xls", ".csv", ".zip"}
 
 
-@lru_cache(maxsize=1)
-def _supabase() -> Client:
-    s = get_settings()
-    return create_client(s.SUPABASE_URL, s.SUPABASE_SERVICE_ROLE_KEY)
+def _supabase() -> Any:
+    from app.database import get_supabase
+    return get_supabase()
 
 
 def _s3():
