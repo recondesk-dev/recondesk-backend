@@ -608,19 +608,21 @@ async def detect_columns(
             "missing_invoice_number": int(missing_invoice_count or 0),
         },
     )
-    return {
-        "columns": columns,
-        "all_headers": all_headers,
-        "saved_mapping": saved,
-        "saved_mapping_covers": saved_covers,
-        "schema_ok": cim.columns_match_expected_schema(all_headers),
-        "pr_record_count": pr_rows,
-        "pr_parse_warning": pr_parse_warning,
-        "missing_invoice_number_count": missing_invoice_count,
-        "multi_sheet_combine": multi_check,
-        "missing_invoice_number": missing_check,
-        "sanity_check_results": sanity_results,
-    }
+    return jsonable_encoder(
+        {
+            "columns": columns,
+            "all_headers": all_headers,
+            "saved_mapping": saved,
+            "saved_mapping_covers": saved_covers,
+            "schema_ok": cim.columns_match_expected_schema(all_headers),
+            "pr_record_count": pr_rows,
+            "pr_parse_warning": pr_parse_warning,
+            "missing_invoice_number_count": missing_invoice_count,
+            "multi_sheet_combine": multi_check,
+            "missing_invoice_number": missing_check,
+            "sanity_check_results": sanity_results,
+        }
+    )
 
 
 def _validate_start_mapping(mapping: list[dict[str, Any]]) -> None:

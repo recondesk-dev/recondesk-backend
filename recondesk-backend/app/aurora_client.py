@@ -36,7 +36,24 @@ def _serialize_value(v: Any) -> Any:
 
 
 def _serialize_row(d: Dict[str, Any]) -> Dict[str, Any]:
-    return {k: _serialize_value(v) for k, v in d.items()}
+    return {k: _serialize_value(v) for k, val in d.items()}
+
+
+# PostgreSQL columns known to be native arrays (e.g. uuid[], text[]).
+# All other list values in ReconDesk are stored in JSONB columns.
+_NATIVE_ARRAY_COLS = {"client_gstin_ids", "record_ids"}
+
+
+def _prepare_sql_param(col: str, val: Any) -> Any:
+    if val is None:
+        return None
+    if isinstance(val, dict):
+        return json.dumps(val)
+    if isinstance(val, list):
+        if col in _NATIVE_ARRAY_COLS:
+            return list(val)
+        return json.dumps(val)
+    return val
 
 
 class APIResponse:
@@ -346,15 +363,7 @@ class AuroraTableQuery:
                     for col in cols:
                         p = self._next_param("ins")
                         p_names.append(f":{p}")
-                        val = rec[col]
-                        if isinstance(val, dict):
-                            val = json.dumps(val)
-                        elif isinstance(val, list):
-                            if any(isinstance(x, dict) for x in val):
-                                val = json.dumps(val)
-                            else:
-                                val = list(val)
-                        item_params[p] = val
+                        item_params[p] = _prepare_sql_param(col, rec[col])
 
                     col_names = ", ".join([f'"{c}"' for c in cols])
                     val_placeholders = ", ".join(p_names)
@@ -376,14 +385,7 @@ class AuroraTableQuery:
                 for col, val in self._data_payload.items():
                     p = self._next_param("upd")
                     set_clauses.append(f'"{col}" = :{p}')
-                    if isinstance(val, dict):
-                        val = json.dumps(val)
-                    elif isinstance(val, list):
-                        if any(isinstance(x, dict) for x in val):
-                            val = json.dumps(val)
-                        else:
-                            val = list(val)
-                    update_params[p] = val
+                    update_params[p] = _prepare_sql_param(col, val)
 
                 where_sql = self._build_where_clause()
                 sql = f'UPDATE public."{self.table_name}" SET {", ".join(set_clauses)}{where_sql} RETURNING *'
@@ -418,15 +420,7 @@ class AuroraTableQuery:
                     for col in cols:
                         p = self._next_param("ups")
                         p_names.append(f":{p}")
-                        val = rec[col]
-                        if isinstance(val, dict):
-                            val = json.dumps(val)
-                        elif isinstance(val, list):
-                            if any(isinstance(x, dict) for x in val):
-                                val = json.dumps(val)
-                            else:
-                                val = list(val)
-                        item_params[p] = val
+                        item_params[p] = _prepare_sql_param(col, rec[col])
 
                     col_names = ", ".join([f'"{c}"' for c in cols])
                     val_placeholders = ", ".join(p_names)
@@ -791,6 +785,42 @@ class AuroraAuthClient:
         return AuroraAuthResponse(user=user, session=session)
 
 
+class AuroraRpcQuery:
+    """Supports PostgREST client.rpc(func_name, params).execute() on Aurora."""
+
+    def __init__(self, func_name: str, params: Optional[Dict[str, Any]] = None):
+        self.func_name = func_name.strip().replace('"', "")
+        self.params = params or {}
+
+    def execute(self) -> APIResponse:
+        engine = get_aurora_engine()
+        with engine.connect() as conn:
+            param_placeholders = []
+            param_dict: Dict[str, Any] = {}
+            for i, (k, v) in enumerate(self.params.items()):
+                p_key = f"rpc_p_{i}"
+                param_placeholders.append(f"{k} => :{p_key}")
+                param_dict[p_key] = _prepare_sql_param(k, v)
+            args_str = ", ".join(param_placeholders)
+            sql = f'SELECT * FROM public."{self.func_name}"({args_str})'
+            try:
+                res = conn.execute(text(sql), param_dict)
+                conn.commit()
+                rows = [_serialize_row(dict(r._mapping)) for r in res.fetchall()]
+                if len(rows) == 1 and len(rows[0]) == 1:
+                    first_val = list(rows[0].values())[0]
+                    return APIResponse(first_val)
+                return APIResponse(rows)
+            except Exception:
+                conn.rollback()
+                sql_scalar = f'SELECT public."{self.func_name}"({args_str})'
+                res = conn.execute(text(sql_scalar), param_dict)
+                conn.commit()
+                first_row = res.first()
+                val = first_row[0] if first_row else None
+                return APIResponse(val)
+
+
 class AuroraClient:
     """High-level client providing the PostgREST / Supabase interface over Aurora."""
 
@@ -799,3 +829,6 @@ class AuroraClient:
 
     def table(self, table_name: str) -> AuroraTableQuery:
         return AuroraTableQuery(table_name)
+
+    def rpc(self, func_name: str, params: Optional[Dict[str, Any]] = None) -> AuroraRpcQuery:
+        return AuroraRpcQuery(func_name, params)

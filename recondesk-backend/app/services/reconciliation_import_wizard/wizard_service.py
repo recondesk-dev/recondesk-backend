@@ -16,6 +16,7 @@ import pandas as pd
 from botocore.config import Config
 from botocore.exceptions import ClientError
 from fastapi import HTTPException, status
+from fastapi.encoders import jsonable_encoder
 from supabase import Client
 
 from app.config import settings
@@ -200,7 +201,7 @@ def fetch_run(sb: Client, run_id: str) -> dict:
     r = sb.table(T_RUNS).select("*").eq("id", run_id).single().execute()
     if not r.data:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Run not found")
-    return r.data
+    return jsonable_encoder(r.data)
 
 
 def assert_client_access(sb: Client, client_id: str, user_id: str) -> dict:
