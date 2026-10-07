@@ -171,7 +171,9 @@ export function subscribeAccessToken(onToken: (accessToken: string | false) => v
     if (event === "SIGNED_OUT") {
       clearCachedAuthRole();
       void invalidateAuthProfileCache();
-      emit(false);
+      // Do NOT blindly emit false: active AWS Cognito sessions are stored in HttpOnly cookies,
+      // not in Supabase browser storage. Check server Cognito token first.
+      void resolveToken();
       return;
     }
     if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED") {

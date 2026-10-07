@@ -51,6 +51,24 @@ export function resolveCookieSecure(request?: NextRequest | null): boolean {
 }
 
 /**
+ * Resolves cookie domain for unified apex and subdomain access (.recondesk.in in production).
+ */
+export function resolveCookieDomain(request?: NextRequest | null): string | undefined {
+  if (process.env.NODE_ENV !== "production") return undefined;
+  if (!request) return ".recondesk.in";
+  const host =
+    request.headers.get("x-forwarded-host") ||
+    request.nextUrl?.hostname ||
+    request.headers.get("host") ||
+    "";
+  const cleanHost = host.split(":")[0].toLowerCase().trim();
+  if (cleanHost.endsWith("recondesk.in")) {
+    return ".recondesk.in";
+  }
+  return undefined;
+}
+
+/**
  * Sets server-only Cognito session cookies after verified trusted account mapping.
  *
  * Requirements (Phase 2A):
@@ -58,6 +76,7 @@ export function resolveCookieSecure(request?: NextRequest | null): boolean {
  *   - SameSite=Lax
  *   - Secure according to existing isSecureCookie() helper
  *   - Path="/"
+ *   - Domain=".recondesk.in" when on recondesk.in
  *   - Access-token expiry never exceeds token's real expiration
  *   - Refresh-token expiry follows configured Cognito refresh-token lifetime
  *   - ID token is deliberately NOT stored in cookies
@@ -68,6 +87,7 @@ export function setCognitoSessionCookies(
 ): void {
   const { accessToken, accessExp, expiresIn, refreshToken, request } = params;
   const secure = resolveCookieSecure(request);
+  const domain = resolveCookieDomain(request);
 
   // Compute access token max-age strictly not exceeding token's real expiration
   const nowSec = Math.floor(Date.now() / 1000);
@@ -81,12 +101,17 @@ export function setCognitoSessionCookies(
     accessMaxAge = expiresIn;
   }
 
-  // 1. Set Access Token Cookie
-  response.cookies.set(COGNITO_COOKIE_NAMES.ACCESS_TOKEN, accessToken, {
+  const cookieOpts = {
     httpOnly: true,
-    sameSite: "lax",
+    sameSite: "lax" as const,
     secure,
     path: "/",
+    ...(domain ? { domain } : {}),
+  };
+
+  // 1. Set Access Token Cookie
+  response.cookies.set(COGNITO_COOKIE_NAMES.ACCESS_TOKEN, accessToken, {
+    ...cookieOpts,
     maxAge: accessMaxAge,
   });
 
@@ -102,10 +127,7 @@ export function setCognitoSessionCookies(
         : DEFAULT_COGNITO_REFRESH_TOKEN_MAX_AGE_SECONDS;
 
     response.cookies.set(COGNITO_COOKIE_NAMES.REFRESH_TOKEN, refreshToken.trim(), {
-      httpOnly: true,
-      sameSite: "lax",
-      secure,
-      path: "/",
+      ...cookieOpts,
       maxAge: refreshMaxAge,
     });
   }
@@ -116,7 +138,21 @@ export function setCognitoSessionCookies(
 /**
  * Clears Cognito session cookies (access token, refresh token, id token).
  */
-export function clearCognitoSessionCookies(response: NextResponse): void {
+export function clearCognitoSessionCookies(
+  response: NextResponse,
+  request?: NextRequest | null
+): void {
+  const domain = resolveCookieDomain(request);
+  // Clear without domain (host-only)
+  response.cookies.set(COGNITO_COOKIE_NAMES.ACCESS_TOKEN, "", { path: "/", maxAge: 0 });
+  response.cookies.set(COGNITO_COOKIE_NAMES.REFRESH_TOKEN, "", { path: "/", maxAge: 0 });
+  response.cookies.set(COGNITO_COOKIE_NAMES.ID_TOKEN, "", { path: "/", maxAge: 0 });
+  // Clear with domain if present
+  if (domain) {
+    response.cookies.set(COGNITO_COOKIE_NAMES.ACCESS_TOKEN, "", { path: "/", maxAge: 0, domain });
+    response.cookies.set(COGNITO_COOKIE_NAMES.REFRESH_TOKEN, "", { path: "/", maxAge: 0, domain });
+    response.cookies.set(COGNITO_COOKIE_NAMES.ID_TOKEN, "", { path: "/", maxAge: 0, domain });
+  }
   response.cookies.delete(COGNITO_COOKIE_NAMES.ACCESS_TOKEN);
   response.cookies.delete(COGNITO_COOKIE_NAMES.REFRESH_TOKEN);
   response.cookies.delete(COGNITO_COOKIE_NAMES.ID_TOKEN);
@@ -125,7 +161,19 @@ export function clearCognitoSessionCookies(response: NextResponse): void {
 /**
  * Clears Cognito OAuth handshake cookies (state, nonce, pkce verifier).
  */
-export function clearCognitoHandshakeCookies(response: NextResponse): void {
+export function clearCognitoHandshakeCookies(
+  response: NextResponse,
+  request?: NextRequest | null
+): void {
+  const domain = resolveCookieDomain(request);
+  const clearOpts = {
+    path: "/",
+    maxAge: 0,
+    ...(domain ? { domain } : {}),
+  };
+  response.cookies.set(COGNITO_COOKIE_NAMES.STATE, "", clearOpts);
+  response.cookies.set(COGNITO_COOKIE_NAMES.NONCE, "", clearOpts);
+  response.cookies.set(COGNITO_COOKIE_NAMES.VERIFIER, "", clearOpts);
   response.cookies.delete(COGNITO_COOKIE_NAMES.STATE);
   response.cookies.delete(COGNITO_COOKIE_NAMES.NONCE);
   response.cookies.delete(COGNITO_COOKIE_NAMES.VERIFIER);

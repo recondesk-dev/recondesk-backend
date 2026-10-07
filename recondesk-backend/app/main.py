@@ -232,7 +232,7 @@ def _run_async_job_sync(coro_fn) -> None:
     _asyncio.run(coro_fn())
 
 
-DATABASE_CHECK_TIMEOUT_SECONDS = 10.0
+DATABASE_CHECK_TIMEOUT_SECONDS = 30.0
 
 
 def _verify_database_connection() -> None:

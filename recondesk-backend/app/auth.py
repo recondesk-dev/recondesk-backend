@@ -483,7 +483,6 @@ def _verify_cognito_bearer_token(
                 }
 
     if not mapping_result or not mapping_result.get("is_verified") or not mapping_result.get("user_id"):
-        # Distinguish between unmapped identity vs mapped but disabled/inactive user profile
         existing = active_store.get_mapping_by_sub(sub, pool_id=configured_pool)
         if existing and existing.verified:
             prof = _profile_lookup(existing.user_id)
@@ -494,17 +493,68 @@ def _verify_cognito_bearer_token(
                     detail="User account is inactive or disabled",
                     headers={"WWW-Authenticate": "Bearer"},
                 )
+            if prof and prof.get("is_active", True):
+                mapping_result = {
+                    "user_id": str(existing.user_id),
+                    "cognito_sub": existing.cognito_sub,
+                    "is_verified": True,
+                    "profile": prof,
+                }
 
-        _log.warning(
-            "Cognito token verified for sub %s, but no trusted verified Aurora mapping exists in pool %s",
-            sub,
-            configured_pool,
-        )
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="No verified account mapping found for this identity",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+        # Auto-link fallback: if no mapping found, look up profile by token username / email
+        if not mapping_result:
+            candidate_email = (claims.get("email") or claims.get("username") or "").strip().lower()
+            if candidate_email and "@" in candidate_email:
+                from app.aurora_client import get_aurora_engine
+                from sqlalchemy import text
+                import uuid
+                try:
+                    engine = get_aurora_engine()
+                    with engine.connect() as conn:
+                        matched = conn.execute(
+                            text("SELECT id, email, full_name, role, is_active FROM public.user_profiles WHERE LOWER(email) = :em AND is_active = true LIMIT 1"),
+                            {"em": candidate_email},
+                        ).first()
+                        if matched:
+                            m_uid = str(matched.id)
+                            conn.execute(
+                                text("""
+                                    INSERT INTO public.cognito_user_mappings
+                                    (id, cognito_user_pool_id, cognito_sub, user_id, email, mapping_method, is_verified, provisioned_by)
+                                    VALUES (:id, :pool, :sub, :uid, :em, 'admin_provisioned', true, 'bearer_token_auto_link')
+                                    ON CONFLICT (cognito_user_pool_id, cognito_sub) DO UPDATE
+                                    SET user_id = EXCLUDED.user_id, email = EXCLUDED.email
+                                """),
+                                {
+                                    "id": str(uuid.uuid4()),
+                                    "pool": configured_pool,
+                                    "sub": sub,
+                                    "uid": m_uid,
+                                    "em": candidate_email,
+                                },
+                            )
+                            conn.commit()
+                            prof = _profile_lookup(m_uid)
+                            mapping_result = {
+                                "user_id": m_uid,
+                                "cognito_sub": sub,
+                                "is_verified": True,
+                                "profile": prof or dict(matched._mapping),
+                            }
+                except Exception as auto_link_err:
+                    _log.warning("Auto-link fallback exception for sub %s: %s", sub, auto_link_err)
+
+        if not mapping_result or not mapping_result.get("is_verified") or not mapping_result.get("user_id"):
+            _log.warning(
+                "Cognito token verified for sub %s, but no trusted verified Aurora mapping exists in pool %s",
+                sub,
+                configured_pool,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="No verified account mapping found for this identity",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
 
     mapped_user_id = str(mapping_result["user_id"]).strip()
     if not mapped_user_id:

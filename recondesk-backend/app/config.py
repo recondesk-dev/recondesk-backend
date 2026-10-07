@@ -55,12 +55,12 @@ class Settings(BaseSettings):
         description="Path to CA certificate bundle (e.g. global-bundle.pem) when using verify-ca or verify-full.",
     )
     AURORA_POOL_SIZE: int = Field(
-        default=2,
-        description="SQLAlchemy connection pool size for Aurora (conservative development default).",
+        default=20,
+        description="SQLAlchemy connection pool size for Aurora.",
     )
     AURORA_MAX_OVERFLOW: int = Field(
-        default=0,
-        description="SQLAlchemy connection pool max overflow for Aurora (conservative development default).",
+        default=10,
+        description="SQLAlchemy connection pool max overflow for Aurora.",
     )
     AURORA_POOL_RECYCLE_SECONDS: int = Field(
         default=1800,

@@ -31,8 +31,8 @@ export function getCognitoOAuthConfig(): CognitoOAuthConfig {
     domain: process.env.COGNITO_DOMAIN || "https://ap-south-1nvlpymvfh.auth.ap-south-1.amazoncognito.com",
     scopes: process.env.COGNITO_SCOPES || "openid email profile",
     authEnabled:
-      process.env.COGNITO_AUTH_ENABLED === "true" ||
-      process.env.NEXT_PUBLIC_COGNITO_AUTH_ENABLED === "true",
+      process.env.COGNITO_AUTH_ENABLED !== "false" &&
+      process.env.NEXT_PUBLIC_COGNITO_AUTH_ENABLED !== "false",
   };
 }
 
@@ -126,7 +126,10 @@ export async function exchangeCodeForTokens(params: {
 
   // Client secret must remain exclusively on the server
   if (cfg.clientSecret) {
-    const basicAuth = Buffer.from(`${cfg.clientId}:${cfg.clientSecret}`).toString("base64");
+    const basicAuth =
+      typeof Buffer !== "undefined"
+        ? Buffer.from(`${cfg.clientId}:${cfg.clientSecret}`).toString("base64")
+        : btoa(`${cfg.clientId}:${cfg.clientSecret}`);
     headers.set("Authorization", `Basic ${basicAuth}`);
   }
 
@@ -180,7 +183,10 @@ export async function refreshCognitoTokens(params: {
   });
 
   if (cfg.clientSecret) {
-    const basicAuth = Buffer.from(`${cfg.clientId}:${cfg.clientSecret}`).toString("base64");
+    const basicAuth =
+      typeof Buffer !== "undefined"
+        ? Buffer.from(`${cfg.clientId}:${cfg.clientSecret}`).toString("base64")
+        : btoa(`${cfg.clientId}:${cfg.clientSecret}`);
     headers.set("Authorization", `Basic ${basicAuth}`);
   }
 

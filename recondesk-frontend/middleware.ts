@@ -5,8 +5,12 @@ import {
   ONBOARDING_DONE_COOKIE,
   onboardingDoneCookieOptions,
 } from "@/lib/onboarding-cookie";
-import { COGNITO_COOKIE_NAMES } from "@/lib/cognito/cookies";
+import {
+  COGNITO_COOKIE_NAMES,
+  setCognitoSessionCookies,
+} from "@/lib/cognito/cookies";
 import { verifyCognitoAccessToken } from "@/lib/cognito/jwt";
+import { getCognitoOAuthConfig, refreshCognitoTokens } from "@/lib/cognito/oauth";
 
 function passThrough(request: NextRequest) {
   return NextResponse.next({ request: { headers: request.headers } });
@@ -97,6 +101,40 @@ export async function middleware(request: NextRequest) {
       } catch (err: unknown) {
         const detail = err instanceof Error ? err.message : "Verification failed";
         console.warn(`[middleware] Cognito token verification failed: ${detail}`);
+      }
+    }
+
+    // 1b. If access token is expired or missing, attempt refresh using Cognito refresh-token cookie
+    if (!isAuthenticated) {
+      const refreshToken = request.cookies.get(COGNITO_COOKIE_NAMES.REFRESH_TOKEN)?.value;
+      if (refreshToken && refreshToken.trim().length > 0) {
+        try {
+          const config = getCognitoOAuthConfig();
+          if (config.authEnabled) {
+            const tokenResponse = await refreshCognitoTokens({
+              refreshToken: refreshToken.trim(),
+              config,
+            });
+            if (tokenResponse?.access_token) {
+              const claims = await verifyCognitoAccessToken({
+                token: tokenResponse.access_token,
+                config,
+              });
+              isAuthenticated = true;
+              authProvider = "cognito";
+              setCognitoSessionCookies(response, {
+                accessToken: tokenResponse.access_token,
+                accessExp: claims.exp,
+                expiresIn: tokenResponse.expires_in,
+                refreshToken: tokenResponse.refresh_token,
+                request,
+              });
+            }
+          }
+        } catch (err: unknown) {
+          const detail = err instanceof Error ? err.message : "Refresh failed";
+          console.warn(`[middleware] Cognito refresh failed: ${detail}`);
+        }
       }
     }
 

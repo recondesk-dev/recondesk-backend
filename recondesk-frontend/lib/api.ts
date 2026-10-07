@@ -300,6 +300,34 @@ export async function apiFetch<T>(
   }
 
   if (!res.ok) {
+    if (res.status === 401 && typeof window !== "undefined" && !(options as { _retried?: boolean })._retried) {
+      try {
+        const refreshRes = await fetch("/api/auth/cognito-refresh", {
+          method: "POST",
+          credentials: "same-origin",
+          cache: "no-store",
+        });
+        if (refreshRes.ok) {
+          const tokenRes = await fetch("/api/auth/access-token", {
+            credentials: "same-origin",
+            cache: "no-store",
+          });
+          if (tokenRes.ok) {
+            const body = (await tokenRes.json()) as { access_token?: string };
+            if (body?.access_token) {
+              return apiFetch<T>(path, {
+                ...options,
+                token: body.access_token,
+                ...({ _retried: true } as any),
+              });
+            }
+          }
+        }
+      } catch {
+        // Refresh failed; proceed to throw 401
+      }
+    }
+
     let detail = `HTTP ${res.status}`;
     let rawDetail: unknown;
     try {

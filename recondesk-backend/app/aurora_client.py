@@ -724,7 +724,7 @@ class AuroraAuthClient:
                         text("""
                             INSERT INTO public.cognito_user_mappings
                             (id, cognito_user_pool_id, cognito_sub, user_id, email, mapping_method, is_verified, provisioned_by)
-                            VALUES (:id, :pool, :sub, :uid, :em, 'cognito_sub_match', true, 'login')
+                            VALUES (:id, :pool, :sub, :uid, :em, 'admin_provisioned', true, 'login')
                             ON CONFLICT (cognito_user_pool_id, cognito_sub) DO UPDATE
                             SET user_id = EXCLUDED.user_id, email = EXCLUDED.email
                         """),
