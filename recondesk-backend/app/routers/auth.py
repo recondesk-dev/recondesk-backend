@@ -321,14 +321,20 @@ async def login(request: Request, payload: LoginRequest):
         auth_response = db.auth.sign_in_with_password(
             {"email": payload.email, "password": payload.password}
         )
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
+        _log.exception(
+            "sign_in_with_password raised exception for email %s (db client: %s): %s",
+            payload.email,
+            type(db).__name__,
+            exc,
+        )
         record_login_failure(ip)
         await log_action(
             None,
             "LOGIN",
             "user",
             None,
-            {"result": "failed"},
+            {"result": "failed", "error": str(exc)},
             ip_address=ip,
         )
         raise HTTPException(
@@ -337,6 +343,13 @@ async def login(request: Request, payload: LoginRequest):
         ) from None
 
     if not auth_response.user or not auth_response.session:
+        _log.warning(
+            "sign_in_with_password returned empty user or session for %s (db client: %s, user: %s, session: %s)",
+            payload.email,
+            type(db).__name__,
+            bool(auth_response.user),
+            bool(auth_response.session),
+        )
         record_login_failure(ip)
         await log_action(
             None,

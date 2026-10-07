@@ -182,7 +182,7 @@ async def get_run(run_id: uuid.UUID, user_id: str = Depends(get_current_user_id)
     sb = get_supabase()
     r = ws.fetch_run(sb, str(run_id))
     ws.assert_client_access(sb, r["client_id"], user_id)
-    return r
+    return jsonable_encoder(r)
 
 
 @router.patch("/runs/{run_id}")
@@ -213,7 +213,7 @@ async def patch_run(
             )
     sb.table(ws.T_RUNS).update(patch).eq("id", str(run_id)).execute()
     ws.audit(sb, str(run_id), user_id, "run_updated", patch)
-    return ws.fetch_run(sb, str(run_id))
+    return jsonable_encoder(ws.fetch_run(sb, str(run_id)))
 
 
 @router.get("/uploads/signed-url")

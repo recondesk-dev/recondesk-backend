@@ -699,6 +699,7 @@ class AuroraAuthClient:
                     _log.warning("Supabase migration fallback failed: %s", sb_exc)
 
         if not auth_res:
+            _log.warning("AuroraAuthClient.sign_in_with_password: Cognito authentication returned no response for %s", email)
             return AuroraAuthResponse(user=None, session=None)
 
         tokens = auth_res.get("AuthenticationResult", {})
@@ -706,6 +707,7 @@ class AuroraAuthClient:
         refresh_token = tokens.get("RefreshToken")
 
         if not access_token:
+            _log.warning("AuroraAuthClient.sign_in_with_password: No AccessToken in AuthenticationResult for %s (keys: %s)", email, list(tokens.keys()))
             return AuroraAuthResponse(user=None, session=None)
 
         # Step 3: Resolve mapped user_id from Aurora user_profiles
@@ -716,6 +718,7 @@ class AuroraAuthClient:
                 {"em": email},
             ).first()
             if not prof:
+                _log.warning("AuroraAuthClient.sign_in_with_password: No user_profiles record found for email %s", email)
                 return AuroraAuthResponse(user=None, session=None)
 
             user_id = str(prof.id)
