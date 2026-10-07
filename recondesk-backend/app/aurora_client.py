@@ -30,8 +30,64 @@ class APIResponse:
         return f"<APIResponse count={self.count}>"
 
 
+class _AuroraNotModifier:
+    """Helper to support PostgREST `.not_.is_()`, `.not_.in_()`, `.not_.eq()` on AuroraTableQuery."""
+
+    def __init__(self, query: "AuroraTableQuery"):
+        self._query = query
+
+    def is_(self, column: str, value: Any) -> "AuroraTableQuery":
+        col = column.strip().replace('"', "")
+        if value is None or str(value).lower() in ("null", "none"):
+            self._query._where_clauses.append(f'"{col}" IS NOT NULL')
+        elif str(value).lower() == "true":
+            self._query._where_clauses.append(f'"{col}" IS NOT TRUE')
+        elif str(value).lower() == "false":
+            self._query._where_clauses.append(f'"{col}" IS NOT FALSE')
+        else:
+            self._query._where_clauses.append(f'"{col}" IS NOT NULL')
+        return self._query
+
+    def in_(self, column: str, values: Any) -> "AuroraTableQuery":
+        col = column.strip().replace('"', "")
+        if not values:
+            return self._query
+        val_list = list(values)
+        param_names = []
+        for v in val_list:
+            p = self._query._next_param("not_in")
+            param_names.append(f":{p}")
+            self._query._params[p] = v
+        self._query._where_clauses.append(f'"{col}" NOT IN ({", ".join(param_names)})')
+        return self._query
+
+    def eq(self, column: str, value: Any) -> "AuroraTableQuery":
+        return self._query.neq(column, value)
+
+    def neq(self, column: str, value: Any) -> "AuroraTableQuery":
+        return self._query.eq(column, value)
+
+    def like(self, column: str, pattern: str) -> "AuroraTableQuery":
+        col = column.strip().replace('"', "")
+        p = self._query._next_param("nlike")
+        self._query._where_clauses.append(f'"{col}" NOT LIKE :{p}')
+        self._query._params[p] = pattern
+        return self._query
+
+    def ilike(self, column: str, pattern: str) -> "AuroraTableQuery":
+        col = column.strip().replace('"', "")
+        p = self._query._next_param("nilike")
+        self._query._where_clauses.append(f'"{col}" NOT ILIKE :{p}')
+        self._query._params[p] = pattern
+        return self._query
+
+
 class AuroraTableQuery:
     """Builder that compiles chained PostgREST calls into parameterized SQL for Aurora."""
+
+    @property
+    def not_(self) -> _AuroraNotModifier:
+        return _AuroraNotModifier(self)
 
     def __init__(self, table_name: str):
         # Validate table name to prevent SQL injection
