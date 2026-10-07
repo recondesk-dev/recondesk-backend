@@ -36,7 +36,7 @@ def _serialize_value(v: Any) -> Any:
 
 
 def _serialize_row(d: Dict[str, Any]) -> Dict[str, Any]:
-    return {k: _serialize_value(v) for k, val in d.items()}
+    return {k: _serialize_value(v) for k, v in d.items()}
 
 
 # PostgreSQL columns known to be native arrays (e.g. uuid[], text[]).

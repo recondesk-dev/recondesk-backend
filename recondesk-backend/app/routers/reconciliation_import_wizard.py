@@ -166,7 +166,7 @@ async def create_run(
             if existing_q.data:
                 ex = existing_q.data[0]
                 ws.assert_client_access(sb, ex["client_id"], user_id)
-                return ex
+                return JSONResponse(status_code=status.HTTP_200_OK, content=jsonable_encoder(ex))
             # Active row raced to terminal — retry once so a fresh draft is created.
             res = sb.table(ws.T_RUNS).insert(row).execute()
         else:

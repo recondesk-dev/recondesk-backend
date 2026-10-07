@@ -98,3 +98,77 @@ def test_aurora_client_has_rpc():
     assert isinstance(rpc_query, AuroraRpcQuery)
     assert rpc_query.func_name == "delete_reconciliation_run_cascade"
     assert rpc_query.params == {"p_run_id": "test-id"}
+
+
+def test_serialize_row_primitives_and_types():
+    """Verify _serialize_row correctly handles UUID, date, datetime, Decimal, dict, list."""
+    from datetime import date, datetime, timezone
+    from decimal import Decimal
+    from uuid import UUID
+    from app.aurora_client import _serialize_row
+
+    u = UUID("3c9cf6f2-2d94-4088-a1cc-8e7cb6986bb7")
+    dt = datetime(2026, 10, 8, 12, 0, 0, tzinfo=timezone.utc)
+    d = date(2026, 10, 1)
+    dec = Decimal("1234.56")
+
+    row = {
+        "id": u,
+        "created_at": dt,
+        "period": d,
+        "amount": dec,
+        "is_active": True,
+        "count": 5,
+        "meta": {"nested_id": u, "inner_date": d},
+        "tags": ["alpha", "beta"],
+        "empty": None,
+    }
+
+    res = _serialize_row(row)
+    assert res["id"] == "3c9cf6f2-2d94-4088-a1cc-8e7cb6986bb7"
+    assert res["created_at"] == dt.isoformat()
+    assert res["period"] == "2026-10-01"
+    assert res["amount"] == 1234.56
+    assert res["is_active"] is True
+    assert res["count"] == 5
+    assert res["meta"]["nested_id"] == "3c9cf6f2-2d94-4088-a1cc-8e7cb6986bb7"
+    assert res["meta"]["inner_date"] == "2026-10-01"
+    assert res["tags"] == ["alpha", "beta"]
+    assert res["empty"] is None
+
+
+def test_aurora_table_query_select_row_serialization():
+    """Verify execute() on select converts DB Row mapping through _serialize_row."""
+    from datetime import date
+    from uuid import UUID
+    from collections import namedtuple
+
+    class RowMock:
+        def __init__(self, mapping):
+            self._mapping = mapping
+
+    client = AuroraClient()
+    query = client.table("reconciliation_import_runs").select("*")
+
+    mock_mapping = {
+        "id": UUID("3c9cf6f2-2d94-4088-a1cc-8e7cb6986bb7"),
+        "period": date(2026, 10, 1),
+        "status": "draft",
+    }
+
+    mock_conn = MagicMock()
+    mock_res = MagicMock()
+    mock_res.fetchall.return_value = [RowMock(mock_mapping)]
+    mock_conn.execute.return_value = mock_res
+
+    mock_engine = MagicMock()
+    mock_engine.connect.return_value.__enter__.return_value = mock_conn
+
+    with patch("app.aurora_client.get_aurora_engine", return_value=mock_engine):
+        response = query.execute()
+
+    assert len(response.data) == 1
+    row = response.data[0]
+    assert row["id"] == "3c9cf6f2-2d94-4088-a1cc-8e7cb6986bb7"
+    assert row["period"] == "2026-10-01"
+    assert row["status"] == "draft"
