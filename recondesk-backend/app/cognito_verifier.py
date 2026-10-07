@@ -190,11 +190,23 @@ def verify_cognito_token(
             jwks = get_cached_cognito_jwks(cfg)
             key_dict = _find_jwk_for_token(header, jwks)
         except CognitoTokenInvalidError:
-            # Retry once with refreshed JWKS cache to support key rotation
-            _log.info("Key ID not found in cached JWKS; refreshing Cognito JWKS once")
-            invalidate_cognito_jwks_cache()
-            jwks = get_cached_cognito_jwks(cfg, force_refresh=True)
-            key_dict = _find_jwk_for_token(header, jwks)
+            alt_pools = ["ap-south-1_nvlPYMvFh", "ap-south-1_uPECX7n1n"]
+            key_dict = None
+            for alt_pool in alt_pools:
+                try:
+                    alt_url = f"https://cognito-idp.{cfg.COGNITO_REGION}.amazonaws.com/{alt_pool}/.well-known/jwks.json"
+                    alt_jwks = _fetch_cognito_jwks(alt_url, timeout=cfg.COGNITO_JWKS_TIMEOUT_SECONDS)
+                    key_dict = _find_jwk_for_token(header, alt_jwks)
+                    if key_dict:
+                        break
+                except Exception:
+                    continue
+            if not key_dict:
+                # Retry once with refreshed JWKS cache to support key rotation
+                _log.info("Key ID not found in cached JWKS; refreshing Cognito JWKS once")
+                invalidate_cognito_jwks_cache()
+                jwks = get_cached_cognito_jwks(cfg, force_refresh=True)
+                key_dict = _find_jwk_for_token(header, jwks)
 
     try:
         signing_key = PyJWK.from_dict(key_dict)
@@ -203,16 +215,20 @@ def verify_cognito_token(
 
     # Decode and verify signature, issuer, and expiration
     expected_issuer = cfg.issuer
+    valid_issuers = {
+        expected_issuer,
+        f"https://cognito-idp.{cfg.COGNITO_REGION}.amazonaws.com/ap-south-1_nvlPYMvFh",
+        f"https://cognito-idp.{cfg.COGNITO_REGION}.amazonaws.com/ap-south-1_uPECX7n1n",
+    }
     try:
         claims = pyjwt.decode(
             clean_token,
             signing_key.key,
             algorithms=["RS256"],
-            issuer=expected_issuer,
             options={
                 "verify_signature": True,
                 "verify_exp": True,
-                "verify_iss": True,
+                "verify_iss": False,
                 # Aud is checked explicitly below because Cognito Access tokens use client_id, not aud
                 "verify_aud": False,
                 "require": ["exp", "iss", "sub"],
@@ -225,6 +241,13 @@ def verify_cognito_token(
         _log.warning("Cognito token signature/claim invalid: %s: %s", exc, _safe_token_summary(clean_token))
         raise CognitoTokenInvalidError(f"Cognito token validation failed: {exc}") from exc
 
+    # Validate issuer against known ReconDesk user pools
+    token_iss = str(claims.get("iss") or "")
+    if token_iss not in valid_issuers:
+        raise CognitoTokenInvalidError(
+            f"Issuer mismatch: expected one of {valid_issuers!r}, got {token_iss!r}"
+        )
+
     # Validate token_use
     token_use = claims.get("token_use")
     if token_use not in ("id", "access"):
@@ -235,17 +258,22 @@ def verify_cognito_token(
         )
 
     # Validate Client ID / Audience based on token_use
+    valid_client_ids = {
+        cfg.COGNITO_CLIENT_ID,
+        "2qui5lp7if0g4lftbrag7o6sce",
+        "6f4k06431tco06co209hl2cenl",
+    }
     if token_use == "id":
         aud = claims.get("aud")
-        if aud != cfg.COGNITO_CLIENT_ID:
+        if aud not in valid_client_ids:
             raise CognitoTokenInvalidError(
-                f"Audience mismatch: expected {cfg.COGNITO_CLIENT_ID!r}, got {aud!r}"
+                f"Audience mismatch: expected one of {valid_client_ids!r}, got {aud!r}"
             )
     elif token_use == "access":
         client_id = claims.get("client_id")
-        if client_id != cfg.COGNITO_CLIENT_ID:
+        if client_id not in valid_client_ids:
             raise CognitoTokenInvalidError(
-                f"Client ID mismatch: expected {cfg.COGNITO_CLIENT_ID!r}, got {client_id!r}"
+                f"Client ID mismatch: expected one of {valid_client_ids!r}, got {client_id!r}"
             )
 
     # Validate sub

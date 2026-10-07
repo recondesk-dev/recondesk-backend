@@ -332,9 +332,13 @@ class AuroraTableQuery:
                     for col in cols:
                         p = self._next_param("ins")
                         p_names.append(f":{p}")
-                        val = rec[col]
-                        if isinstance(val, (dict, list)):
+                        if isinstance(val, dict):
                             val = json.dumps(val)
+                        elif isinstance(val, list):
+                            if any(isinstance(x, dict) for x in val):
+                                val = json.dumps(val)
+                            else:
+                                val = list(val)
                         item_params[p] = val
 
                     col_names = ", ".join([f'"{c}"' for c in cols])
@@ -361,8 +365,13 @@ class AuroraTableQuery:
                 for col, val in self._data_payload.items():
                     p = self._next_param("upd")
                     set_clauses.append(f'"{col}" = :{p}')
-                    if isinstance(val, (dict, list)):
+                    if isinstance(val, dict):
                         val = json.dumps(val)
+                    elif isinstance(val, list):
+                        if any(isinstance(x, dict) for x in val):
+                            val = json.dumps(val)
+                        else:
+                            val = list(val)
                     update_params[p] = val
 
                 where_sql = self._build_where_clause()
@@ -407,8 +416,13 @@ class AuroraTableQuery:
                         p = self._next_param("ups")
                         p_names.append(f":{p}")
                         val = rec[col]
-                        if isinstance(val, (dict, list)):
+                        if isinstance(val, dict):
                             val = json.dumps(val)
+                        elif isinstance(val, list):
+                            if any(isinstance(x, dict) for x in val):
+                                val = json.dumps(val)
+                            else:
+                                val = list(val)
                         item_params[p] = val
 
                     col_names = ", ".join([f'"{c}"' for c in cols])

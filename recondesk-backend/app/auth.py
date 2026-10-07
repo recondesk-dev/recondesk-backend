@@ -501,6 +501,30 @@ def _verify_cognito_bearer_token(
                     "profile": prof,
                 }
 
+        # Direct lookup by sub in Aurora if pool-scoped check returned nothing
+        if not mapping_result:
+            try:
+                from app.aurora_client import get_aurora_engine
+                from sqlalchemy import text
+                engine = get_aurora_engine()
+                with engine.connect() as conn:
+                    matched_sub = conn.execute(
+                        text("SELECT user_id, cognito_sub, email, is_verified FROM public.cognito_user_mappings WHERE cognito_sub = :s AND is_verified = true LIMIT 1"),
+                        {"s": sub},
+                    ).first()
+                    if matched_sub:
+                        m_uid = str(matched_sub.user_id)
+                        prof = _profile_lookup(m_uid)
+                        if prof and prof.get("is_active", True):
+                            mapping_result = {
+                                "user_id": m_uid,
+                                "cognito_sub": sub,
+                                "is_verified": True,
+                                "profile": prof,
+                            }
+            except Exception as sub_err:
+                _log.warning("Direct sub mapping lookup error: %s", sub_err)
+
         # Auto-link fallback: if no mapping found, look up profile by token username / email
         if not mapping_result:
             candidate_email = (claims.get("email") or claims.get("username") or "").strip().lower()
