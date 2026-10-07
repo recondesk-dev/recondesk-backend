@@ -415,7 +415,9 @@ def _verify_cognito_bearer_token(
       6. Never trusts Cognito email for mapping or profile lookup.
     """
     config = get_cognito_config()
-    if not config.COGNITO_AUTH_ENABLED:
+    import os
+    auth_enabled = config.COGNITO_AUTH_ENABLED or os.environ.get("COGNITO_AUTH_ENABLED", "").strip().lower() in ("true", "1", "yes")
+    if not auth_enabled:
         _log.warning("Cognito token presented but COGNITO_AUTH_ENABLED is False")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

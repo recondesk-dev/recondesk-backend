@@ -332,6 +332,7 @@ class AuroraTableQuery:
                     for col in cols:
                         p = self._next_param("ins")
                         p_names.append(f":{p}")
+                        val = rec[col]
                         if isinstance(val, dict):
                             val = json.dumps(val)
                         elif isinstance(val, list):

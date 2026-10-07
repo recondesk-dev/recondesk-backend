@@ -67,11 +67,11 @@ class CognitoConfig(BaseSettings):
         description="Cognito domain or custom domain (e.g. https://ap-south-1nvlpymvfh.auth.ap-south-1.amazoncognito.com).",
     )
 
-    # Development-only Feature Flag
+    # Production Auth Feature Flag
     COGNITO_AUTH_ENABLED: bool = Field(
         default=False,
         validation_alias=AliasChoices("COGNITO_AUTH_ENABLED", "ENABLE_COGNITO_AUTH"),
-        description="Development feature flag. When False, all Cognito routes and verifiers remain dormant.",
+        description="Cognito authentication feature flag.",
     )
 
     # Network / Cache settings
