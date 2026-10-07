@@ -20,16 +20,17 @@ target_metadata = None
 
 def get_url() -> str:
     url = (
-        os.environ.get("SUPABASE_DATABASE_URL", "").strip()
+        os.environ.get("AURORA_DATABASE_URL", "").strip()
+        or os.environ.get("SUPABASE_DATABASE_URL", "").strip()
         or os.environ.get("SUPABASE_DB_URL", "").strip()
         or os.environ.get("DATABASE_URL", "").strip()
     )
     if not url:
         raise RuntimeError(
-            "Neither SUPABASE_DATABASE_URL nor DATABASE_URL is set. Add your Supabase Postgres URI to the environment "
-            "(see .env.example), then run: alembic upgrade head"
+            "No database URL configured. Set AURORA_DATABASE_URL in the environment."
         )
-    return url
+    from app.aurora import normalize_database_url
+    return normalize_database_url(url)
 
 
 def run_migrations_offline() -> None:
