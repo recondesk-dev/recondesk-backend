@@ -342,13 +342,14 @@ async def login(request: Request, payload: LoginRequest):
             detail="Invalid email or password.",
         ) from None
 
-    if not auth_response.user or not auth_response.session:
+    if not auth_response or not auth_response.user or not auth_response.session:
         _log.warning(
-            "sign_in_with_password returned empty user or session for %s (db client: %s, user: %s, session: %s)",
+            "sign_in_with_password returned empty user or session for %s (db client: %s, auth_response: %s, user: %s, session: %s)",
             payload.email,
             type(db).__name__,
-            bool(auth_response.user),
-            bool(auth_response.session),
+            bool(auth_response),
+            bool(auth_response.user) if auth_response else False,
+            bool(auth_response.session) if auth_response else False,
         )
         record_login_failure(ip)
         await log_action(

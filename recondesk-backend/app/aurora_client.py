@@ -742,22 +742,23 @@ class AuroraAuthClient:
             _log.warning("AuroraAuthClient.sign_in_with_password: No user_profiles record found for email %s", email)
             return AuroraAuthResponse(user=None, session=None)
 
-            user_id = str(prof.id)
+        user_id = str(prof.id)
 
-            # Auto-sync identity mapping in Aurora
-            id_token = tokens.get("IdToken")
-            cognito_sub = None
-            if id_token:
-                try:
-                    import jwt as pyjwt
-                    unverified = pyjwt.decode(id_token, options={"verify_signature": False})
-                    cognito_sub = unverified.get("sub")
-                except Exception:
-                    pass
-            if cognito_sub:
-                try:
-                    import uuid
-                    conn.execute(
+        # Auto-sync identity mapping in Aurora
+        id_token = tokens.get("IdToken")
+        cognito_sub = None
+        if id_token:
+            try:
+                import jwt as pyjwt
+                unverified = pyjwt.decode(id_token, options={"verify_signature": False})
+                cognito_sub = unverified.get("sub")
+            except Exception:
+                pass
+        if cognito_sub:
+            try:
+                import uuid
+                with engine.connect() as map_conn:
+                    map_conn.execute(
                         text("""
                             INSERT INTO public.cognito_user_mappings
                             (id, cognito_user_pool_id, cognito_sub, user_id, email, mapping_method, is_verified, provisioned_by)
@@ -773,21 +774,21 @@ class AuroraAuthClient:
                             "em": email,
                         },
                     )
-                    conn.commit()
-                except Exception as map_err:
-                    _log.warning("Auto-sync cognito mapping exception: %s", map_err)
+                    map_conn.commit()
+            except Exception as map_err:
+                _log.warning("Auto-sync cognito mapping exception: %s", map_err)
 
-            user = AuroraAuthUser(
-                id=user_id,
-                email=str(prof.email),
-                user_metadata={
-                    "full_name": prof.full_name,
-                    "phone": prof.phone,
-                    "role": prof.role,
-                },
-            )
-            session = AuroraAuthSession(access_token=access_token, refresh_token=refresh_token)
-            return AuroraAuthResponse(user=user, session=session)
+        user = AuroraAuthUser(
+            id=user_id,
+            email=str(prof.email),
+            user_metadata={
+                "full_name": prof.full_name,
+                "phone": prof.phone,
+                "role": prof.role,
+            },
+        )
+        session = AuroraAuthSession(access_token=access_token, refresh_token=refresh_token)
+        return AuroraAuthResponse(user=user, session=session)
 
 
 class AuroraClient:
