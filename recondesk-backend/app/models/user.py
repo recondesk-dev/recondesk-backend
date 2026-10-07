@@ -92,11 +92,13 @@ class UserProfileResponse(StrictModel):
     onboarding_completed: Optional[bool] = None
     demo_tour_seen: Optional[bool] = None
     showcase_seen: Optional[bool] = None
+    is_first_login: Optional[bool] = None
+    client_gstin_id: Optional[str] = None
     auto_approve_confidence_threshold: Optional[int] = Field(
         default=95, ge=0, le=100
     )
 
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, extra="ignore")
 
 
 class ProfileUpdateRequest(StrictModel):
