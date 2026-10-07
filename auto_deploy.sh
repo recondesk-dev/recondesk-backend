@@ -18,6 +18,6 @@ REMOTE=$(git rev-parse origin/main 2>/dev/null)
 if [ -n "$LOCAL" ] && [ -n "$REMOTE" ] && [ "$LOCAL" != "$REMOTE" ]; then
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] New commit detected ($REMOTE). Auto-deploying..."
     git pull origin main
-    docker compose -f docker-compose.prod.yml up -d --build web worker
+    docker compose -f docker-compose.prod.yml up -d --build --force-recreate web worker
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] Auto-deploy completed successfully!"
 fi
