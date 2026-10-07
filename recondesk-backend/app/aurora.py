@@ -56,7 +56,7 @@ class AuroraConnectionError(AuroraDatabaseError):
 
 def normalize_database_url(url: str) -> str:
     """Ensure database URL uses postgresql+psycopg2 scheme compatible with SQLAlchemy 2.x."""
-    trimmed = (url or "").strip()
+    trimmed = (url or "").strip().strip('"').strip("'")
     if not trimmed:
         return ""
     if trimmed.startswith("postgres://"):
