@@ -110,7 +110,8 @@ async def save_gstr9_audit_overrides(
             from app.config import get_settings
             import sqlalchemy as sa
             s = get_settings()
-            db_url = s.SUPABASE_DATABASE_URL or s.DATABASE_URL
+            from app.aurora import normalize_database_url
+            db_url = normalize_database_url(s.AURORA_DATABASE_URL or s.DATABASE_URL or s.SUPABASE_DATABASE_URL)
             if db_url:
                 eng = sa.create_engine(db_url)
                 with eng.connect() as conn:

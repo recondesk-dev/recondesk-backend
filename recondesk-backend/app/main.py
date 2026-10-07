@@ -281,12 +281,12 @@ def _get_url_host(url_str: str) -> str:
 
 def _run_alembic_upgrade():
     _log.info("Startup: Beginning Alembic database migrations to head...")
-    db_url = settings.SUPABASE_DATABASE_URL or settings.DATABASE_URL
+    db_url = settings.AURORA_DATABASE_URL or settings.DATABASE_URL or settings.SUPABASE_DATABASE_URL
     _log.info(
-        "Startup: Migration target DB host: %s (SUPABASE_DATABASE_URL set: %s, DATABASE_URL set: %s)",
+        "Startup: Migration target DB host: %s (AURORA_DATABASE_URL set: %s, DATABASE_URL set: %s)",
         _get_url_host(db_url),
-        bool(os.environ.get("SUPABASE_DATABASE_URL")),
-        bool(os.environ.get("DATABASE_URL")),
+        bool(settings.AURORA_DATABASE_URL),
+        bool(settings.DATABASE_URL),
     )
     if db_url:
         _log_db_locks(db_url)

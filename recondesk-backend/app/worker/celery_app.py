@@ -49,6 +49,11 @@ celery_app.conf.update(
 def assert_worker_environment(**kwargs) -> None:
     """Fail-closed startup assertion: ensure required service credentials exist before worker accepts tasks."""
     from app.config import get_settings
+    from app.aurora import is_aurora_enabled, get_aurora_database_url
+
+    if is_aurora_enabled() and get_aurora_database_url():
+        _log.info("Celery worker environment verified using AWS Aurora PostgreSQL.")
+        return
 
     settings = get_settings()
     key = str(getattr(settings, "SUPABASE_SERVICE_ROLE_KEY", "") or "").strip()
