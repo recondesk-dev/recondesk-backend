@@ -1,11 +1,20 @@
 import { NextResponse } from "next/server";
 
 export async function GET() {
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "https://api.recondesk.in";
+  const apiUrl = (process.env.NEXT_PUBLIC_API_URL ?? "https://api.recondesk.in").replace(/\/+$/, "");
+  let backendOk = false;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 3500);
   try {
-    await fetch(`${apiUrl}/health`, { cache: "no-store" });
+    const res = await fetch(`${apiUrl}/health`, {
+      cache: "no-store",
+      signal: controller.signal,
+    });
+    backendOk = res.ok;
   } catch {
-    // Ignore errors — the purpose is fire-and-forget.
+    backendOk = false;
+  } finally {
+    clearTimeout(timeoutId);
   }
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, backend: backendOk });
 }
