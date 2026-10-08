@@ -147,6 +147,81 @@ def ocr_canonical_invoice(s: str | None) -> str:
     return normalize_invoice(ocr_trans)
 
 
+def ocr_alignment(s1: str | None, s2: str | None) -> tuple[bool, int, list[str]]:
+    """Align two invoice strings allowing OCR character substitutions and zero-padding variations.
+
+    Returns:
+        (is_match: bool, ocr_substitution_count: int, substitutions_list: list[str])
+    """
+    if not s1 or not s2:
+        return False, 0, []
+    c1 = _RE_NON_ALNUM.sub("", str(s1)).upper()
+    c2 = _RE_NON_ALNUM.sub("", str(s2)).upper()
+    if not c1 or not c2:
+        return False, 0, []
+    if c1 == c2:
+        return True, 0, []
+
+    c1_no_zero = c1.replace("0", "")
+    c2_no_zero = c2.replace("0", "")
+    if abs(len(c1_no_zero) - len(c2_no_zero)) > 2:
+        return False, 0, []
+
+    m, n = len(c1), len(c2)
+    memo: dict[tuple[int, int], tuple[int, int, list[str]]] = {}
+
+    def dp(i: int, j: int) -> tuple[int, int, list[str]]:
+        key = (i, j)
+        if key in memo:
+            return memo[key]
+        if i == m and j == n:
+            return (0, 0, [])
+        if i == m:
+            rem = c2[j:]
+            if rem.replace("0", "") == "":
+                return (0, 0, [])
+            return (len(rem), 0, [])
+        if j == n:
+            rem = c1[i:]
+            if rem.replace("0", "") == "":
+                return (0, 0, [])
+            return (len(rem), 0, [])
+
+        x, y = c1[i], c2[j]
+        cands = []
+
+        if x == y:
+            mis, ocr, subs = dp(i + 1, j + 1)
+            cands.append((mis, ocr, subs))
+
+        if (x, y) in _OCR_CHAR_PAIRS:
+            mis, ocr, subs = dp(i + 1, j + 1)
+            cands.append((mis, ocr + 1, [f"{x}/{y}"] + subs))
+
+        if x == "0":
+            mis, ocr, subs = dp(i + 1, j)
+            cands.append((mis, ocr, subs))
+
+        if y == "0":
+            mis, ocr, subs = dp(i, j + 1)
+            cands.append((mis, ocr, subs))
+
+        if not cands:
+            mis, ocr, subs = dp(i + 1, j + 1)
+            cands.append((mis + 1, ocr, subs))
+
+        best = min(cands, key=lambda t: (t[0], t[1]))
+        memo[key] = best
+        return best
+
+    mis, ocr, subs = dp(0, 0)
+    if mis == 0:
+        common_len = min(len(c1_no_zero), len(c2_no_zero))
+        if common_len >= 2 or (ocr > 0 and common_len >= 1 and min(m, n) >= 3):
+            return True, ocr, subs
+    return False, ocr, subs
+
+
 @dataclass
 class InvoiceNormalizationEvidence:
     raw_a: str
@@ -280,6 +355,12 @@ def analyze_invoice_evidence(
             subs_inner = [f"{ca}/{cb}" for ca, cb in zip(clean_a, clean_b) if ca != cb and (ca, cb) in _OCR_CHAR_PAIRS]
             ocr_count = max(1, len(subs_inner) + diff_len)
             ocr_subs = subs_inner or [f"len_{diff_len}"]
+    elif not is_exact_norm:
+        ok_align, ocr_cnt, subs = ocr_alignment(clean_a, clean_b)
+        if ok_align and ocr_cnt > 0:
+            ocr_count = ocr_cnt
+            ocr_subs = subs
+            terminal_sequence_match = True
 
     # Prefix change
     prefix_changed = False
@@ -551,6 +632,9 @@ def is_invoice_format_variant(
     ocr_b = ocr_canonical_invoice(nb)
     if ocr_a and ocr_b and ocr_a == ocr_b:
         return True
+    ok_align, ocr_cnt, _ = ocr_alignment(a_raw or na, b_raw or nb)
+    if ok_align and ocr_cnt > 0:
+        return True
 
     # Check 0: Branch suffix variant (e.g. SI-02392-A/BR01 vs SI-02392-A)
     raw_a_str = str(a_raw or a or "")
@@ -734,6 +818,9 @@ def is_sequential_series_mismatch(
         o1 = re.sub(r"0+", "0", ocr_canonical_invoice(s1))
         o2 = re.sub(r"0+", "0", ocr_canonical_invoice(s2))
         if o1 and o2 and o1 == o2:
+            return False
+        ok_align, ocr_cnt, _ = ocr_alignment(r1 or s1, r2 or s2)
+        if ok_align and ocr_cnt > 0:
             return False
     except Exception:
         pass
@@ -2055,7 +2142,10 @@ def _match_gstr_to_pr_pair(
     ocr_only_match = (
         not raw_inv_ok
         and bool(norm_g and norm_p and norm_g != norm_p)
-        and ocr_canonical_invoice(norm_g) == ocr_canonical_invoice(norm_p)
+        and (
+            ocr_canonical_invoice(norm_g) == ocr_canonical_invoice(norm_p)
+            or ocr_subs > 0
+        )
     )
     is_risky_ocr = ocr_only_match and ((ocr_subs >= 2) or ocr_pfx)
 

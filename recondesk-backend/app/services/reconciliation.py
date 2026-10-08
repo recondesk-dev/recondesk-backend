@@ -281,6 +281,12 @@ def build_pr_candidate_indices(pr_index: dict[str, list[dict]]) -> PRCandidateIn
                         indices.by_invoice_ocr_global[ocr_k] = []
                     indices.by_invoice_ocr_global[ocr_k].append(pr)
                     ocr_dict[ocr_k].append(pr)
+                    ocr_compact = re.sub(r"0+", "", ocr_k)
+                    if ocr_compact and ocr_compact != ocr_k:
+                        if ocr_compact not in indices.by_invoice_ocr_global:
+                            indices.by_invoice_ocr_global[ocr_compact] = []
+                        indices.by_invoice_ocr_global[ocr_compact].append(pr)
+                        ocr_dict[ocr_compact].append(pr)
 
             if not is_pr_note_quarantine(pr) and not _is_note_document(pr):
                 orig = str(pr.get("original_invoice_number") or pr.get("oinum") or "").strip()
@@ -297,6 +303,12 @@ def build_pr_candidate_indices(pr_index: dict[str, list[dict]]) -> PRCandidateIn
                                 indices.by_invoice_ocr_global[ocr_orig] = []
                             indices.by_invoice_ocr_global[ocr_orig].append(pr)
                             ocr_dict[ocr_orig].append(pr)
+                            ocr_orig_compact = re.sub(r"0+", "", ocr_orig)
+                            if ocr_orig_compact and ocr_orig_compact != ocr_orig:
+                                if ocr_orig_compact not in indices.by_invoice_ocr_global:
+                                    indices.by_invoice_ocr_global[ocr_orig_compact] = []
+                                indices.by_invoice_ocr_global[ocr_orig_compact].append(pr)
+                                ocr_dict[ocr_orig_compact].append(pr)
                 
         indices.by_taxable[gstin] = dict(taxable_dict)
         indices.by_tax[gstin] = dict(tax_dict)
@@ -339,10 +351,18 @@ def _get_narrowed_candidates(
         ocr_k = ocr_canonical_invoice(inv_norm)
         for pr in ocr_gstin_map.get(ocr_k, []):
             candidates_set[str(pr["id"])] = pr
+        ocr_compact = re.sub(r"0+", "", ocr_k) if ocr_k else ""
+        if ocr_compact and ocr_compact != ocr_k:
+            for pr in ocr_gstin_map.get(ocr_compact, []):
+                candidates_set[str(pr["id"])] = pr
     if orig_norm:
         ocr_orig = ocr_canonical_invoice(orig_norm)
         for pr in ocr_gstin_map.get(ocr_orig, []):
             candidates_set[str(pr["id"])] = pr
+        ocr_orig_compact = re.sub(r"0+", "", ocr_orig) if ocr_orig else ""
+        if ocr_orig_compact and ocr_orig_compact != ocr_orig:
+            for pr in ocr_gstin_map.get(ocr_orig_compact, []):
+                candidates_set[str(pr["id"])] = pr
 
     g_taxable = _taxable_paise(gstr_record)
     g_tax = gstr_record.get("total_tax_paise")
@@ -369,6 +389,10 @@ def _get_narrowed_candidates(
         ocr_k = ocr_canonical_invoice(inv_norm)
         for pr in candidate_indices.by_invoice_ocr_global.get(ocr_k, []):
             candidates_set[str(pr["id"])] = pr
+        ocr_compact = re.sub(r"0+", "", ocr_k) if ocr_k else ""
+        if ocr_compact and ocr_compact != ocr_k:
+            for pr in candidate_indices.by_invoice_ocr_global.get(ocr_compact, []):
+                candidates_set[str(pr["id"])] = pr
 
     if orig_norm:
         for pr in candidate_indices.by_invoice_norm_global.get(orig_norm, []):
@@ -376,6 +400,10 @@ def _get_narrowed_candidates(
         ocr_orig = ocr_canonical_invoice(orig_norm)
         for pr in candidate_indices.by_invoice_ocr_global.get(ocr_orig, []):
             candidates_set[str(pr["id"])] = pr
+        ocr_orig_compact = re.sub(r"0+", "", ocr_orig) if ocr_orig else ""
+        if ocr_orig_compact and ocr_orig_compact != ocr_orig:
+            for pr in candidate_indices.by_invoice_ocr_global.get(ocr_orig_compact, []):
+                candidates_set[str(pr["id"])] = pr
 
     ordered = []
     if direct:
@@ -2843,6 +2871,9 @@ def execute_phase2_and_3(
             pr_candidates_to_check.extend(candidate_indices.by_invoice_norm_global.get(orig_norm, []))
         if ocr_k:
             pr_candidates_to_check.extend(candidate_indices.by_invoice_ocr_global.get(ocr_k, []))
+            ocr_compact = re.sub(r"0+", "", ocr_k)
+            if ocr_compact and ocr_compact != ocr_k:
+                pr_candidates_to_check.extend(candidate_indices.by_invoice_ocr_global.get(ocr_compact, []))
 
         seen_pids = set()
         for p in pr_candidates_to_check:
