@@ -3279,10 +3279,13 @@ export default function ReconcileResultsPage() {
           const cleanMatched = summary.clean_matched_count ?? summary.matched_count ?? 0;
           const itcOnHold = summary.itc_on_hold_count ?? 0;
           const grossMatched = summary.gross_matched_count ?? (cleanMatched + itcOnHold);
-          const totalRecords = Math.max(summary.total_gstr_records, 1);
-          const grossMatchPct = summary.gross_match_rate_pct ?? Math.min(100, Math.round((grossMatched / totalRecords) * 100));
-          const cleanMatchedPct = Math.min(100, Math.round((cleanMatched / totalRecords) * 100));
-          const onHoldPct = Math.min(100 - cleanMatchedPct, Math.round((itcOnHold / totalRecords) * 100));
+          const totalRecords = Math.max(summary.total_gstr_records ?? 0, grossMatched, 1);
+          const rawGrossMatchPct = summary.gross_match_rate_pct != null
+            ? summary.gross_match_rate_pct
+            : (grossMatched / totalRecords) * 100;
+          const grossMatchPct = Math.min(100, Math.max(0, Math.round(rawGrossMatchPct)));
+          const cleanMatchedPct = Math.min(100, Math.max(0, Math.round((cleanMatched / totalRecords) * 100)));
+          const onHoldPct = Math.min(100 - cleanMatchedPct, Math.max(0, Math.round((itcOnHold / totalRecords) * 100)));
 
           return (
           <div className={`${styles.overview} grid grid-cols-1 gap-3 lg:grid-cols-2`}>
@@ -3293,7 +3296,7 @@ export default function ReconcileResultsPage() {
                   {tResults("runTotal")}
                 </div>
                 <div className="text-[38px] font-black leading-none text-[#342b40]">
-                  {summary.total_gstr_records.toLocaleString("en-IN")}
+                  {Math.max(summary.total_gstr_records ?? 0, grossMatched).toLocaleString("en-IN")}
                 </div>
                 <div className="mt-1.5 text-xs font-medium text-[#968ba2]">{tResults("invoices")}</div>
               </div>

@@ -139,6 +139,7 @@ class AuroraTableQuery:
         self._single = False
         self._maybe_single = False
         self._count_mode: Optional[str] = None
+        self._head: bool = False
         self._data_payload: Optional[Union[Dict[str, Any], List[Dict[str, Any]]]] = None
         self._on_conflict_col = "id"
         self._param_counter = 0
@@ -149,10 +150,11 @@ class AuroraTableQuery:
 
     # ── Actions ───────────────────────────────────────────────────────────────
 
-    def select(self, columns: str = "*", count: Optional[str] = None) -> AuroraTableQuery:
+    def select(self, columns: str = "*", count: Optional[str] = None, head: bool = False) -> AuroraTableQuery:
         self._action = "select"
         self._select_cols = columns if columns and columns.strip() else "*"
         self._count_mode = count
+        self._head = head
         return self
 
     def insert(self, data: Union[Dict[str, Any], List[Dict[str, Any]]], upsert: bool = False) -> AuroraTableQuery:
@@ -328,6 +330,15 @@ class AuroraTableQuery:
 
         with engine.connect() as conn:
             if self._action == "select":
+                total_count: Optional[int] = None
+                if self._count_mode is not None:
+                    count_sql = f'SELECT COUNT(*) FROM public."{self.table_name}"{self._build_where_clause()}'
+                    c_res = conn.execute(text(count_sql), self._params).scalar()
+                    total_count = int(c_res) if c_res is not None else 0
+
+                if self._head:
+                    return APIResponse([], count=total_count)
+
                 cols_sql = self._clean_select_cols()
                 sql = f'SELECT {cols_sql} FROM public."{self.table_name}"{self._build_where_clause()}'
                 if self._order_by:
@@ -343,10 +354,10 @@ class AuroraTableQuery:
                 if self._single:
                     if not rows:
                         raise RuntimeError(f"JSON object requested, multiple (or no) rows returned for {self.table_name}")
-                    return APIResponse(rows[0])
+                    return APIResponse(rows[0], count=total_count)
                 if self._maybe_single:
-                    return APIResponse(rows[0] if rows else None)
-                return APIResponse(rows)
+                    return APIResponse(rows[0] if rows else None, count=total_count)
+                return APIResponse(rows, count=total_count)
 
             elif self._action == "insert":
                 if not self._data_payload:

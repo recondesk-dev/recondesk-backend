@@ -234,3 +234,62 @@ async def test_wizard_get_active_run_none():
         import json
         body = json.loads(resp.body.decode())
         assert body["run"] is None
+
+
+def test_aurora_select_count_exact_with_limit():
+    """Verify AuroraTableQuery.select(count='exact').limit(1) computes full count and limits rows."""
+    client = AuroraClient()
+    query = client.table("gstr_records").select("id", count="exact").eq("run_id", "test-run-id").limit(1)
+
+    mock_conn = MagicMock()
+    mock_count_res = MagicMock()
+    mock_count_res.scalar.return_value = 2975
+
+    mock_data_res = MagicMock()
+    mock_row = MagicMock()
+    mock_row._mapping = {"id": "row-uuid-1"}
+    mock_data_res.fetchall.return_value = [mock_row]
+
+    # First call: COUNT query, Second call: SELECT query
+    mock_conn.execute.side_effect = [mock_count_res, mock_data_res]
+
+    mock_engine = MagicMock()
+    mock_engine.connect.return_value.__enter__.return_value = mock_conn
+
+    with patch("app.aurora_client.get_aurora_engine", return_value=mock_engine):
+        res = query.execute()
+
+    assert res.count == 2975
+    assert len(res.data) == 1
+    assert res.data[0]["id"] == "row-uuid-1"
+
+    # Verify executed SQLs
+    assert mock_conn.execute.call_count == 2
+    count_call = mock_conn.execute.call_args_list[0]
+    assert 'SELECT COUNT(*) FROM public."gstr_records"' in str(count_call[0][0])
+    select_call = mock_conn.execute.call_args_list[1]
+    assert 'LIMIT 1' in str(select_call[0][0])
+
+
+def test_aurora_select_count_exact_head_true():
+    """Verify AuroraTableQuery with head=True executes only count query and returns empty data."""
+    client = AuroraClient()
+    query = client.table("gstr_records").select("id", count="exact", head=True).eq("run_id", "test-run-id")
+
+    mock_conn = MagicMock()
+    mock_count_res = MagicMock()
+    mock_count_res.scalar.return_value = 500
+    mock_conn.execute.return_value = mock_count_res
+
+    mock_engine = MagicMock()
+    mock_engine.connect.return_value.__enter__.return_value = mock_conn
+
+    with patch("app.aurora_client.get_aurora_engine", return_value=mock_engine):
+        res = query.execute()
+
+    assert res.count == 500
+    assert res.data == []
+    # Only COUNT query was executed, no SELECT data query
+    assert mock_conn.execute.call_count == 1
+    count_call = mock_conn.execute.call_args_list[0]
+    assert 'SELECT COUNT(*) FROM public."gstr_records"' in str(count_call[0][0])

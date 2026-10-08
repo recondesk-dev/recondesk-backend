@@ -3091,16 +3091,16 @@ def _build_reconcile_summary(
         .execute()
     )
     n_g = int(_cnt.count if getattr(_cnt, "count", None) is not None else len(_cnt.data or []))
-    if n_g == 0:
+    min_gstr_expected = matched_count + review_required_count + len(engine.get("missed_itc") or [])
+    if n_g < min_gstr_expected:
         rs_cnt = run_row.get("run_summary") if isinstance(run_row.get("run_summary"), dict) else {}
-        n_g = int(
+        fallback_g = int(
             rs_cnt.get("gstr_in_scope")
             or rs_cnt.get("total_gstr")
             or run_row.get("gstr_records_imported")
-            or (matched_count + review_required_count + len(engine.get("missed_itc") or []))
             or 0
         )
-
+        n_g = max(n_g, fallback_g, min_gstr_expected)
 
     missed_list = engine.get("missed_itc") or []
     wr_list = engine.get("wrongful_itc_risk") or []
@@ -3137,7 +3137,7 @@ def _build_reconcile_summary(
         for w in wr_list
     )
     if n_g > 0:
-        match_pct = round(100.0 * matched_count / n_g, 1)
+        match_pct = min(100.0, round(100.0 * matched_count / n_g, 1))
     else:
         match_pct = 0.0
 
@@ -3242,7 +3242,7 @@ def _build_reconcile_summary(
         1 for r in outcome_rows if r.id.startswith("pm:") and r.category in ("rule37_warnings", "blocked_credit")
     )
     gross_matched_count = matched_count + itc_on_hold_count
-    gross_match_pct = round(100.0 * gross_matched_count / n_g, 1) if n_g > 0 else 0.0
+    gross_match_pct = min(100.0, round(100.0 * gross_matched_count / n_g, 1)) if n_g > 0 else 0.0
 
     return {
         "run_id": rid,
@@ -4574,13 +4574,21 @@ def _cached_reconcile_summary(
     current_user_id: str,
 ) -> dict[str, Any]:
     """Redis-memoize the summary JSON so parallel tab loads share one rebuild."""
-    key = bucket_cache_key(rid, "summary_v1")
+    key = bucket_cache_key(rid, "summary_v2")
     cached = cache_get(key)
-    if isinstance(cached, dict) and cached.get("run_id") == rid:
+    if (
+        isinstance(cached, dict)
+        and cached.get("run_id") == rid
+        and cached.get("total_gstr_records", 0) >= cached.get("clean_matched_count", 0)
+    ):
         return cached
     with _bucket_build_lock(key):
         cached = cache_get(key)
-        if isinstance(cached, dict) and cached.get("run_id") == rid:
+        if (
+            isinstance(cached, dict)
+            and cached.get("run_id") == rid
+            and cached.get("total_gstr_records", 0) >= cached.get("clean_matched_count", 0)
+        ):
             return cached
         out = _build_reconcile_summary(
             sb,
