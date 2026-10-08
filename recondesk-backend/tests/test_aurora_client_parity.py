@@ -172,3 +172,65 @@ def test_aurora_table_query_select_row_serialization():
     assert row["id"] == "3c9cf6f2-2d94-4088-a1cc-8e7cb6986bb7"
     assert row["period"] == "2026-10-01"
     assert row["status"] == "draft"
+
+
+@pytest.mark.asyncio
+async def test_wizard_get_active_run_found():
+    """Verify get_active_run endpoint returns the active draft run."""
+    import uuid
+    from datetime import date
+    from app.routers.reconciliation_import_wizard import get_active_run
+
+    client_id = uuid.uuid4()
+    mock_run = {
+        "id": str(uuid.uuid4()),
+        "client_id": str(client_id),
+        "period": date(2026, 10, 1),
+        "status": "draft",
+    }
+
+    mock_sb = MagicMock()
+    mock_query = MagicMock()
+    mock_query.select.return_value = mock_query
+    mock_query.eq.return_value = mock_query
+    mock_query.in_.return_value = mock_query
+    mock_query.order.return_value = mock_query
+    mock_query.limit.return_value = mock_query
+    mock_query.execute.return_value = MagicMock(data=[mock_run])
+    mock_sb.table.return_value = mock_query
+
+    with patch("app.routers.reconciliation_import_wizard.get_supabase", return_value=mock_sb), \
+         patch("app.routers.reconciliation_import_wizard.ws.assert_client_access", return_value={"id": str(client_id)}):
+        resp = await get_active_run(client_id=client_id, user_id="test-user")
+        assert resp.status_code == 200
+        import json
+        body = json.loads(resp.body.decode())
+        assert body["run"] is not None
+        assert body["run"]["client_id"] == str(client_id)
+        assert body["run"]["status"] == "draft"
+
+
+@pytest.mark.asyncio
+async def test_wizard_get_active_run_none():
+    """Verify get_active_run endpoint returns run: null when no active runs exist."""
+    import uuid
+    from app.routers.reconciliation_import_wizard import get_active_run
+
+    client_id = uuid.uuid4()
+    mock_sb = MagicMock()
+    mock_query = MagicMock()
+    mock_query.select.return_value = mock_query
+    mock_query.eq.return_value = mock_query
+    mock_query.in_.return_value = mock_query
+    mock_query.order.return_value = mock_query
+    mock_query.limit.return_value = mock_query
+    mock_query.execute.return_value = MagicMock(data=[])
+    mock_sb.table.return_value = mock_query
+
+    with patch("app.routers.reconciliation_import_wizard.get_supabase", return_value=mock_sb), \
+         patch("app.routers.reconciliation_import_wizard.ws.assert_client_access", return_value={"id": str(client_id)}):
+        resp = await get_active_run(client_id=client_id, user_id="test-user")
+        assert resp.status_code == 200
+        import json
+        body = json.loads(resp.body.decode())
+        assert body["run"] is None

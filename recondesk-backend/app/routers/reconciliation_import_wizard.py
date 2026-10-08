@@ -177,6 +177,40 @@ async def create_run(
     return JSONResponse(status_code=status.HTTP_201_CREATED, content=jsonable_encoder(data))
 
 
+@router.get("/runs/active")
+async def get_active_run(
+    client_id: uuid.UUID = Query(..., description="Client GSTIN ID"),
+    user_id: str = Depends(get_current_user_id),
+):
+    sb = get_supabase()
+    ws.assert_client_access(sb, str(client_id), user_id)
+    active_statuses = [
+        "draft",
+        "gstr_uploaded",
+        "pr_uploaded",
+        "pending",
+        "processing",
+    ]
+    q = (
+        sb.table(ws.T_RUNS)
+        .select("*")
+        .eq("client_id", str(client_id))
+        .in_("status", active_statuses)
+        .order("updated_at", desc=True)
+        .limit(1)
+        .execute()
+    )
+    if q.data and len(q.data) > 0:
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={"run": jsonable_encoder(q.data[0])},
+        )
+    return JSONResponse(
+        status_code=status.HTTP_200_OK,
+        content={"run": None},
+    )
+
+
 @router.get("/runs/{run_id}")
 async def get_run(run_id: uuid.UUID, user_id: str = Depends(get_current_user_id)):
     sb = get_supabase()
@@ -786,7 +820,7 @@ async def cancel_run(run_id: uuid.UUID, user_id: str = Depends(get_current_user_
     r = ws.fetch_run(sb, str(run_id))
     ws.assert_client_access(sb, r["client_id"], user_id)
     st = r["status"]
-    if st not in ("draft", "gstr_uploaded", "pr_uploaded", "pending", "processing"):
+    if st not in ("draft", "gstr_uploaded", "pr_uploaded", "pending", "processing", "error"):
         raise HTTPException(status.HTTP_409_CONFLICT, "Run cannot be cancelled")
     keys = [k for k in (r.get("gstr2b_r2_key"), r.get("pr_r2_key")) if k]
     ws.delete_r2_keys(keys)
@@ -819,7 +853,7 @@ async def cancel_run(run_id: uuid.UUID, user_id: str = Depends(get_current_user_
             run_id,
             exc,
         )
-    return ws.fetch_run(sb, str(run_id))
+    return JSONResponse(status_code=status.HTTP_200_OK, content=jsonable_encoder(ws.fetch_run(sb, str(run_id))))
 
 
 @router.get("/runs/{run_id}/status")

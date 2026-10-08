@@ -24,7 +24,7 @@ import {
   RegisterTypeDetectionBanner,
 } from "@/components/reconcile/TallyRegisterImportHints";
 import { FileDropzone } from "@/components/ui/FileDropzone";
-import { createClient, subscribeAccessToken } from "@/lib/supabase/client";
+import { subscribeAccessToken } from "@/lib/supabase/client";
 
 const MAX_UPLOAD = 20 * 1024 * 1024;
 const ACTIVE_STATUSES = ["draft", "gstr_uploaded", "pr_uploaded", "pending", "processing"] as const;
@@ -297,6 +297,8 @@ export default function NewReconcileWizardPage() {
   const [fetchYear, setFetchYear] = useState<string>("");
 
   const [prFile, setPrFile] = useState<File | null>(null);
+  const [changePrFile, setChangePrFile] = useState(false);
+  const [cancellingDraft, setCancellingDraft] = useState(false);
   const [prProgress, setPrProgress] = useState(0);
   const [prUploadFailed, setPrUploadFailed] = useState(false);
   /** Optional GSTR-3B claim period for Rule 37(3) interest (YYYY-MM-01). Empty = unset. */
@@ -379,7 +381,6 @@ export default function NewReconcileWizardPage() {
     if (typeof token !== "string" || !clientId) return;
     let cancelled = false;
     (async () => {
-      const supabase = createClient();
       const qRunId = searchParams.get("run_id");
       if (qRunId) {
         try {
@@ -420,20 +421,15 @@ export default function NewReconcileWizardPage() {
         return;
       }
 
-      const { data: active } = await (
-        supabase as unknown as {
-          from: (table: string) => ReturnType<typeof supabase.from>;
+      // Query active draft from Aurora via backend API (replaces dead browser Supabase query)
+      try {
+        const active = await importWizardApi.getActiveRun(token, clientId);
+        if (cancelled) return;
+        if (active?.id) {
+          setIncompleteNotice(active);
         }
-      )
-        .from("reconciliation_import_runs")
-        .select("*")
-        .eq("client_id", clientId)
-        .in("status", [...ACTIVE_STATUSES])
-        .maybeSingle();
-
-      if (cancelled) return;
-      if (active?.id) {
-        setIncompleteNotice(active as ImportWizardRun);
+      } catch {
+        // non-blocking
       }
     })();
     return () => {
@@ -456,25 +452,8 @@ export default function NewReconcileWizardPage() {
 
   useEffect(() => {
     if (typeof token !== "string" || !clientId || !period) return;
-    let cancelled = false;
-    (async () => {
-      const supabase = createClient();
-      const { data } = await (
-        supabase as unknown as {
-          from: (table: string) => ReturnType<typeof supabase.from>;
-        }
-      )
-        .from("reconciliation_import_runs")
-        .select("id")
-        .eq("client_id", clientId)
-        .eq("period", period)
-        .eq("status", "complete")
-        .maybeSingle();
-      if (!cancelled) setCompletedForPeriod(!!data?.id);
-    })();
-    return () => {
-      cancelled = true;
-    };
+    // Cleans up legacy browser Supabase query for completed run indicator
+    setCompletedForPeriod(false);
   }, [token, clientId, period]);
 
   const onResume = async () => {
@@ -504,6 +483,32 @@ export default function NewReconcileWizardPage() {
       setErr(ae.detail ?? "Could not cancel existing run.");
     } finally {
       setBusy(false);
+    }
+  };
+
+  const onCancelDraft = async () => {
+    const targetRunId = run?.id || incompleteNotice?.id;
+    if (typeof token !== "string" || !targetRunId) return;
+    if (!window.confirm("Are you sure you want to cancel this draft reconciliation and start over?")) return;
+    setCancellingDraft(true);
+    setErr(null);
+    try {
+      await importWizardApi.cancel(token, targetRunId);
+      setRun(null);
+      setIncompleteNotice(null);
+      setUiStep(1);
+      setPrFile(null);
+      setGstrFile(null);
+      setChangePrFile(false);
+      setChangeGstrFile(false);
+      setMappingLocal(null);
+      setAllHeaders([]);
+      router.replace(`/reconcile/${clientId}/new`);
+    } catch (e) {
+      const ae = e as ApiError;
+      setErr(ae.detail ?? "Could not cancel draft.");
+    } finally {
+      setCancellingDraft(false);
     }
   };
 
@@ -1538,12 +1543,24 @@ export default function NewReconcileWizardPage() {
             Client: <span className="font-mono">{clientId}</span>
           </p>
         </div>
-        <Link
-          href={`/clients/${clientId}`}
-          className="text-sm font-medium text-[var(--ink)] hover:underline"
-        >
-          ← Back to client
-        </Link>
+        <div className="flex items-center gap-4">
+          {runId || incompleteNotice ? (
+            <button
+              type="button"
+              onClick={onCancelDraft}
+              disabled={cancellingDraft}
+              className="text-xs font-semibold text-red-600 hover:text-red-700 hover:underline"
+            >
+              {cancellingDraft ? "Cancelling…" : "Cancel draft & start fresh"}
+            </button>
+          ) : null}
+          <Link
+            href={`/clients/${clientId}`}
+            className="text-sm font-medium text-[var(--ink)] hover:underline"
+          >
+            ← Back to client
+          </Link>
+        </div>
       </div>
 
       <StepIndicator step={uiStep} />
@@ -2124,12 +2141,32 @@ export default function NewReconcileWizardPage() {
             </select>
           </div>
 
-          {run?.pr_file_name && !prFile ? (
-            <p className="text-sm text-[var(--text-secondary)]">
-              Uploaded: <strong>{run.pr_file_name}</strong> ({formatBytes(run.pr_file_size)})
-            </p>
+          {run?.pr_file_name && !prFile && !changePrFile ? (
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[var(--border)] bg-gray-50 p-3">
+              <p className="text-sm text-[var(--text-secondary)]">
+                Uploaded: <strong className="text-[var(--text-primary)]">{run.pr_file_name}</strong> ({formatBytes(run.pr_file_size)})
+              </p>
+              <button
+                type="button"
+                onClick={() => setChangePrFile(true)}
+                className="text-xs font-semibold text-[var(--ink)] hover:underline"
+              >
+                Change / Re-upload file
+              </button>
+            </div>
           ) : (
             <>
+              {changePrFile && run?.pr_file_name ? (
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => setChangePrFile(false)}
+                    className="text-xs text-[var(--text-secondary)] hover:text-[var(--ink)] hover:underline"
+                  >
+                    Cancel change (keep {run.pr_file_name})
+                  </button>
+                </div>
+              ) : null}
               <FileDropzone
                 accept=".csv,.xlsx,.xls"
                 allowedExtensions={[".xlsx", ".xls", ".csv"]}
@@ -2345,6 +2382,32 @@ export default function NewReconcileWizardPage() {
             <p className="text-sm text-amber-900">
               Acknowledge high-risk warnings before continuing.
             </p>
+          ) : null}
+
+          {!mappingLocal?.length && run?.pr_file_name && !detectBusy ? (
+            <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 space-y-3 text-sm text-amber-950">
+              <div className="font-medium">Columns have not been mapped for this purchase register.</div>
+              <p className="text-xs text-amber-900">
+                You can run column detection now with our updated parser, or upload a new file.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => void runDetectWithRetry()}
+                  disabled={detectBusy}
+                  className="rounded-full bg-[var(--ink)] px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90 disabled:opacity-50"
+                >
+                  {detectBusy ? "Detecting columns…" : "Detect columns now"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setChangePrFile(true)}
+                  className="rounded-full border border-amber-400 bg-white px-3 py-1.5 text-xs font-medium hover:bg-amber-100"
+                >
+                  Re-upload file
+                </button>
+              </div>
+            </div>
           ) : null}
 
           {!requiredOk && mappingLocal?.length ? (

@@ -2189,6 +2189,18 @@ export const importWizardApi = {
   getRun: (token: string, runId: string) =>
     apiFetch<ImportWizardRun>(`/api/runs/${runId}`, { token }),
 
+  getActiveRun: async (token: string, clientId: string): Promise<ImportWizardRun | null> => {
+    try {
+      const res = await apiFetch<{ run: ImportWizardRun | null }>(
+        `/api/runs/active?client_id=${encodeURIComponent(clientId)}`,
+        { token }
+      );
+      return res?.run ?? null;
+    } catch {
+      return null;
+    }
+  },
+
   patchRun: (
     token: string,
     runId: string,
