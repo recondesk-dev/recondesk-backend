@@ -37,10 +37,10 @@ export function ReconciliationLoadingExperience({
   progressPct = 42,
   statusMessage,
   elapsedSeconds: controlledElapsed,
-  matchedCount = 142,
-  reviewCount = 3,
-  totalProcessedCount = 1442,
-  missingCount = 4,
+  matchedCount,
+  reviewCount,
+  totalProcessedCount,
+  missingCount,
   clientName = "Acme Industrial Ltd",
   periodLabel = "October 2024",
   runId,
@@ -49,6 +49,34 @@ export function ReconciliationLoadingExperience({
   onViewReport,
   isCancelling = false,
 }: ReconciliationLoadingProps) {
+  // Use mock numbers only in preview snapshot mode, never fall back to fake numbers in live production
+  const effectiveMatched = matchedCount ?? (previewState ? 142 : undefined);
+  const effectiveReview = reviewCount ?? (previewState ? 3 : undefined);
+  const effectiveTotal = totalProcessedCount ?? (previewState ? 1442 : undefined);
+  const effectiveMissing = missingCount ?? (previewState ? 4 : undefined);
+
+  // Monotonic progress: never regress backwards during real backend polling
+  const [maxProgress, setMaxProgress] = useState(progressPct);
+  useEffect(() => {
+    if (progressPct > maxProgress) {
+      setMaxProgress(progressPct);
+    }
+  }, [progressPct, maxProgress]);
+  const effectiveProgress = previewState ? progressPct : Math.max(maxProgress, progressPct);
+
+  // Clean status message: remove worker internal tags or debug noise
+  const cleanStatusMessage = useMemo(() => {
+    if (!statusMessage) return undefined;
+    if (
+      statusMessage.includes("Worker:") ||
+      statusMessage.includes("Worker") ||
+      statusMessage.toLowerCase().includes("initializing (")
+    ) {
+      return "Comparing invoice numbers, dates, and amounts…";
+    }
+    return statusMessage;
+  }, [statusMessage]);
+
   // Timer state
   const [internalElapsed, setInternalElapsed] = useState(
     previewState === "longer_wait" ? 64 : previewState === "completed" ? 84 : 28
@@ -82,7 +110,7 @@ export function ReconciliationLoadingExperience({
   // Longer wait threshold (30 seconds)
   const isLongerWait =
     previewState === "longer_wait" || (previewState === undefined && elapsed >= 30);
-  const isCompleted = previewState === "completed" || progressPct >= 100;
+  const isCompleted = previewState === "completed" || effectiveProgress >= 100;
 
   // Formatting elapsed time as mm:ss
   const formattedTime = useMemo(() => {
@@ -94,10 +122,10 @@ export function ReconciliationLoadingExperience({
   // Stage calculations (compact 4 stages)
   const currentStageIndex = useMemo(() => {
     if (isCompleted) return 4;
-    if (progressPct >= 75 || previewState === "longer_wait") return 3;
-    if (progressPct >= 20 || previewState === "in_progress") return 2;
+    if (effectiveProgress >= 75 || previewState === "longer_wait") return 3;
+    if (effectiveProgress >= 20 || previewState === "in_progress") return 2;
     return 1;
-  }, [isCompleted, progressPct, previewState]);
+  }, [isCompleted, effectiveProgress, previewState]);
 
   // Sample illustrative rows for the single matching animation focal point
   const sampleInvoices = [
@@ -142,7 +170,7 @@ export function ReconciliationLoadingExperience({
             <span className="text-[#777083]">{periodLabel}</span>
           </div>
           <span className="font-mono text-[#777083] font-medium">
-            {isCompleted ? "Finished in 1m 24s" : `${formattedTime} elapsed`}
+            {isCompleted ? `Finished in ${formattedTime}` : `${formattedTime} elapsed`}
           </span>
         </div>
 
@@ -155,7 +183,7 @@ export function ReconciliationLoadingExperience({
                 Finding the right match
               </h1>
               <p className="text-sm text-[#777083] mt-1">
-                {statusMessage ||
+                {cleanStatusMessage ||
                   (currentStageIndex === 3
                     ? "Comparing tax splits and checking for invoice rounding tolerances."
                     : "We’re comparing invoice numbers, dates, and amounts.")}
@@ -252,12 +280,12 @@ export function ReconciliationLoadingExperience({
                   <div
                     className="h-full bg-[#8054ED] rounded-full transition-all duration-500"
                     style={{
-                      width: `${Math.min(100, Math.max(4, progressPct))}%`,
+                      width: `${Math.min(100, Math.max(4, effectiveProgress))}%`,
                     }}
                   />
                 </div>
                 <div className="flex items-center justify-between text-[11px] text-[#8E839E] mt-1.5">
-                  <span>{Math.round(progressPct)}% completed</span>
+                  <span>{Math.round(effectiveProgress)}% completed</span>
                   <span>Real-time backend progress</span>
                 </div>
               </div>
@@ -320,27 +348,29 @@ export function ReconciliationLoadingExperience({
                 })}
               </div>
 
-              {/* Two Quiet Preliminary Counts */}
-              <div className="mt-3.5 pt-2.5 border-t border-[#F0EAF6] flex items-center justify-between text-xs text-[#777083]">
-                <span className="text-[11px] font-medium text-[#8E839E]">
-                  Preliminary results
-                </span>
-                <div className="flex items-center gap-3">
-                  <span>
-                    Matched so far:{" "}
-                    <strong className="text-[#342B40] font-mono font-semibold">
-                      {matchedCount.toLocaleString("en-IN")}
-                    </strong>
+              {/* Two Quiet Preliminary Counts (ONLY shown when verified real data is available) */}
+              {effectiveMatched !== undefined && effectiveReview !== undefined && (
+                <div className="mt-3.5 pt-2.5 border-t border-[#F0EAF6] flex items-center justify-between text-xs text-[#777083]">
+                  <span className="text-[11px] font-medium text-[#8E839E]">
+                    Preliminary results
                   </span>
-                  <span>·</span>
-                  <span>
-                    Needs review:{" "}
-                    <strong className="text-[#342B40] font-mono font-semibold">
-                      {reviewCount}
-                    </strong>
-                  </span>
+                  <div className="flex items-center gap-3">
+                    <span>
+                      Matched so far:{" "}
+                      <strong className="text-[#342B40] font-mono font-semibold">
+                        {effectiveMatched.toLocaleString("en-IN")}
+                      </strong>
+                    </span>
+                    <span>·</span>
+                    <span>
+                      Needs review:{" "}
+                      <strong className="text-[#342B40] font-mono font-semibold">
+                        {effectiveReview.toLocaleString("en-IN")}
+                      </strong>
+                    </span>
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
 
             {/* ONE OPTIONAL EXPANDABLE REPORT EXPLANATION (WITHOUT nested cards) */}
@@ -457,7 +487,9 @@ export function ReconciliationLoadingExperience({
                 Your reconciliation is ready
               </h1>
               <p className="text-sm text-[#777083] mt-1">
-                {totalProcessedCount.toLocaleString("en-IN")} invoices processed across purchase register and supplier records.
+                {effectiveTotal !== undefined
+                  ? `${effectiveTotal.toLocaleString("en-IN")} invoices processed across purchase register and supplier records.`
+                  : "All invoices processed across purchase register and supplier records."}
               </p>
             </div>
 
@@ -469,7 +501,9 @@ export function ReconciliationLoadingExperience({
                     Matched records
                   </span>
                   <span className="text-2xl font-semibold font-mono text-[#342B40] mt-1 block">
-                    {matchedCount.toLocaleString("en-IN")}
+                    {effectiveMatched !== undefined
+                      ? effectiveMatched.toLocaleString("en-IN")
+                      : "—"}
                   </span>
                   <span className="text-[11px] text-[#6E6180] mt-0.5 block">
                     Identical details
@@ -480,7 +514,9 @@ export function ReconciliationLoadingExperience({
                     Amount differences
                   </span>
                   <span className="text-2xl font-semibold font-mono text-[#342B40] mt-1 block">
-                    {reviewCount}
+                    {effectiveReview !== undefined
+                      ? effectiveReview.toLocaleString("en-IN")
+                      : "—"}
                   </span>
                   <span className="text-[11px] text-[#6E6180] mt-0.5 block">
                     Value discrepancies
@@ -491,7 +527,9 @@ export function ReconciliationLoadingExperience({
                     Missing in GSTR-2B
                   </span>
                   <span className="text-2xl font-semibold font-mono text-[#342B40] mt-1 block">
-                    {missingCount}
+                    {effectiveMissing !== undefined
+                      ? effectiveMissing.toLocaleString("en-IN")
+                      : "—"}
                   </span>
                   <span className="text-[11px] text-[#6E6180] mt-0.5 block">
                     Supplier unfiled

@@ -971,7 +971,7 @@ def execute_reconciliation(self, run_id: str) -> None:
             task_id=task_id,
             target_status="PROCESSING",
             expected_status="MATCHING",
-            status_message=f"Initializing (Worker: {git_hash})",
+            status_message="Comparing invoice numbers, dates, and amounts…",
         )
         if not claimed:
             _log.warning(
@@ -981,7 +981,7 @@ def execute_reconciliation(self, run_id: str) -> None:
             )
             return
 
-        heartbeat.beat(force=True, status_message=f"Initializing (Worker: {git_hash})", progress_percent=2)
+        heartbeat.beat(force=True, status_message="Comparing invoice numbers, dates, and amounts…", progress_percent=45)
 
         client_gstin_id = str(run.get("client_gstin_id", "")).strip()
         period = str(run.get("period", "")).strip()
@@ -1045,8 +1045,8 @@ def execute_reconciliation(self, run_id: str) -> None:
             client,
             run_id,
             {
-                "progress_percent": 10,
-                "status_message": "Data loaded",
+                "progress_percent": 48,
+                "status_message": "Comparing invoice numbers, dates, and amounts…",
                 "updated_at": _now_iso(),
             },
         )
@@ -1074,8 +1074,8 @@ def execute_reconciliation(self, run_id: str) -> None:
             client,
             run_id,
             {
-                "progress_percent": 20,
-                "status_message": "Preprocessing complete",
+                "progress_percent": 50,
+                "status_message": "Analyzing invoice records and amendments…",
                 "updated_at": _now_iso(),
             },
         )
@@ -1135,8 +1135,8 @@ def execute_reconciliation(self, run_id: str) -> None:
             client,
             run_id,
             {
-                "progress_percent": 25,
-                "status_message": "Matching started",
+                "progress_percent": 52,
+                "status_message": "Matching invoices against supplier filings…",
                 "updated_at": _now_iso(),
             },
         )
@@ -1155,17 +1155,15 @@ def execute_reconciliation(self, run_id: str) -> None:
             )
             done = i // BATCH + 1
             if done == n_gstr_chunks:
-                pct = 50
-            elif n_gstr_chunks > 1 and done == mid_done and done < n_gstr_chunks:
-                pct = 38
+                pct = 75
             else:
-                pct = min(49, 25 + int(25 * done / n_gstr_chunks))
+                pct = min(74, 52 + int(22 * done / n_gstr_chunks))
             _update_run(
                 client,
                 run_id,
                 {
                     "progress_percent": pct,
-                    "status_message": f"Matching ({min(done, n_gstr_chunks)}/{n_gstr_chunks} batches)",
+                    "status_message": f"Matching invoices ({min(done, n_gstr_chunks)}/{n_gstr_chunks} batches)…",
                     "updated_at": _now_iso(),
                 },
             )
@@ -1175,8 +1173,8 @@ def execute_reconciliation(self, run_id: str) -> None:
             client,
             run_id,
             {
-                "progress_percent": 50,
-                "status_message": "Matching batches complete; running credit notes and compliance checks…",
+                "progress_percent": 75,
+                "status_message": "Reviewing tax splits and invoice tolerances…",
                 "updated_at": _now_iso(),
             },
         )
@@ -1527,8 +1525,8 @@ def execute_reconciliation(self, run_id: str) -> None:
             client,
             run_id,
             {
-                "progress_percent": 75,
-                "status_message": "Compliance checks complete",
+                "progress_percent": 80,
+                "status_message": "Evaluating ITC classifications…",
                 "updated_at": _now_iso(),
             },
         )
@@ -1613,7 +1611,7 @@ def execute_reconciliation(self, run_id: str) -> None:
             run_id,
             {
                 "progress_percent": 85,
-                "status_message": "Decision layer applied",
+                "status_message": "Checking supplier filing tie-outs…",
                 "decision_version": DECISION_VERSION,
                 "rules_version": RULES_VERSION,
                 "updated_at": _now_iso(),
@@ -1651,8 +1649,8 @@ def execute_reconciliation(self, run_id: str) -> None:
             client,
             run_id,
             {
-                "progress_percent": 86,
-                "status_message": f"Writing PR match status (0/{pr_total_chunks} chunks)…",
+                "progress_percent": 88,
+                "status_message": "Compiling final reconciliation records…",
                 "updated_at": _now_iso(),
             },
         )
@@ -1663,12 +1661,9 @@ def execute_reconciliation(self, run_id: str) -> None:
                 run_id,
                 {
                     "progress_percent": min(
-                        94, 86 + int(8 * chunk_idx / pr_total_chunks)
+                        96, 88 + int(8 * chunk_idx / pr_total_chunks)
                     ),
-                    "status_message": (
-                        f"Writing PR match status "
-                        f"({chunk_idx + 1}/{pr_total_chunks})…"
-                    ),
+                    "status_message": "Compiling final reconciliation records…",
                     "updated_at": _now_iso(),
                 },
             )

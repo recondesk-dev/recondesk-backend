@@ -1158,6 +1158,53 @@ class TestPhase3BClassificationAnd4D2Boundary:
         assert insert_args["source_state_digest"] == final_res["audit_hash"]
 
 
+    def test_compile_gstr3b_table4_aurora_clean_columns(self):
+        """Verify reconciliation_run select query does not contain nested PostgREST join syntax."""
+        sb = MagicMock()
+        select_queries = []
+
+        def mock_table(table_name):
+            t = MagicMock()
+            if table_name == "reconciliation_run":
+                def mock_select(cols):
+                    select_queries.append(cols)
+                    s = MagicMock()
+                    s.eq.return_value.limit.return_value.execute.return_value.data = [{
+                        "id": "run-aurora-1",
+                        "client_gstin_id": "cg-123",
+                        "period": "2026-09",
+                        "status": "COMPLETED",
+                        "is_locked": False,
+                    }]
+                    return s
+                t.select.side_effect = mock_select
+            elif table_name == "client_gstins":
+                t.select.return_value.eq.return_value.limit.return_value.execute.return_value.data = [{
+                    "gstin": "27AAPFU0939F1ZV"
+                }]
+            elif table_name in ("rule37_actions", "rule37_resolutions"):
+                t.select.return_value.eq.return_value.execute.return_value.data = []
+            return t
+
+        sb.table.side_effect = mock_table
+
+        with patch("app.services.reconciliation_outcomes.load_payload", return_value={}), \
+             patch("app.services.reconciliation_outcomes.build_outcome_rows", return_value=([], {}, {})), \
+             patch("app.services.reconciliation_outcomes.load_gstr_map", return_value={}), \
+             patch("app.services.reconciliation_outcomes.load_pr_map", return_value={}), \
+             patch("app.services.gstr3b_table4_engine.load_exception_dispositions", return_value={}), \
+             patch("app.services.gstr3b_table4_engine.load_table4_adjustments", return_value=[]), \
+             patch("app.services.gstr3b_table4_engine.load_reclaim_events_for_run", return_value=[]):
+            res = compile_gstr3b_table4(sb, "run-aurora-1")
+
+        assert len(select_queries) == 1
+        # Crucial check: must NOT contain PostgREST foreign table embed syntax like "client_gstins("
+        assert "client_gstins(" not in select_queries[0]
+        assert "(" not in select_queries[0]
+        assert res["client_gstin"] == "27AAPFU0939F1ZV"
+
+
+
 
 
 

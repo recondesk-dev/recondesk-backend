@@ -234,9 +234,12 @@ def _update_run(
         try:
             wiz: dict[str, Any] = {}
             if "progress_percent" in fields:
-                wiz["progress_pct"] = int(fields["progress_percent"])
+                wiz["progress_pct"] = max(40, int(fields["progress_percent"]))
             if "status_message" in fields:
-                wiz["status_message"] = fields["status_message"]
+                msg = str(fields["status_message"] or "")
+                if "Worker:" in msg or "Worker" in msg or "Initializing" in msg:
+                    msg = "Comparing invoice numbers, dates, and amounts…"
+                wiz["status_message"] = msg
             if "updated_at" in fields:
                 wiz["updated_at"] = fields["updated_at"]
             if "last_heartbeat_at" in fields:

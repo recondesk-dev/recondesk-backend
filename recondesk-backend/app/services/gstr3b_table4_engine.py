@@ -413,7 +413,7 @@ def compile_gstr3b_table4(
     # 1. Fetch Run Metadata
     run_row = (
         sb.table("reconciliation_run")
-        .select("id, client_gstin_id, period, status, is_locked, finalized_at, finalized_by, client_gstins(gstin, trade_name, legal_name)")
+        .select("id, client_gstin_id, period, status, is_locked, finalized_at, finalized_by")
         .eq("id", run_id)
         .limit(1)
         .execute()
@@ -425,6 +425,19 @@ def compile_gstr3b_table4(
     tax_period = str(r0.get("period") or "")
     cg_data = r0.get("client_gstins") or {}
     client_gstin = str(cg_data.get("gstin") or "")
+    if not client_gstin and client_gstin_id:
+        try:
+            cg_resp = (
+                sb.table("client_gstins")
+                .select("gstin")
+                .eq("id", client_gstin_id)
+                .limit(1)
+                .execute()
+            )
+            if cg_resp.data:
+                client_gstin = str(cg_resp.data[0].get("gstin") or "")
+        except Exception:
+            pass
 
     # If finalized and snapshot exists in gstr3b_table4_summaries, load authoritative copy
     if is_finalized or str(r0.get("status", "")).upper() == "FINAL":

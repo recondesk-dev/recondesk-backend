@@ -330,7 +330,17 @@ export default function NewReconcileWizardPage() {
   const [zeroRecordConfirmed, setZeroRecordConfirmed] = useState(false);
   const [checkingRunStatus, setCheckingRunStatus] = useState(false);
 
-  const [poll, setPoll] = useState<{ pct: number; message: string; status: string } | null>(null);
+  const [poll, setPoll] = useState<{
+    pct: number;
+    message: string;
+    status: string;
+    counts?: {
+      total_processed?: number;
+      matched?: number;
+      review_required?: number;
+      missing?: number;
+    } | null;
+  } | null>(null);
   const [pollSlow, setPollSlow] = useState(false);
   const pollStartRef = useRef<number | null>(null);
 
@@ -1340,7 +1350,12 @@ export default function NewReconcileWizardPage() {
       const r = await refreshRun(runId, token);
       setRun(r);
       if (st.status === "complete" || r.status === "complete") {
-        router.push(`/reconcile/runs/${runId}/results`);
+        setPoll({
+          pct: 100,
+          message: "Reconciliation complete",
+          status: "complete",
+          counts: st.counts,
+        });
         return;
       }
       if (st.status === "processing" || st.status === "pending") {
@@ -1352,6 +1367,7 @@ export default function NewReconcileWizardPage() {
           pct: st.progress_pct ?? 0,
           message: st.message || "Reconciliation is running on the server…",
           status: "processing",
+          counts: st.counts,
         });
         return;
       }
@@ -1400,9 +1416,42 @@ export default function NewReconcileWizardPage() {
       try {
         const s = await importWizardApi.pollStatus(token, runId);
         if (cancelled) return;
-        setPoll({ pct: s.progress_pct, message: s.message, status: s.status });
+        setPoll({
+          pct: s.progress_pct ?? 0,
+          message: s.message,
+          status: s.status,
+          counts: s.counts,
+        });
         if (s.status === "complete") {
-          router.push(`/reconcile/runs/${runId}/results`);
+          let verifiedCounts = s.counts;
+          if (!verifiedCounts) {
+            try {
+              const sumRes = await fetch(`/api/reconcile/runs/${runId}/summary`, {
+                headers: { Authorization: `Bearer ${token}` },
+              });
+              if (sumRes.ok) {
+                const sumData = await sumRes.json();
+                verifiedCounts = {
+                  total_processed: sumData.total_gstr_records,
+                  matched: sumData.clean_matched_count ?? sumData.matched_count,
+                  review_required: sumData.review_required_count,
+                  missing: sumData.missed_itc_count ?? sumData.itc_at_risk_count,
+                };
+              }
+            } catch {
+              /* ignore transient summary fetch */
+            }
+          }
+          if (!cancelled) {
+            setPoll({
+              pct: 100,
+              message: "Reconciliation complete",
+              status: "complete",
+              counts: verifiedCounts,
+            });
+            const r = await refreshRun(runId, token);
+            if (!cancelled) setRun(r);
+          }
           return;
         }
         if (s.status === "error" || s.status === "failed") {
@@ -1460,9 +1509,14 @@ export default function NewReconcileWizardPage() {
     );
   }
 
-  if (run?.status === "pending" || run?.status === "processing") {
-    const pct = poll?.pct ?? run.progress_pct ?? 0;
-    const msg = poll?.message || run.status_message || "Finding the right match…";
+  if (
+    run?.status === "pending" ||
+    run?.status === "processing" ||
+    poll?.status === "processing" ||
+    (poll?.status === "complete" && run?.id)
+  ) {
+    const pct = poll?.status === "complete" ? 100 : (poll?.pct ?? run?.progress_pct ?? 0);
+    const msg = poll?.message || run?.status_message || "Finding the right match…";
     return (
       <div className="space-y-6">
         {err ? (
@@ -1482,13 +1536,17 @@ export default function NewReconcileWizardPage() {
         <ReconciliationLoadingExperience
           progressPct={pct}
           statusMessage={msg}
+          matchedCount={poll?.counts?.matched}
+          reviewCount={poll?.counts?.review_required}
+          totalProcessedCount={poll?.counts?.total_processed}
+          missingCount={poll?.counts?.missing}
           clientName={clientRow?.legal_name || clientRow?.trade_name || clientId}
-          periodLabel={periodLabel(run.period || period || "2024-10-01")}
-          runId={run.id}
+          periodLabel={periodLabel(run?.period || period || "2024-10-01")}
+          runId={run?.id}
           isCancelling={busy}
           onCancelRun={onCancelRun}
           onContinueBackground={() => router.push("/dashboard")}
-          onViewReport={() => router.push(`/reconcile/runs/${run.id}/results`)}
+          onViewReport={() => router.push(`/reconcile/runs/${run?.id}/results`)}
         />
       </div>
     );

@@ -166,7 +166,7 @@ def claim_reconciliation_run(
     task_id: str,
     target_status: str = "PROCESSING",
     expected_status: str = "MATCHING",
-    status_message: str = "Initializing reconciliation worker",
+    status_message: str = "Comparing invoice numbers, dates, and amounts…",
 ) -> tuple[bool, dict[str, Any]]:
     """Atomically claim a reconciliation run to prevent concurrent/duplicate execution.
     
@@ -175,6 +175,10 @@ def claim_reconciliation_run(
     """
     now = datetime.now(timezone.utc).isoformat()
     cid = get_correlation_id()
+
+    # Sanitize user-facing message
+    if "Worker:" in status_message or "Worker" in status_message or "Initializing" in status_message:
+        status_message = "Comparing invoice numbers, dates, and amounts…"
 
     # Fetch current attempt count
     run_res = (
@@ -267,14 +271,18 @@ class JobHeartbeat:
             return False
 
         now_iso = datetime.now(timezone.utc).isoformat()
+        clean_msg = status_message
+        if clean_msg and ("Worker:" in clean_msg or "Worker" in clean_msg or "Initializing" in clean_msg):
+            clean_msg = "Comparing invoice numbers, dates, and amounts…"
+
         payload: dict[str, Any] = {
             "updated_at": now_iso,
         }
         if self.table_name != "reconciliation_run":
             payload["last_heartbeat_at"] = now_iso
             payload["worker_task_id"] = self.task_id
-        if status_message is not None:
-            payload["status_message"] = status_message
+        if clean_msg is not None:
+            payload["status_message"] = clean_msg
         if progress_percent is not None:
             payload["progress_percent"] = progress_percent
 
@@ -285,9 +293,9 @@ class JobHeartbeat:
                 try:
                     wiz_patch: dict[str, Any] = {"updated_at": now_iso}
                     if progress_percent is not None:
-                        wiz_patch["progress_pct"] = progress_percent
-                    if status_message is not None:
-                        wiz_patch["status_message"] = status_message
+                        wiz_patch["progress_pct"] = max(40, progress_percent)
+                    if clean_msg is not None:
+                        wiz_patch["status_message"] = clean_msg
                     self.client.table("reconciliation_import_runs").update(wiz_patch).eq("id", self.run_id).execute()
                 except Exception:
                     pass

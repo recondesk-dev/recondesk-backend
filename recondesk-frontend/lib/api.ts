@@ -2173,6 +2173,12 @@ export interface RunPollStatus {
   status: string;
   progress_pct: number;
   message: string;
+  counts?: {
+    total_processed?: number;
+    matched?: number;
+    review_required?: number;
+    missing?: number;
+  } | null;
 }
 
 export const importWizardApi = {

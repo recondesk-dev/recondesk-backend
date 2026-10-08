@@ -511,12 +511,27 @@ def get_batch(sb, batch_id: str) -> dict[str, Any] | None:
     batch = res.data[0]
     items_res = (
         sb.table(BATCH_ITEMS)
-        .select("*, client_gstins(trade_name, legal_name)")
+        .select("*")
         .eq("batch_id", batch_id)
         .order("created_at")
         .execute()
     )
-    batch["items"] = items_res.data or []
+    items = items_res.data or []
+    client_ids = list({it.get("client_gstin_id") for it in items if it.get("client_gstin_id") and not it.get("client_gstins")})
+    if client_ids:
+        try:
+            c_res = sb.table("client_gstins").select("id, trade_name, legal_name").in_("id", client_ids).execute()
+            c_map = {c["id"]: c for c in (c_res.data or []) if "id" in c}
+            for it in items:
+                cid = it.get("client_gstin_id")
+                if cid and cid in c_map and not it.get("client_gstins"):
+                    it["client_gstins"] = {
+                        "trade_name": c_map[cid].get("trade_name"),
+                        "legal_name": c_map[cid].get("legal_name"),
+                    }
+        except Exception:
+            pass
+    batch["items"] = items
     return batch
 
 

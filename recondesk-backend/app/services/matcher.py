@@ -2032,20 +2032,23 @@ def _match_gstr_to_pr_pair(
 
     g_orig = str(gstr_rec.get("original_invoice_number") or gstr_rec.get("oinum") or "").strip()
     p_orig = str(pr_rec.get("original_invoice_number") or pr_rec.get("oinum") or "").strip()
-    if not inv_ok and not format_variant and not _is_note_doc(gstr_rec) and not _is_note_doc(pr_rec):
-        if g_orig:
+    is_amendment_match = False
+    if not _is_note_doc(gstr_rec) and not _is_note_doc(pr_rec):
+        if g_orig and not invoices_effectively_match(g_inv, p_inv):
             if invoices_effectively_match(g_orig, p_inv) or is_invoice_format_variant(
                 g_orig, p_inv, gstr_rec.get("original_invoice_number_raw") or g_orig, pr_rec.get("invoice_number")
             ):
                 inv_ok = True
                 format_variant = True
+                is_amendment_match = True
                 discrepancies.append(f"amendment: Amended invoice {g_inv} links to original {g_orig}")
-        if not inv_ok and not format_variant and p_orig:
+        if not is_amendment_match and p_orig and not invoices_effectively_match(g_inv, p_inv):
             if invoices_effectively_match(g_inv, p_orig) or is_invoice_format_variant(
                 g_inv, p_orig, gstr_rec.get("invoice_number"), pr_rec.get("original_invoice_number_raw") or p_orig
             ):
                 inv_ok = True
                 format_variant = True
+                is_amendment_match = True
                 discrepancies.append(f"amendment: PR original invoice {p_orig} links to GSTR {g_inv}")
 
     raw_inv_ok = bool(g_inv_raw and p_inv_raw and g_inv_raw == p_inv_raw)
@@ -2367,7 +2370,7 @@ def _match_gstr_to_pr_pair(
                 financial_status="Exact",
                 review_reason="OCR_CONFIDENCE_REVIEW",
             )
-        if not is_note and not is_branch_variant and ev_inv.prefix_changed and ev_inv.terminal_sequence_match:
+        if not is_note and not is_branch_variant and not is_amendment_match and ev_inv.prefix_changed and ev_inv.terminal_sequence_match:
             prefix_discrepancies = list(discrepancies) + [
                 f"prefix_review: Invoice prefix differs ({ev_inv.prefix_a} vs {ev_inv.prefix_b}) with matching sequence {ev_inv.terminal_seq_a}"
             ]
@@ -2533,7 +2536,7 @@ def _match_gstr_to_pr_pair(
                 rr = "TYPO_MISMATCH"
                 d_what = "Terminal Sequence Number Mismatch"
                 d_why = f"Invoice numbers {g_inv_raw or g_inv} and {p_inv_raw or p_inv} differ by terminal sequence deletion"
-            elif not is_note and not is_branch_variant and ev_inv.prefix_changed and ev_inv.terminal_sequence_match:
+            elif not is_note and not is_branch_variant and not is_amendment_match and ev_inv.prefix_changed and ev_inv.terminal_sequence_match:
                 rr = "PREFIX_ALTERATION_REVIEW"
                 d_what = "Invoice Series / Prefix Mismatch"
                 d_why = f"Invoice numbers {g_inv_raw or g_inv} and {p_inv_raw or p_inv} share sequence {ev_inv.terminal_seq_a} but differ in prefix ({ev_inv.prefix_a} vs {ev_inv.prefix_b})"

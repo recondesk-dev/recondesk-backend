@@ -866,14 +866,61 @@ async def poll_status(run_id: uuid.UUID, user_id: str = Depends(get_current_user
     wizard_pct = int(r.get("progress_pct") or 0)
     message = r.get("status_message") or ""
 
+    if "Worker:" in message or "Worker" in message or "Initializing (" in message:
+        message = "Comparing invoice numbers, dates, and amounts…"
+
     # Map "error" → "failed" for frontend compatibility.
     if status == "error":
         status = "failed"
+
+    counts = None
+    try:
+        rr = (
+            sb.table("reconciliation_run")
+            .select("matched_count, unmatched_count, run_summary, gstr_records_imported, pr_records_imported, total_records")
+            .eq("id", str(run_id))
+            .limit(1)
+            .execute()
+        )
+        if rr.data:
+            rec = rr.data[0]
+            rs = rec.get("run_summary") if isinstance(rec.get("run_summary"), dict) else {}
+            total_inv = int(
+                rs.get("total_invoices")
+                or rs.get("n_gstr")
+                or rec.get("total_records")
+                or rec.get("gstr_records_imported")
+                or 0
+            )
+            matched_inv = int(
+                rs.get("clean_matched_count")
+                or rs.get("matched_count")
+                or rec.get("matched_count")
+                or 0
+            )
+            review_inv = int(rs.get("review_required_count") or 0)
+            missing_inv = int(
+                rs.get("missed_itc_count")
+                or rs.get("itc_at_risk_count")
+                or rs.get("wrongful_count")
+                or rec.get("unmatched_count")
+                or 0
+            )
+            if total_inv > 0 or matched_inv > 0:
+                counts = {
+                    "total_processed": total_inv,
+                    "matched": matched_inv,
+                    "review_required": review_inv,
+                    "missing": missing_inv,
+                }
+    except Exception:
+        pass
 
     return {
         "status": status,
         "progress_pct": wizard_pct,
         "message": message,
+        "counts": counts,
     }
 
 
