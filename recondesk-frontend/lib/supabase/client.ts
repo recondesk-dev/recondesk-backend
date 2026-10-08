@@ -1,28 +1,40 @@
-import { createBrowserClient } from "@supabase/ssr";
-import type { Database } from "@/lib/supabase/types";
 import {
   clearCachedAuthRole,
   invalidateAuthProfileCache,
 } from "@/lib/auth-profile";
 
 /**
- * Browser-side Supabase client for Client Components.
- * Uses `createBrowserClient` from `@supabase/ssr` (not `createClient` from
- * `@supabase/supabase-js`) so PKCE + cookie storage matches middleware.
+ * Legacy stub: Supabase has been 100% decommissioned in favor of AWS Cognito and Aurora.
  */
-export function createClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim() || "https://placeholder.supabase.co";
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim() || "placeholder-anon-key";
-  return createBrowserClient<Database>(url, key);
+export function createClient(): any {
+  return {
+    auth: {
+      getUser: async () => ({ data: { user: null }, error: new Error("Supabase decommissioned") }),
+      getSession: async () => ({ data: { session: null }, error: null }),
+      signOut: async () => ({ error: null }),
+      onAuthStateChange: () => ({ data: { subscription: { unsubscribe: () => {} } } }),
+      resetPasswordForEmail: async () => ({ error: new Error("Use AWS Cognito") }),
+      updateUser: async () => ({ error: new Error("Use AWS Cognito") }),
+    },
+    from: () => ({
+      select: () => ({
+        eq: () => ({
+          maybeSingle: async () => ({ data: null, error: null }),
+          single: async () => ({ data: null, error: null }),
+          order: () => ({ range: async () => ({ data: [], error: null }) }),
+        }),
+        order: () => ({ range: async () => ({ data: [], error: null }) }),
+      }),
+      insert: async () => ({ data: null, error: null }),
+      update: () => ({ eq: async () => ({ data: null, error: null }) }),
+    }),
+  };
 }
 
 const ACCESS_TOKEN_PATH = "/api/auth/access-token";
 
 /**
- * Fetches the JWT via a Route Handler that uses `createServerClient` and
- * `cookies()` — the same session the dashboard server code sees. The browser
- * client often cannot read Supabase auth cookies (e.g. HttpOnly chunks), so
- * this is the reliable source for FastAPI `Authorization` headers.
+ * Fetches the JWT via Route Handler using server-side Cognito HttpOnly cookie inspection.
  */
 export async function fetchAccessTokenFromServer(): Promise<string | false> {
   try {
@@ -31,8 +43,7 @@ export async function fetchAccessTokenFromServer(): Promise<string | false> {
       cache: "no-store",
     });
 
-    // Dual-Auth Phase 2B: If unauthenticated (401), attempt a single Cognito refresh
-    // to handle an expired Cognito access token.
+    // If unauthenticated (401), attempt a single Cognito refresh
     if (res.status === 401) {
       try {
         const refreshRes = await fetch("/api/auth/cognito-refresh", {
@@ -41,14 +52,13 @@ export async function fetchAccessTokenFromServer(): Promise<string | false> {
           cache: "no-store",
         });
         if (refreshRes.ok) {
-          // Retry access token fetch once with refreshed cookies
           res = await fetch(ACCESS_TOKEN_PATH, {
             credentials: "same-origin",
             cache: "no-store",
           });
         }
       } catch {
-        // Refresh failed; fail closed to unauthenticated
+        // Refresh failed; fail closed
       }
     }
 
@@ -83,16 +93,8 @@ export function purgeSupabaseLocalStorage(): void {
 
 /**
  * Subscribe to the JWT used for backend API calls.
- *
- * Emits `string` when authenticated, or `false` once we know there is no session
- * (never emits `null` — use React `useState(null)` for "still resolving").
- *
- * Primary source: {@link fetchAccessTokenFromServer} (server reads cookies).
- * Secondary: `onAuthStateChange` when the browser client does see the session
- * (sign-in, refresh, sign-out in this tab).
- *
- * Safety guarantee: `onToken` is ALWAYS called within AUTH_TIMEOUT_MS even if
- * Supabase is unreachable or throws — preventing the UI from hanging forever.
+ * Emits `string` when authenticated, or `false` when unauthenticated.
+ * Source: AWS Cognito verified token via server HttpOnly cookies.
  */
 const AUTH_TIMEOUT_MS = 5_000;
 
@@ -104,8 +106,6 @@ export function subscribeAccessToken(onToken: (accessToken: string | false) => v
 
   function emit(token: string | false) {
     if (cancelled) return;
-    // Skip duplicate emissions, but always allow the first resolution and
-    // later TOKEN_REFRESHED / SIGNED_IN updates (stale JWTs caused 401s).
     if (initialResolved && token === lastEmitted) return;
     initialResolved = true;
     lastEmitted = token;
@@ -116,14 +116,9 @@ export function subscribeAccessToken(onToken: (accessToken: string | false) => v
     onToken(token);
   }
 
-  const supabase = createClient();
-
-  // Safety net: if the session resolution hangs (network error, Supabase
-  // unreachable, environment misconfiguration), unblock the UI after timeout.
   if (typeof window !== "undefined") {
     safetyTimer = window.setTimeout(() => {
       if (!initialResolved) {
-        console.warn("[auth] token resolution timed out after", AUTH_TIMEOUT_MS, "ms — emitting false");
         emit(false);
       }
     }, AUTH_TIMEOUT_MS);
@@ -131,8 +126,6 @@ export function subscribeAccessToken(onToken: (accessToken: string | false) => v
 
   async function resolveToken(): Promise<void> {
     if (cancelled) return;
-
-    // 1. Check server-side route FIRST (reads Cognito HttpOnly cookies)
     try {
       const fromServer = await fetchAccessTokenFromServer();
       if (cancelled) return;
@@ -142,20 +135,7 @@ export function subscribeAccessToken(onToken: (accessToken: string | false) => v
         return;
       }
     } catch (err) {
-      console.warn("[auth] fetchAccessTokenFromServer() failed:", err);
-    }
-
-    // 2. Legacy fallback to Supabase browser session only if server returned no token
-    try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      if (cancelled) return;
-      const token = sessionData.session?.access_token;
-      if (token) {
-        emit(token);
-        return;
-      }
-    } catch (err) {
-      console.warn("[auth] getSession() failed:", err);
+      console.warn("[auth] fetchAccessTokenFromServer() error:", err);
     }
 
     if (cancelled) return;
@@ -164,29 +144,33 @@ export function subscribeAccessToken(onToken: (accessToken: string | false) => v
 
   void resolveToken();
 
-  const {
-    data: { subscription },
-  } = supabase.auth.onAuthStateChange((event, session) => {
-    if (cancelled) return;
-    if (event === "SIGNED_OUT") {
-      clearCachedAuthRole();
-      void invalidateAuthProfileCache();
-      // Do NOT blindly emit false: active AWS Cognito sessions are stored in HttpOnly cookies,
-      // not in Supabase browser storage. Check server Cognito token first.
+  const handleVisibility = () => {
+    if (typeof document !== "undefined" && document.visibilityState === "visible") {
       void resolveToken();
-      return;
     }
-    if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED") {
-      clearCachedAuthRole();
-      void invalidateAuthProfileCache();
-    }
-    // Always resolve through server token first to ensure active Cognito session wins
+  };
+
+  const handleFocus = () => {
     void resolveToken();
-  });
+  };
+
+  if (typeof window !== "undefined") {
+    window.addEventListener("focus", handleFocus);
+    document.addEventListener("visibilitychange", handleVisibility);
+  }
+
+  // Periodic refresh check every 4 minutes (Cognito access token lasts 1 hour)
+  const interval = typeof window !== "undefined" ? window.setInterval(() => {
+    void resolveToken();
+  }, 240_000) : null;
 
   return () => {
     cancelled = true;
     if (safetyTimer !== null) window.clearTimeout(safetyTimer);
-    subscription.unsubscribe();
+    if (interval !== null) window.clearInterval(interval);
+    if (typeof window !== "undefined") {
+      window.removeEventListener("focus", handleFocus);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    }
   };
 }

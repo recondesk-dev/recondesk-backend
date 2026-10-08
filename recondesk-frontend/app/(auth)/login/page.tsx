@@ -4,7 +4,6 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Logo } from "@/components/ui/Logo";
-import { createClient, purgeSupabaseLocalStorage } from "@/lib/supabase/client";
 import { EMAIL_VALIDATION_MESSAGE, isValidEmail } from "@/lib/auth-validation";
 import {
   clearCachedAuthRole,
@@ -62,10 +61,6 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<LoginFieldErrors>({});
 
-  useEffect(() => {
-    purgeSupabaseLocalStorage();
-  }, []);
-
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -94,13 +89,6 @@ export default function LoginPage() {
       }
 
       clearCachedAuthRole();
-      purgeSupabaseLocalStorage();
-      try {
-        const sb = createClient();
-        await sb.auth.signOut({ scope: "local" });
-      } catch {
-        // Ignore local signOut error
-      }
       await invalidateAuthProfileCache();
       window.location.href = "/dashboard";
     } catch {

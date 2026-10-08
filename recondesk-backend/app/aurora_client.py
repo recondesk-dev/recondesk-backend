@@ -657,52 +657,6 @@ class AuroraAuthClient:
             except Exception as admin_exc:
                 _log.info("Cognito admin_initiate_auth fallback for %s: %s", email, admin_exc)
 
-            # Step 2: Fallback for existing Supabase accounts during migration
-            if s.SUPABASE_URL and s.SUPABASE_SERVICE_ROLE_KEY:
-                try:
-                    import httpx
-                    # Verify password against Supabase Auth endpoint
-                    sb_url = f"{s.SUPABASE_URL.rstrip('/')}/auth/v1/token?grant_type=password"
-                    with httpx.Client(timeout=10.0) as http_client:
-                        resp = http_client.post(
-                            sb_url,
-                            json={"email": email, "password": password},
-                            headers={
-                                "apikey": s.SUPABASE_SERVICE_ROLE_KEY,
-                                "Content-Type": "application/json",
-                            },
-                        )
-                    if resp.status_code == 200:
-                        _log.info("Supabase password verified; migrating %s to AWS Cognito", email)
-                        # Seamlessly create and set permanent password in Cognito
-                        try:
-                            cognito.admin_create_user(
-                                UserPoolId=s.COGNITO_USER_POOL_ID,
-                                Username=email,
-                                UserAttributes=[
-                                    {"Name": "email", "Value": email},
-                                    {"Name": "email_verified", "Value": "true"},
-                                ],
-                                MessageAction="SUPPRESS",
-                            )
-                        except Exception:
-                            pass
-                        cognito.admin_set_user_password(
-                            UserPoolId=s.COGNITO_USER_POOL_ID,
-                            Username=email,
-                            Password=password,
-                            Permanent=True,
-                        )
-                        # Re-authenticate against Cognito
-                        auth_res = cognito.admin_initiate_auth(
-                            UserPoolId=s.COGNITO_USER_POOL_ID,
-                            ClientId=s.COGNITO_CLIENT_ID,
-                            AuthFlow="ADMIN_NO_SRP_AUTH",
-                            AuthParameters=auth_params,
-                        )
-                except Exception as sb_exc:
-                    _log.warning("Supabase migration fallback failed: %s", sb_exc)
-
         if not auth_res:
             _log.warning("AuroraAuthClient.sign_in_with_password: Cognito authentication returned no response for %s", email)
             return AuroraAuthResponse(user=None, session=None)

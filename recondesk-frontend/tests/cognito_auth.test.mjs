@@ -1108,12 +1108,10 @@ describe("Dual-Auth Phase 2A: Session Bridge, Precedence & Cookies", () => {
     assert.equal(mockRes.cookies.get(COGNITO_COOKIE_NAMES.STATE).options.maxAge, 0);
   });
 
-  test("9. /api/auth/access-token bridge: returns Supabase token when Supabase session exists (precedence rule)", async () => {
+  test("9. /api/auth/access-token bridge: returns Cognito token directly as authoritative provider", async () => {
     const { token: cognitoToken } = createValidCognitoAccessToken();
 
-    // Both Supabase session AND Cognito cookie exist: Supabase MUST win
     const result = await resolveAccessTokenBridge({
-      getSupabaseToken: async () => "supabase-jwt-token-xyz",
       getCognitoCookie: () => cognitoToken,
       verifyCognitoToken: async (tok) => {
         await verifyCognitoAccessToken({ token: tok, config: mockConfig, jwksOverride: jwks });
@@ -1121,8 +1119,8 @@ describe("Dual-Auth Phase 2A: Session Bridge, Precedence & Cookies", () => {
     });
 
     assert.equal(result.status, 200);
-    assert.equal(result.body.provider, "supabase", "Supabase must take precedence over Cognito");
-    assert.equal(result.body.access_token, "supabase-jwt-token-xyz");
+    assert.equal(result.body.provider, "cognito", "Cognito is the authoritative production auth provider");
+    assert.equal(result.body.access_token, cognitoToken);
     assert.equal(result.body.refresh_token, undefined, "Refresh token must never be returned");
   });
 
@@ -1185,17 +1183,16 @@ describe("Dual-Auth Phase 2A: Session Bridge, Precedence & Cookies", () => {
     assert.equal(resolved, "Bearer custom-explicit-api-key");
   });
 
-  test("13. backendProxy: attaches Supabase bearer token when Supabase session exists (precedence rule)", async () => {
+  test("13. backendProxy: attaches Cognito bearer token directly without Supabase", async () => {
     const { token: cognitoToken } = createValidCognitoAccessToken();
 
     const resolved = await resolveBackendProxyAuth({
       incomingAuthHeader: null,
-      getSupabaseToken: async () => "supabase-session-jwt",
       getCognitoToken: () => cognitoToken,
       verifyCognitoToken: async () => {},
     });
 
-    assert.equal(resolved, "Bearer supabase-session-jwt", "Supabase session must win over Cognito cookie");
+    assert.equal(resolved, `Bearer ${cognitoToken}`, "Cognito token must be attached directly");
   });
 
   test("14. backendProxy: attaches Cognito bearer token when Supabase is absent and Cognito token is valid", async () => {

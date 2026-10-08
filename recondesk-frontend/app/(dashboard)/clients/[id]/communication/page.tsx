@@ -1,39 +1,33 @@
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-
 import CommunicationCenter from "@/components/communication/CommunicationCenter";
-import { createClient } from "@/lib/supabase/server";
+import { COGNITO_COOKIE_NAMES } from "@/lib/cognito/cookies";
+import { verifyCognitoAccessToken } from "@/lib/cognito/jwt";
 
 export default async function CommunicationPage({
   params,
 }: {
   params: { id: string };
 }) {
-  const supabase = createClient();
-  if (!supabase) {
+  const token = cookies().get(COGNITO_COOKIE_NAMES.ACCESS_TOKEN)?.value;
+  if (!token) {
     redirect("/login");
   }
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
+  let claims;
+  try {
+    claims = await verifyCognitoAccessToken({ token });
+  } catch {
     redirect("/login");
   }
 
-  const { data: clientRow } = await supabase
-    .from("client_gstins")
-    .select("firm_owner_id")
-    .eq("id", params.id)
-    .maybeSingle() as { data: { firm_owner_id: string } | null; error: unknown };
-
-  const organizationId = clientRow?.firm_owner_id ?? user.id;
+  const userId = claims.sub || "user";
 
   return (
     <CommunicationCenter
       clientId={params.id}
-      organizationId={organizationId}
-      userId={user.id}
+      organizationId={userId}
+      userId={userId}
     />
   );
 }

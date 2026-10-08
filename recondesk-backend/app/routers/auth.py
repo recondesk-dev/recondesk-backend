@@ -409,7 +409,6 @@ async def logout(
     user: AuthenticatedUser = Depends(get_current_user),
 ):
     """Sign out the currently authenticated user."""
-    db = get_db()
     ip = _client_ip(request)
     await log_action(
         str(user.id),
@@ -419,11 +418,103 @@ async def logout(
         {"auth_provider": user.auth_provider},
         ip_address=ip,
     )
-    if user.auth_provider == "supabase":
-        try:
-            db.auth.sign_out()
-        except Exception:
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: str
+
+
+class ResetPasswordRequest(BaseModel):
+    email: str
+    confirmation_code: str
+    new_password: str
+
+
+@router.post("/forgot-password")
+@limiter.limit("5/minute")
+async def forgot_password_endpoint(request: Request, payload: ForgotPasswordRequest):
+    """Initiate AWS Cognito password reset."""
+    email = payload.email.strip().lower()
+    from app.cognito_config import get_cognito_config
+    import boto3
+    from botocore import UNSIGNED
+    from botocore.config import Config
+    import base64
+    import hashlib
+    import hmac
+
+    config = get_cognito_config()
+    client = boto3.client(
+        "cognito-idp",
+        region_name=config.COGNITO_REGION,
+        config=Config(signature_version=UNSIGNED),
+    )
+    secret_hash = None
+    if config.COGNITO_CLIENT_SECRET:
+        message = bytes(email + config.COGNITO_CLIENT_ID, "utf-8")
+        key = bytes(config.COGNITO_CLIENT_SECRET, "utf-8")
+        secret_hash = base64.b64encode(hmac.new(key, message, digestmod=hashlib.sha256).digest()).decode()
+
+    kwargs: dict[str, Any] = {
+        "ClientId": config.COGNITO_CLIENT_ID,
+        "Username": email,
+    }
+    if secret_hash:
+        kwargs["SecretHash"] = secret_hash
+
+    try:
+        client.forgot_password(**kwargs)
+    except Exception as exc:
+        if "UserNotFoundException" in str(exc):
             pass
+        else:
+            _log.warning("Cognito forgot_password error for %s: %s", email, exc)
+            raise HTTPException(status_code=400, detail="Unable to process password reset request.") from exc
+
+    return {"success": True, "message": "Password reset code sent to email."}
+
+
+@router.post("/reset-password")
+@limiter.limit("5/minute")
+async def reset_password_endpoint(request: Request, payload: ResetPasswordRequest):
+    """Confirm AWS Cognito password reset with code and new password."""
+    email = payload.email.strip().lower()
+    from app.cognito_config import get_cognito_config
+    import boto3
+    from botocore import UNSIGNED
+    from botocore.config import Config
+    import base64
+    import hashlib
+    import hmac
+
+    config = get_cognito_config()
+    client = boto3.client(
+        "cognito-idp",
+        region_name=config.COGNITO_REGION,
+        config=Config(signature_version=UNSIGNED),
+    )
+    secret_hash = None
+    if config.COGNITO_CLIENT_SECRET:
+        message = bytes(email + config.COGNITO_CLIENT_ID, "utf-8")
+        key = bytes(config.COGNITO_CLIENT_SECRET, "utf-8")
+        secret_hash = base64.b64encode(hmac.new(key, message, digestmod=hashlib.sha256).digest()).decode()
+
+    kwargs: dict[str, Any] = {
+        "ClientId": config.COGNITO_CLIENT_ID,
+        "Username": email,
+        "ConfirmationCode": payload.confirmation_code.strip(),
+        "Password": payload.new_password,
+    }
+    if secret_hash:
+        kwargs["SecretHash"] = secret_hash
+
+    try:
+        client.confirm_forgot_password(**kwargs)
+    except Exception as exc:
+        _log.warning("Cognito confirm_forgot_password error for %s: %s", email, exc)
+        raise HTTPException(status_code=400, detail="Invalid confirmation code or password requirements not met.") from exc
+
+    return {"success": True, "message": "Password has been successfully reset."}
 
 
 # ── GET /auth/me ─────────────────────────────────────────────────────────────

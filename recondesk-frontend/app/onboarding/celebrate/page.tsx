@@ -8,7 +8,7 @@ import useSWR from "swr";
 import { isApiError, reconcileRunsApi, usersApi, type ReconcileRunSummaryDto } from "@/lib/api";
 import { formatINR } from "@/lib/format";
 import { setOnboardingDoneCookie } from "@/lib/onboarding-cookie";
-import { createClient, subscribeAccessToken } from "@/lib/supabase/client";
+import { subscribeAccessToken } from "@/lib/supabase/client";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "https://api.recondesk.in";
 
@@ -27,10 +27,8 @@ function CelebrateContent() {
     completedRef.current = true;
     void usersApi
       .onboardingComplete(t)
-      .then(async () => {
-        const supabase = createClient();
-        const { data } = await supabase.auth.getUser();
-        if (data.user?.id) setOnboardingDoneCookie(data.user.id);
+      .then(() => {
+        setOnboardingDoneCookie("done");
       })
       .catch(() => {
         completedRef.current = false;

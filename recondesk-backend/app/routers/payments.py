@@ -67,9 +67,11 @@ def _verify_webhook(body: bytes, signature: str) -> bool:
 
 
 class CreateOrderBody(BaseModel):
-    plan: str = Field(..., min_length=1)
-    run_id: str = Field(..., min_length=1)
+    plan: str | None = None
+    plan_name: str | None = None
+    run_id: str | None = None
     billing_period: str = Field(default="yearly")
+    billing_cycle: str | None = None
     custom_gstin_limit: int | None = None
     customer_gstin: str | None = None
     customer_trade_name: str | None = None
@@ -78,12 +80,17 @@ class CreateOrderBody(BaseModel):
 
 
 class VerifyBody(BaseModel):
-    order_id: str = Field(..., min_length=1)
-    payment_id: str = Field(..., min_length=1)
-    signature: str = Field(..., min_length=1)
-    run_id: str = Field(..., min_length=1)
-    plan: str = Field(..., min_length=1)
+    order_id: str | None = None
+    razorpay_order_id: str | None = None
+    payment_id: str | None = None
+    razorpay_payment_id: str | None = None
+    signature: str | None = None
+    razorpay_signature: str | None = None
+    run_id: str | None = None
+    plan: str | None = None
+    plan_name: str | None = None
     billing_period: str = Field(default="yearly")
+    billing_cycle: str | None = None
     custom_gstin_limit: int | None = None
     customer_gstin: str | None = None
     customer_trade_name: str | None = None
@@ -109,57 +116,61 @@ async def payments_create_order(
     current_user: dict = Depends(get_current_active_user),
     db: Client = Depends(supabase_client),
 ):
-    plan = payload.plan.strip().lower()
-    billing_period = payload.billing_period.strip().lower()
-    run_id = _parse_uuid(payload.run_id)
-    row = assert_run_accessible(db, run_id, current_user)
-    if row.get("paid_at"):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="run already paid",
-        )
+    plan = (payload.plan or payload.plan_name or "starter").strip().lower()
+    billing_period = (payload.billing_cycle or payload.billing_period or "yearly").strip().lower()
 
-    firm_owner = resolve_firm_owner_for_billing(db, current_user)
-    # Ensure run belongs to same firm as billing account
-    from app.services.firm_access import get_firm_owner_for_client
-
-    run_owner = get_firm_owner_for_client(db, str(row["client_gstin_id"]))
-    if run_owner != firm_owner:
-        firm_owner = run_owner
+    run_id = None
+    if payload.run_id and payload.run_id.strip():
+        run_id = _parse_uuid(payload.run_id)
+        row = assert_run_accessible(db, run_id, current_user)
+        if row.get("paid_at"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="run already paid",
+            )
+        from app.services.firm_access import get_firm_owner_for_client
+        firm_owner = get_firm_owner_for_client(db, str(row["client_gstin_id"]))
+        receipt = run_id.replace("-", "")[:8]
+    else:
+        firm_owner = resolve_firm_owner_for_billing(db, current_user)
+        receipt = f"SUB{int(datetime.now(timezone.utc).timestamp())}"[:8]
 
     forfeit_expired_credit_batches(db, firm_owner)
-    prof = get_user_profile(firm_owner) or {}
-    free_left = int(prof.get("free_runs_remaining") or 0)
-    if free_left > 0:
-        return {
-            "free": True,
-            "run_unlocked": True,
-            "free_runs_remaining": free_left,
-        }
+    if run_id:
+        prof = get_user_profile(firm_owner) or {}
+        free_left = int(prof.get("free_runs_remaining") or 0)
+        if free_left > 0:
+            return {
+                "free": True,
+                "run_unlocked": True,
+                "free_runs_remaining": free_left,
+            }
 
     details = get_plan_details(plan, billing_period, payload.custom_gstin_limit)
-    receipt = run_id.replace("-", "")[:8]
     try:
+        notes: dict[str, str] = {
+            "user_id": firm_owner,
+            "plan": details["plan"],
+            "plan_version": "2",
+            "billing_period": details["billing_period"],
+            "gstin_limit": str(details["gstin_limit"]),
+            "period_days": str(details["period_days"]),
+            "overage_gstins": str(details["overage_gstins"]),
+            "customer_gstin": (payload.customer_gstin or "").strip().upper()[:15],
+            "customer_trade_name": (payload.customer_trade_name or "").strip()[:255],
+            "customer_city": (payload.customer_city or "").strip()[:128],
+            "customer_state_code": (payload.customer_state_code or "").strip()[:2],
+        }
+        if run_id:
+            notes["run_id"] = run_id
+
         order = _client.order.create(
             {
                 "amount": int(details["total_paise"]),
                 "currency": "INR",
                 "payment_capture": 1,
                 "receipt": receipt[:8],
-                "notes": {
-                    "user_id": firm_owner,
-                    "run_id": run_id,
-                    "plan": details["plan"],
-                    "plan_version": "2",
-                    "billing_period": details["billing_period"],
-                    "gstin_limit": str(details["gstin_limit"]),
-                    "period_days": str(details["period_days"]),
-                    "overage_gstins": str(details["overage_gstins"]),
-                    "customer_gstin": (payload.customer_gstin or "").strip().upper()[:15],
-                    "customer_trade_name": (payload.customer_trade_name or "").strip()[:255],
-                    "customer_city": (payload.customer_city or "").strip()[:128],
-                    "customer_state_code": (payload.customer_state_code or "").strip()[:2],
-                },
+                "notes": notes,
             }
         )
     except Exception as exc:  # noqa: BLE001
@@ -168,6 +179,28 @@ async def payments_create_order(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Payment service temporarily unavailable",
         ) from exc
+
+    # Pre-record pending order row in Aurora payments table
+    try:
+        pending_payment = {
+            "firm_owner_id": firm_owner,
+            "razorpay_order_id": order["id"],
+            "amount_paise": int(details["total_paise"]),
+            "status": "created",
+            "plan": details["plan"],
+            "plan_version": 2,
+            "billing_cycle": details["billing_period"],
+            "gstin_limit": int(details["gstin_limit"]),
+            "runs_purchased": 0,
+            "base_amount_paise": int(details["base_paise"]),
+            "gst_paise": int(details["gst_paise"]),
+            "total_amount_paise": int(details["total_paise"]),
+        }
+        if run_id:
+            pending_payment["run_id"] = run_id
+        db.table("payments").insert(pending_payment).execute()
+    except Exception as exc:
+        _log.warning("Could not pre-insert pending payment: %s", exc)
 
     await log_action(
         str(current_user.get("id")),
@@ -201,49 +234,74 @@ async def payments_verify(
     current_user: dict = Depends(get_current_active_user),
     db: Client = Depends(supabase_client),
 ):
-    plan = payload.plan.strip().lower()
-    billing_period = payload.billing_period.strip().lower()
-    run_id = _parse_uuid(payload.run_id)
-    if not verify_payment_signature(
-        payload.order_id.strip(),
-        payload.payment_id.strip(),
-        payload.signature.strip(),
-    ):
+    order_id = (payload.order_id or payload.razorpay_order_id or "").strip()
+    payment_id = (payload.payment_id or payload.razorpay_payment_id or "").strip()
+    signature = (payload.signature or payload.razorpay_signature or "").strip()
+
+    if not order_id or not payment_id or not signature:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Missing required payment verification fields (order_id, payment_id, signature)",
+        )
+
+    if not verify_payment_signature(order_id, payment_id, signature):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid payment signature",
         )
 
-    pay_id = payload.payment_id.strip()
+    pay_id = payment_id
     existing = (
         db.table("payments")
         .select(
-            "id, run_id, firm_owner_id, plan, runs_purchased, total_amount_paise, amount_paise"
+            "id, run_id, firm_owner_id, plan, runs_purchased, total_amount_paise, amount_paise, status"
         )
         .eq("razorpay_payment_id", pay_id)
         .limit(1)
         .execute()
     )
-    if existing.data:
+    if existing.data and existing.data[0].get("status") == "paid":
         owner_for_bal = str(existing.data[0].get("firm_owner_id") or "").strip()
         if owner_for_bal and not user_can_access_firm(db, current_user, owner_for_bal):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
         prof = get_user_profile(owner_for_bal or resolve_firm_owner_for_billing(db, current_user)) or {}
         return {
             "success": True,
-            "plan": existing.data[0].get("plan") or plan,
+            "plan": existing.data[0].get("plan") or (payload.plan or payload.plan_name),
             "gstin_limit": int(prof.get("gstin_limit") or 0),
             "subscription_ends_at": prof.get("subscription_ends_at"),
             "idempotent": True,
         }
 
-    row = assert_run_accessible(db, run_id, current_user)
-    if row.get("paid_at"):
-        raise HTTPException(status_code=400, detail="run already paid")
+    run_id = None
+    if payload.run_id and payload.run_id.strip():
+        run_id = _parse_uuid(payload.run_id)
+        row = assert_run_accessible(db, run_id, current_user)
+        if row.get("paid_at"):
+            raise HTTPException(status_code=400, detail="run already paid")
+        from app.services.firm_access import get_firm_owner_for_client
+        firm_owner = get_firm_owner_for_client(db, str(row["client_gstin_id"]))
+    else:
+        firm_owner = resolve_firm_owner_for_billing(db, current_user)
 
-    from app.services.firm_access import get_firm_owner_for_client
+    plan = (payload.plan or payload.plan_name or "").strip().lower()
+    billing_period = (payload.billing_cycle or payload.billing_period or "yearly").strip().lower()
 
-    firm_owner = get_firm_owner_for_client(db, str(row["client_gstin_id"]))
+    if not plan:
+        # Check order row in payments table
+        pending = (
+            db.table("payments")
+            .select("plan, billing_cycle, gstin_limit")
+            .eq("razorpay_order_id", order_id)
+            .limit(1)
+            .execute()
+        )
+        if pending.data:
+            plan = (pending.data[0].get("plan") or "firm").lower()
+            billing_period = (pending.data[0].get("billing_cycle") or billing_period).lower()
+        else:
+            plan = "firm"
+
     details = get_plan_details(plan, billing_period, payload.custom_gstin_limit)
 
     seller_state_code = (getattr(settings, "SELLER_STATE_CODE", "") or "27").strip()
@@ -270,8 +328,7 @@ async def payments_verify(
 
     pay_row = {
         "firm_owner_id": firm_owner,
-        "run_id": run_id,
-        "razorpay_order_id": payload.order_id.strip(),
+        "razorpay_order_id": order_id,
         "razorpay_payment_id": pay_id,
         "amount_paise": int(details["total_paise"]),
         "status": "paid",
@@ -294,14 +351,16 @@ async def payments_verify(
         "sgst_paise": sgst_paise,
         "igst_paise": igst_paise,
     }
+    if run_id:
+        pay_row["run_id"] = run_id
+
     try:
         ins = db.table("payments").insert(pay_row).execute()
     except Exception as exc:
         _log.warning("payments insert with v2 fields failed, falling back: %s", exc)
         fallback_row = {
             "firm_owner_id": firm_owner,
-            "run_id": run_id,
-            "razorpay_order_id": payload.order_id.strip(),
+            "razorpay_order_id": order_id,
             "razorpay_payment_id": pay_id,
             "amount_paise": int(details["total_paise"]),
             "status": "paid",
@@ -311,6 +370,8 @@ async def payments_verify(
             "gst_paise": gst_val,
             "total_amount_paise": int(details["total_paise"]),
         }
+        if run_id:
+            fallback_row["run_id"] = run_id
         ins = db.table("payments").insert(fallback_row).execute()
 
     payment_rec = (ins.data or [{}])[0]
@@ -338,9 +399,10 @@ async def payments_verify(
         custom_gstin_limit=details["gstin_limit"],
         log_ip=(request.client.host if request.client else None),
     )
-    await consume_run_credit(firm_owner)
-    now = datetime.now(timezone.utc).isoformat()
-    db.table("reconciliation_run").update({"paid_at": now}).eq("id", run_id).execute()
+    if run_id:
+        await consume_run_credit(firm_owner)
+        now = datetime.now(timezone.utc).isoformat()
+        db.table("reconciliation_run").update({"paid_at": now}).eq("id", run_id).execute()
 
     # Send payment receipt email per preference
     try:

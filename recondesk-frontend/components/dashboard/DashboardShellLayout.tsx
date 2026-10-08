@@ -23,7 +23,7 @@ import {
 } from "@/lib/auth-profile";
 import { DW, formatPeriodLabel } from "@/lib/dashboard-portfolio";
 import { clearOnboardingDoneCookie } from "@/lib/onboarding-cookie";
-import { createClient, subscribeAccessToken } from "@/lib/supabase/client";
+import { subscribeAccessToken } from "@/lib/supabase/client";
 import { Analytics } from "@/lib/analytics";
 
 import { AccessibleTooltip } from "@/components/ui/AccessibleTooltip";
@@ -224,7 +224,6 @@ export default function DashboardShellLayout({
 }) {
   const pathname = usePathname();
   const router = useRouter();
-  const supabase = createClient();
   const toast = useToast();
   const [panelOpen, setPanelOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -383,26 +382,10 @@ export default function DashboardShellLayout({
         if (cancelled) return;
         console.warn("[DashboardShellLayout] fetchFreshAuthProfile failed, using fallback:", err);
         
-        let authUserEmail = "";
-        let metadataName = "";
-        try {
-          const {
-            data: { user: authUser },
-          } = await supabase.auth.getUser();
-          authUserEmail = authUser?.email ?? "";
-          metadataName = (authUser?.user_metadata as { full_name?: string } | undefined)?.full_name ?? "";
-        } catch (authErr) {
-          console.warn("[DashboardShellLayout] fallback supabase.auth.getUser failed:", authErr);
-        }
-
-        const name = resolveDisplayName({
-          metadataFullName: metadataName,
-          email: authUserEmail,
-        }) || "Admin";
-
+        const name = "Admin";
         setCurrentUser({
           name,
-          email: authUserEmail || "admin@recondesk.in",
+          email: "admin@recondesk.in",
           role: "ADMIN",
           initials: initialsFromDisplayName(name),
         });
@@ -484,20 +467,8 @@ export default function DashboardShellLayout({
     await mutate((key: unknown) => Array.isArray(key) && key[0] === DW);
   }
 
-  async function handleSignOut(): Promise<void> {
+  function handleSignOut(): void {
     clearOnboardingDoneCookie();
-    try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      if (session) {
-        await supabase.auth.signOut();
-        router.push("/login");
-        return;
-      }
-    } catch {
-      // Fall through to Cognito cleanup
-    }
     window.location.href = "/api/auth/cognito-logout";
   }
 

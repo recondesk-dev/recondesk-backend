@@ -352,20 +352,24 @@ export async function verifyCognitoAccessToken(params: {
   const claims = payload as unknown as CognitoAccessTokenClaims;
   const expectedIssuer = `https://cognito-idp.${cfg.region}.amazonaws.com/${userPoolId}`;
 
-  const validIssuers = new Set([
-    expectedIssuer,
-    `https://cognito-idp.ap-south-1.amazonaws.com/ap-south-1_nvlPYMvFh`,
-    `https://cognito-idp.ap-south-1.amazonaws.com/ap-south-1_uPECX7n1n`,
-  ]);
+  const validIssuers = params.config
+    ? new Set([expectedIssuer])
+    : new Set([
+        expectedIssuer,
+        `https://cognito-idp.ap-south-1.amazonaws.com/ap-south-1_nvlPYMvFh`,
+        `https://cognito-idp.ap-south-1.amazonaws.com/ap-south-1_uPECX7n1n`,
+      ]);
   if (!validIssuers.has(claims.iss)) {
     throw new Error(`Issuer mismatch: expected '${expectedIssuer}', got '${claims.iss}'`);
   }
 
-  const validClientIds = new Set([
-    cfg.clientId,
-    "2qui5lp7if0g4lftbrag7o6sce",
-    "6f4k06431tco06co209hl2cenl",
-  ]);
+  const validClientIds = params.config
+    ? new Set([cfg.clientId])
+    : new Set([
+        cfg.clientId,
+        "2qui5lp7if0g4lftbrag7o6sce",
+        "6f4k06431tco06co209hl2cenl",
+      ]);
   if (!validClientIds.has(claims.client_id)) {
     throw new Error(`Client ID mismatch: expected '${cfg.clientId}', got '${claims.client_id}'`);
   }

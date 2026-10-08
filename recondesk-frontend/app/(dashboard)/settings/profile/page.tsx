@@ -16,7 +16,6 @@ import {
   AUTH_PROFILE_SWR_OPTIONS,
   authProfileFetcher,
 } from "@/lib/auth-profile";
-import { createClient } from "@/lib/supabase/client";
 import { useAccessToken } from "@/lib/hooks/useAccessToken";
 import { normalizeProfilePhone, validateIndianPhone } from "@/lib/profile-validation";
 
@@ -144,27 +143,7 @@ export default function ProfileSettingsPage() {
   const [errors, setErrors] = useState<FieldErrors>({});
   const [saving, setSaving] = useState(false);
   const [loadSettled, setLoadSettled] = useState(false);
-  const [authEmail, setAuthEmail] = useState("");
-
-  useEffect(() => {
-    if (!authToken) {
-      setAuthEmail("");
-      return;
-    }
-    const supabase = createClient();
-    const syncAuthEmail = () => {
-      void supabase.auth.getUser().then(({ data: { user } }) => {
-        setAuthEmail((user?.email ?? "").trim());
-      });
-    };
-    syncAuthEmail();
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(() => {
-      syncAuthEmail();
-    });
-    return () => subscription.unsubscribe();
-  }, [authToken]);
+  const authEmail = (me?.email ?? "").trim();
 
   useEffect(() => {
     if (!authToken) {

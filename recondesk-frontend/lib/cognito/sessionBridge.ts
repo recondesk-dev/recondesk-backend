@@ -1,34 +1,29 @@
 /**
- * Dual-Auth Phase 2A Session Bridge Resolution Logic.
+ * AWS Cognito Production Session Bridge Resolution Logic.
  *
- * Implements strict precedence:
+ * Implements strict resolution:
  *   1. Caller Authorization header (highest priority for backend proxy)
- *   2. Supabase session (production priority)
- *   3. Cognito access-token cookie (development / migration bridge)
- *   4. Unauthenticated (fail closed)
- *
- * Precedence Rule (Requirement 5):
- * If both Supabase and Cognito sessions exist simultaneously, Supabase wins.
- * Reason: Supabase is current production auth and must not be broken or hijacked.
+ *   2. Cognito access-token cookie (verified via RS256 JWKS)
+ *   3. Unauthenticated (fail closed to 401)
  */
 
 export interface AccessTokenBridgeResult {
   status: 200 | 401;
   body:
-    | { access_token: string; provider: "supabase" | "cognito" }
+    | { access_token: string; provider: "cognito" }
     | { error: string };
 }
 
 export async function resolveAccessTokenBridge({
-  getSupabaseToken,
   getCognitoCookie,
   verifyCognitoToken,
+  getSupabaseToken,
 }: {
-  getSupabaseToken: () => Promise<string | null | undefined>;
   getCognitoCookie: () => string | null | undefined;
   verifyCognitoToken: (token: string) => Promise<unknown>;
+  getSupabaseToken?: () => Promise<string | null | undefined>;
 }): Promise<AccessTokenBridgeResult> {
-  // 1. Cognito access-token cookie check (AWS Cognito Production Auth priority)
+  // 1. Cognito access-token cookie check (AWS Cognito Production Auth)
   const cognitoToken = getCognitoCookie();
   if (cognitoToken && cognitoToken.trim().length > 0) {
     try {
@@ -46,23 +41,7 @@ export async function resolveAccessTokenBridge({
     }
   }
 
-  // 2. Legacy fallback: Supabase session check
-  try {
-    const supabaseToken = await getSupabaseToken();
-    if (supabaseToken && supabaseToken.trim().length > 0) {
-      return {
-        status: 200,
-        body: {
-          access_token: supabaseToken.trim(),
-          provider: "supabase",
-        },
-      };
-    }
-  } catch {
-    // Supabase read failed; proceed to unauthenticated
-  }
-
-  // 3. Unauthenticated / invalid session
+  // 2. Unauthenticated / invalid session
   return {
     status: 401,
     body: { error: "Unauthorized" },
@@ -71,14 +50,14 @@ export async function resolveAccessTokenBridge({
 
 export async function resolveBackendProxyAuth({
   incomingAuthHeader,
-  getSupabaseToken,
   getCognitoToken,
   verifyCognitoToken,
+  getSupabaseToken,
 }: {
   incomingAuthHeader?: string | null;
-  getSupabaseToken: () => Promise<string | null | undefined>;
   getCognitoToken: () => string | null | undefined;
   verifyCognitoToken: (token: string) => Promise<unknown>;
+  getSupabaseToken?: () => Promise<string | null | undefined>;
 }): Promise<string | null> {
   // 1. Caller provides explicit Authorization header (highest priority)
   if (incomingAuthHeader && incomingAuthHeader.trim().length > 0) {
@@ -95,16 +74,6 @@ export async function resolveBackendProxyAuth({
       const detail = err instanceof Error ? err.message : "Verification failed";
       console.warn(`[backend proxy] Cognito access token verification failed: ${detail}`);
     }
-  }
-
-  // 3. Legacy Fallback: Supabase session
-  try {
-    const supabaseToken = await getSupabaseToken();
-    if (supabaseToken && supabaseToken.trim().length > 0) {
-      return `Bearer ${supabaseToken.trim()}`;
-    }
-  } catch {
-    // Supabase failed; unauthenticated
   }
 
   return null;

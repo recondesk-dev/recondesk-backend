@@ -1,51 +1,26 @@
 from functools import lru_cache
 from typing import Any, Callable, Optional
 
-import httpx
-from supabase import Client, create_client
-from supabase.lib.client_options import SyncClientOptions
+try:
+    from supabase import Client
+except ImportError:
+    Client = Any  # type: ignore[misc,assignment]
 
-from app.config import get_settings, httpx_timeout_client
+from app.config import get_settings
 
 
 @lru_cache
 def get_supabase() -> Any:
-    """Cached client: returns AuroraClient if Aurora is enabled, else falls back to Supabase."""
-    from app.aurora import is_aurora_enabled, get_aurora_database_url
-    if is_aurora_enabled() and get_aurora_database_url():
-        from app.aurora_client import AuroraClient
-        return AuroraClient()
-
-    s = get_settings()
-    if not (s.SUPABASE_URL and s.SUPABASE_SERVICE_ROLE_KEY):
-        from app.aurora_client import AuroraClient
-        return AuroraClient()
-
-    opts = SyncClientOptions(
-        httpx_client=httpx_timeout_client(),
-        postgrest_client_timeout=120
-    )
-    return create_client(s.SUPABASE_URL, s.SUPABASE_SERVICE_ROLE_KEY, options=opts)
+    """Authoritative database client: returns AuroraClient (AWS Aurora PostgreSQL)."""
+    from app.aurora_client import AuroraClient
+    return AuroraClient()
 
 
 @lru_cache
 def get_supabase_anon() -> Any:
-    """Cached client using the anon/public key, or AuroraClient."""
-    from app.aurora import is_aurora_enabled, get_aurora_database_url
-    if is_aurora_enabled() and get_aurora_database_url():
-        from app.aurora_client import AuroraClient
-        return AuroraClient()
-
-    s = get_settings()
-    if not (s.SUPABASE_URL and s.SUPABASE_ANON_KEY):
-        from app.aurora_client import AuroraClient
-        return AuroraClient()
-
-    opts = SyncClientOptions(
-        httpx_client=httpx_timeout_client(),
-        postgrest_client_timeout=120
-    )
-    return create_client(s.SUPABASE_URL, s.SUPABASE_ANON_KEY, options=opts)
+    """Authoritative database client: returns AuroraClient (AWS Aurora PostgreSQL)."""
+    from app.aurora_client import AuroraClient
+    return AuroraClient()
 
 
 def supabase_client() -> Any:

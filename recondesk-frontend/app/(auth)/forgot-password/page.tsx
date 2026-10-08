@@ -3,7 +3,6 @@
 import { useState } from "react";
 import Link from "next/link";
 import { Logo } from "@/components/ui/Logo";
-import { createClient } from "@/lib/supabase/client";
 import { Mail } from "lucide-react";
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -26,20 +25,25 @@ export default function ForgotPasswordPage() {
 
     setLoading(true);
 
-    const supabase = createClient();
-    const redirectTo = `${window.location.origin}/auth/callback?redirectTo=/reset-password`;
-    const { error: resetError } = await supabase.auth.resetPasswordForEmail(trimmed, {
-      redirectTo,
-    });
+    try {
+      const res = await fetch("/api/v1/auth/forgot-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: trimmed }),
+      });
+      const data = await res.json();
+      setLoading(false);
 
-    setLoading(false);
+      if (!res.ok) {
+        setError(data.detail || "Unable to send reset code. Please try again.");
+        return;
+      }
 
-    if (resetError) {
-      setError(resetError.message);
-      return;
+      setSuccess(true);
+    } catch {
+      setLoading(false);
+      setError("An unexpected error occurred. Please try again.");
     }
-
-    setSuccess(true);
   };
 
   return (
