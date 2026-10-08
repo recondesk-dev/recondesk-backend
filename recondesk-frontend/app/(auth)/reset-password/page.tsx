@@ -54,7 +54,7 @@ function ResetPasswordForm() {
     setLoading(true);
 
     try {
-      const res = await fetch("/api/v1/auth/reset-password", {
+      const res = await fetch("/api/auth/reset-password", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -64,11 +64,11 @@ function ResetPasswordForm() {
         }),
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       setLoading(false);
 
       if (!res.ok) {
-        setError(data.detail || "Invalid code or password requirements not met.");
+        setError(data.error || data.detail || "Invalid code or password requirements not met.");
         return;
       }
 

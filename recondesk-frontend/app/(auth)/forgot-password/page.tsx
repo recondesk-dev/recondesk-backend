@@ -26,16 +26,16 @@ export default function ForgotPasswordPage() {
     setLoading(true);
 
     try {
-      const res = await fetch("/api/v1/auth/forgot-password", {
+      const res = await fetch("/api/auth/forgot-password", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: trimmed }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       setLoading(false);
 
       if (!res.ok) {
-        setError(data.detail || "Unable to send reset code. Please try again.");
+        setError(data.error || data.detail || "Unable to send reset code. Please try again.");
         return;
       }
 
@@ -58,12 +58,23 @@ export default function ForgotPasswordPage() {
         <div className="bg-white rounded-[22px] shadow-[var(--shadow-lift)] border border-white/85 p-8">
           <h2 className="text-xl font-semibold text-gray-900 mb-1">Reset your password</h2>
           <p className="text-sm text-gray-500 mb-6">
-            Enter your email and we&apos;ll send you a reset link
+            Enter your email and we&apos;ll send you a password reset confirmation code
           </p>
 
           {success ? (
-            <div className="p-4 bg-green-50 border border-green-200 rounded-lg text-sm text-green-800">
-              Check your email for a password reset link
+            <div className="space-y-4">
+              <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-lg text-sm text-emerald-800">
+                <p className="font-semibold mb-1">Reset code sent!</p>
+                <p className="text-emerald-700">
+                  We&apos;ve sent a password reset confirmation code to <strong>{email}</strong>. Please check your inbox (and spam folder).
+                </p>
+              </div>
+              <Link
+                href={`/reset-password?email=${encodeURIComponent(email.trim())}`}
+                className="btn-primary w-full flex items-center justify-center gap-2"
+              >
+                Enter Confirmation Code &rarr;
+              </Link>
             </div>
           ) : (
             <>
@@ -114,7 +125,7 @@ export default function ForgotPasswordPage() {
                   ) : (
                     <Mail size={16} />
                   )}
-                  {loading ? "Sending..." : "Send Reset Link"}
+                  {loading ? "Sending..." : "Send Reset Code"}
                 </button>
               </form>
             </>
