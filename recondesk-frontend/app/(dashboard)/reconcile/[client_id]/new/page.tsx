@@ -25,6 +25,7 @@ import {
 } from "@/components/reconcile/TallyRegisterImportHints";
 import { FileDropzone } from "@/components/ui/FileDropzone";
 import { subscribeAccessToken } from "@/lib/supabase/client";
+import { ReconciliationLoadingExperience } from "@/components/reconcile/ReconciliationLoadingExperience";
 
 const MAX_UPLOAD = 20 * 1024 * 1024;
 const ACTIVE_STATUSES = ["draft", "gstr_uploaded", "pr_uploaded", "pending", "processing"] as const;
@@ -1461,20 +1462,11 @@ export default function NewReconcileWizardPage() {
 
   if (run?.status === "pending" || run?.status === "processing") {
     const pct = poll?.pct ?? run.progress_pct ?? 0;
-    const msg = poll?.message || run.status_message || "Processing…";
+    const msg = poll?.message || run.status_message || "Finding the right match…";
     return (
-      <div className="mx-auto max-w-lg dashboard-card space-y-6 p-8">
-        <h1 className="text-2xl font-semibold tracking-tight text-[var(--ink)]">Reconciliation in progress</h1>
-        <p className="text-[var(--text-primary)]">{msg}</p>
-        <div className="h-3 w-full overflow-hidden rounded-full bg-[var(--border)]">
-          <div
-            className="h-full bg-[var(--ink)] transition-all"
-            style={{ width: `${Math.min(100, pct)}%` }}
-          />
-        </div>
-        <p className="font-mono text-sm text-[var(--text-secondary)]">{pct}%</p>
+      <div className="space-y-6">
         {err ? (
-          <div className="space-y-3 rounded-lg border border-[var(--danger)]/30 bg-[var(--danger)]/5 p-4 text-sm text-[var(--text-primary)]">
+          <div className="max-w-[680px] mx-auto space-y-3 rounded-xl border border-[var(--danger)]/30 bg-[var(--danger)]/5 p-4 text-sm text-[var(--text-primary)]">
             <p>{err}</p>
             {err.includes("upgrade") || err.includes("plan") ? (
               <Link
@@ -1486,50 +1478,18 @@ export default function NewReconcileWizardPage() {
             ) : null}
           </div>
         ) : null}
-        {pollSlow ? (
-          <p className="text-sm text-[var(--text-secondary)]">
-            This is taking longer than expected. Please keep this page open — reconciliation is still running.
-          </p>
-        ) : null}
-        <div className="flex flex-wrap gap-3">
-          {showCancelConfirm ? (
-            <div className="w-full rounded-xl border border-[var(--warning)] bg-amber-50 p-4 text-sm text-amber-950">
-              <p className="font-medium">Cancel this reconciliation? This cannot be undone.</p>
-              <div className="mt-3 flex gap-3">
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={onCancelRun}
-                  className="rounded-full bg-red-600 px-4 py-2 text-sm font-semibold text-white transition-opacity disabled:opacity-50 hover:opacity-90"
-                >
-                  {busy ? "Cancelling…" : "Cancel run"}
-                </button>
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => setShowCancelConfirm(false)}
-                  className="rounded-full border border-[var(--border)] px-4 py-2 text-sm font-medium text-amber-950 hover:bg-amber-100"
-                >
-                  Keep running
-                </button>
-              </div>
-            </div>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setShowCancelConfirm(true)}
-              className="rounded-full border border-[var(--border)] px-4 py-2 text-sm font-medium text-[var(--text-primary)] hover:bg-[var(--bg)]"
-            >
-              Cancel run
-            </button>
-          )}
-          <Link
-            href="/dashboard"
-            className="rounded-full bg-[var(--ink)] px-4 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-90"
-          >
-            Back to Dashboard
-          </Link>
-        </div>
+
+        <ReconciliationLoadingExperience
+          progressPct={pct}
+          statusMessage={msg}
+          clientName={clientRow?.legal_name || clientRow?.trade_name || clientId}
+          periodLabel={periodLabel(run.period || period || "2024-10-01")}
+          runId={run.id}
+          isCancelling={busy}
+          onCancelRun={onCancelRun}
+          onContinueBackground={() => router.push("/dashboard")}
+          onViewReport={() => router.push(`/reconcile/runs/${run.id}/results`)}
+        />
       </div>
     );
   }

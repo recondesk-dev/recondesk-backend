@@ -617,6 +617,101 @@ def _extra_chars_are_digits_only(short: str, long: str) -> bool:
     return all(ch.isdigit() for ch, cnt in extra.items() if cnt > 0)
 
 
+def levenshtein(s1: str, s2: str) -> int:
+    if not s1:
+        return len(s2)
+    if not s2:
+        return len(s1)
+    la, lb = len(s1), len(s2)
+    prev = list(range(lb + 1))
+    for i in range(1, la + 1):
+        cur = [i] + [0] * lb
+        for j in range(1, lb + 1):
+            cost = 0 if s1[i - 1] == s2[j - 1] else 1
+            cur[j] = min(
+                prev[j] + 1,
+                cur[j - 1] + 1,
+                prev[j - 1] + cost,
+            )
+        prev = cur
+    return prev[lb]
+
+
+def is_terminal_sequence_deletion(
+    a: str | None, b: str | None, a_raw: str | None = None, b_raw: str | None = None
+) -> bool:
+    """True when two invoice numbers differ by a single terminal sequence digit deletion or insertion.
+
+    For example:
+    - 00221 ↔ 0021
+    - 00351 ↔ 0031
+    - VND/0926/00221 ↔ VND/0926/0021
+
+    Such pairs represent distinct sequential documents (or material typos) and must NOT
+    clean auto-match as format variants.
+    """
+    ra = str(a_raw or a or "").strip()
+    rb = str(b_raw or b or "").strip()
+    if not ra or not rb:
+        return False
+    # Branch suffix variants (e.g. SI-02392-A vs SI-02392-A/BR01) are handled separately
+    ra_no_sfx = _RE_BRANCH_SUFFIX.sub("", ra)
+    rb_no_sfx = _RE_BRANCH_SUFFIX.sub("", rb)
+    if ra_no_sfx != ra or rb_no_sfx != rb:
+        return False
+    # OCR-canonical matches (e.g. 0001S vs 00015) are OCR substitutions, not digit deletions
+    ocr_a = ocr_canonical_invoice(ra)
+    ocr_b = ocr_canonical_invoice(rb)
+    if ocr_a and ocr_b and ocr_a == ocr_b:
+        return False
+
+    m_a = re.search(r"(\d+)\s*$", ra)
+    m_b = re.search(r"(\d+)\s*$", rb)
+    if not m_a or not m_b:
+        return False
+    ta = int(m_a.group(1))
+    tb = int(m_b.group(1))
+    if ta == tb:
+        return False
+    sa, sb = str(ta), str(tb)
+    if abs(len(sa) - len(sb)) == 1 and levenshtein(sa, sb) == 1:
+        pref_a = _RE_NON_ALNUM.sub("", ra[:m_a.start()]).upper()
+        pref_b = _RE_NON_ALNUM.sub("", rb[:m_b.start()]).upper()
+        pa_c = pref_a.replace("0", "")
+        pb_c = pref_b.replace("0", "")
+        if pref_a == pref_b or pa_c == pb_c or not pref_a or not pref_b:
+            return True
+        if pref_a.startswith(pref_b) or pref_b.startswith(pref_a) or pref_a.endswith(pref_b) or pref_b.endswith(pref_a):
+            return True
+    return False
+
+
+def is_short_invoice_fuzzy_risk(
+    a: str | None,
+    b: str | None,
+    a_raw: str | None = None,
+    b_raw: str | None = None,
+    ocr_subs: int = 0,
+) -> bool:
+    """True when invoice numbers have canonical length <= 4 characters and differ by OCR or typos.
+
+    For very short invoice numbers (e.g. 05 ↔ O5, A52 ↔ AS2, I086 ↔ IO86), one OCR or typo
+    difference can represent a different commercial document, so clean auto-matching is unsafe.
+    """
+    ra = str(a_raw or a or "").strip()
+    rb = str(b_raw or b or "").strip()
+    if not ra or not rb or ra == rb:
+        return False
+    ca = _RE_NON_ALNUM.sub("", ra).upper()
+    cb = _RE_NON_ALNUM.sub("", rb).upper()
+    if not ca or not cb:
+        return False
+    max_len = max(len(ca), len(cb))
+    if max_len <= 4:
+        return ca != cb or ocr_subs > 0
+    return False
+
+
 def is_invoice_format_variant(
     a: str | None, b: str | None, a_raw: str | None = None, b_raw: str | None = None
 ) -> bool:
@@ -651,6 +746,12 @@ def is_invoice_format_variant(
         or (nb and _RE_AMENDMENT_SUFFIX_NORM.search(nb))
     )
     if has_amd_a != has_amd_b:
+        return False
+
+    if is_terminal_sequence_deletion(a, b, a_raw, b_raw):
+        return False
+
+    if is_short_invoice_fuzzy_risk(a, b, a_raw, b_raw):
         return False
 
     # OCR transliteration equality (e.g. O↔0, I↔1, S↔5, Z↔2, B↔8)
@@ -791,26 +892,6 @@ def is_invoice_format_variant(
             # human review, not an auto-detected format variant.
 
     return False
-
-
-def levenshtein(s1: str, s2: str) -> int:
-    if not s1:
-        return len(s2)
-    if not s2:
-        return len(s1)
-    la, lb = len(s1), len(s2)
-    prev = list(range(lb + 1))
-    for i in range(1, la + 1):
-        cur = [i] + [0] * lb
-        for j in range(1, lb + 1):
-            cost = 0 if s1[i - 1] == s2[j - 1] else 1
-            cur[j] = min(
-                prev[j] + 1,
-                cur[j - 1] + 1,
-                prev[j - 1] + cost,
-            )
-        prev = cur
-    return prev[lb]
 
 
 def is_sequential_series_mismatch(
@@ -1546,6 +1627,10 @@ def invoices_effectively_match(g_inv: str, p_inv: str) -> bool:
     ocr_g = ocr_canonical_invoice(g_inv)
     ocr_p = ocr_canonical_invoice(p_inv)
     if ocr_g and ocr_p and ocr_g == ocr_p:
+        clean_g = _RE_NON_ALNUM.sub("", str(g_inv)).upper()
+        clean_p = _RE_NON_ALNUM.sub("", str(p_inv)).upper()
+        if (len(clean_g) <= 4 or len(clean_p) <= 4) and clean_g != clean_p:
+            return False
         return True
     # If one side includes a standard prefix (INV, CN, etc.) and the other omits it
     if norm_g and norm_p:
@@ -2191,7 +2276,9 @@ def _match_gstr_to_pr_pair(
             or ocr_subs > 0
         )
     )
-    is_risky_ocr = ocr_only_match and ((ocr_subs >= 2) or ocr_pfx)
+    is_short_risk = is_short_invoice_fuzzy_risk(g_inv, p_inv, a_raw=g_inv_raw, b_raw=p_inv_raw, ocr_subs=ocr_subs)
+    is_term_del = is_terminal_sequence_deletion(g_inv, p_inv, a_raw=g_inv_raw, b_raw=p_inv_raw)
+    is_risky_ocr = ocr_only_match and ((ocr_subs >= 2) or ocr_pfx or is_short_risk)
 
     is_branch_variant = bool(
         (_RE_BRANCH_SUFFIX.search(g_inv_raw) or _RE_BRANCH_SUFFIX.search(p_inv_raw))
@@ -2210,13 +2297,56 @@ def _match_gstr_to_pr_pair(
 
     if (
         gstin_match
-        and (inv_ok or format_variant)
+        and (inv_ok or format_variant or is_term_del or is_short_risk)
         and _vendor_name_ok
         and zero_discrepancy
         and date_within_l1
         and tax_structure_match
         and not rcm_conflict
     ):
+        if is_short_risk:
+            short_discrepancies = list(discrepancies) + [
+                f"short_invoice_review: Short invoice numbers ({g_inv_raw or g_inv} vs {p_inv_raw or p_inv}) with character difference require physical verification"
+            ]
+            ocr_c = ocr_subs if ocr_subs > 0 else count_ocr_substitutions(g_inv, p_inv, a_raw=g_inv_raw, b_raw=p_inv_raw)[0]
+            reason = "OCR_CONFIDENCE_REVIEW" if (ocr_c > 0 or ocr_only_match) else "TYPO_MISMATCH"
+            return _ret(
+                level=3,
+                matched=True,
+                confidence=75,
+                requires_human_review=True,
+                decision_what="Short invoice number variation requires review",
+                decision_why=(
+                    f"Invoice numbers {g_inv_raw or g_inv} (GSTR-2B) and {p_inv_raw or p_inv} (PR) are short invoices "
+                    "with character differences. For short invoice numbers, one OCR or character difference could "
+                    "indicate a distinct invoice. Physical invoice review required."
+                ),
+                decision_next="Verify physical document to confirm invoice identity before claiming ITC.",
+                discrepancies=short_discrepancies,
+                identity_confidence="Medium",
+                financial_status="Exact",
+                review_reason=reason,
+            )
+        if is_term_del:
+            del_discrepancies = list(discrepancies) + [
+                f"terminal_deletion: Invoice numbers differ by terminal sequence deletion ({g_inv_raw or g_inv} vs {p_inv_raw or p_inv})"
+            ]
+            return _ret(
+                level=3,
+                matched=True,
+                confidence=75,
+                requires_human_review=True,
+                decision_what="Terminal Sequence Number Mismatch",
+                decision_why=(
+                    f"Invoice numbers {g_inv_raw or g_inv} and {p_inv_raw or p_inv} differ by terminal sequence "
+                    "digit deletion/insertion. Physical invoice review required."
+                ),
+                decision_next="Verify whether both numbers represent the same invoice or distinct invoices in sequence.",
+                discrepancies=del_discrepancies,
+                identity_confidence="Medium",
+                financial_status="Exact",
+                review_reason="TYPO_MISMATCH",
+            )
         if is_risky_ocr or ocr_subs >= 2:
             ocr_discrepancies = list(discrepancies) + [
                 f"ocr_review: Invoice numbers differ by {ocr_subs} OCR character(s) ({g_inv_raw or g_inv} vs {p_inv_raw or p_inv})"
@@ -2385,7 +2515,7 @@ def _match_gstr_to_pr_pair(
                 )
 
     # ── Tier 2: Same GSTIN + normalized invoice number (L2) ─────────────────
-    if gstin_match and inv_ok:
+    if gstin_match and (inv_ok or is_term_del or is_short_risk):
         if amount_within_l2 and date_within_l2 and tax_structure_match:
             # A genuinely zero-discrepancy pair is already handled by the
             # zero-discrepancy invariant above and never reaches this branch;
@@ -2394,6 +2524,15 @@ def _match_gstr_to_pr_pair(
                 rr = "OCR_CONFIDENCE_REVIEW"
                 d_what = f"Invoice matched via OCR correction with {ocr_subs} character substitutions"
                 d_why = f"Same normalized invoice identity via OCR transliteration ({ocr_subs} corrections); verification required"
+            elif is_short_risk:
+                ocr_c = ocr_subs if ocr_subs > 0 else count_ocr_substitutions(g_inv, p_inv, a_raw=g_inv_raw, b_raw=p_inv_raw)[0]
+                rr = "OCR_CONFIDENCE_REVIEW" if (ocr_c > 0 or ocr_only_match) else "TYPO_MISMATCH"
+                d_what = "Short invoice number variation requires review"
+                d_why = f"Short invoice numbers ({g_inv_raw or g_inv} vs {p_inv_raw or p_inv}) require physical review"
+            elif is_term_del:
+                rr = "TYPO_MISMATCH"
+                d_what = "Terminal Sequence Number Mismatch"
+                d_why = f"Invoice numbers {g_inv_raw or g_inv} and {p_inv_raw or p_inv} differ by terminal sequence deletion"
             elif not is_note and not is_branch_variant and ev_inv.prefix_changed and ev_inv.terminal_sequence_match:
                 rr = "PREFIX_ALTERATION_REVIEW"
                 d_what = "Invoice Series / Prefix Mismatch"
