@@ -2466,12 +2466,17 @@ def _invoice_twin_similarity_ok(
     sim = invoice_similarity(g_inv, p_inv)
     # Terminal-sequence hard guard: if both sides have meaningful sequence tokens and
     # the terminal sequence differs materially, reject before fuzzy/twin scoring.
-    term_g, _ = extract_terminal_and_prefix(g_inv)
-    term_p, _ = extract_terminal_and_prefix(p_inv)
-    if term_g is not None and term_p is not None and term_g != term_p:
-        ok_align, ocr_cnt, _ = ocr_alignment(str(term_g), str(term_p))
-        if not (ok_align and ocr_cnt <= 1):
-            return False, 0.0
+    # Exception: digit transpositions (e.g. 185025 ↔ 815025) are typos, not sequential decoys.
+    d_g = "".join(re.findall(r"\d", str(g_inv or ""))).lstrip("0")
+    d_p = "".join(re.findall(r"\d", str(p_inv or ""))).lstrip("0")
+    is_transposition = bool(len(d_g) >= 3 and len(d_p) >= 3 and Counter(d_g) == Counter(d_p))
+    if not is_transposition:
+        term_g, _ = extract_terminal_and_prefix(g_inv)
+        term_p, _ = extract_terminal_and_prefix(p_inv)
+        if term_g is not None and term_p is not None and term_g != term_p:
+            ok_align, ocr_cnt, _ = ocr_alignment(str(term_g), str(term_p))
+            if not (ok_align and ocr_cnt <= 1):
+                return False, 0.0
 
     if sim >= sim_min:
         return True, sim
@@ -2485,7 +2490,6 @@ def _invoice_twin_similarity_ok(
             ):
                 if _levenshtein_distance(gc, pc) <= digit_dist_max:
                     return True, sim
-                from collections import Counter
                 if Counter(gc) == Counter(pc) and abs(len(gc) - len(pc)) <= 1:
                     return True, sim
     return False, sim

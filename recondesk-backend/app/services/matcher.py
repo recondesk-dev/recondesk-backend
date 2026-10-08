@@ -372,16 +372,48 @@ def analyze_invoice_evidence(
     prefix_changed = False
     if clean_a != clean_b and not is_exact_norm and ocr_count == 0:
         if pref_a != pref_b:
-            prefix_changed = True
-            # Also check if prefix change is accompanied by OCR substitutions on body
-            if len(clean_a) != len(clean_b):
-                long_c, short_c = (clean_a, clean_b) if len(clean_a) > len(clean_b) else (clean_b, clean_a)
-                diff = len(long_c) - len(short_c)
-                if diff <= 3:
-                    ok_al, cnt_al, subs_al = ocr_alignment(long_c[diff:], short_c)
-                    if ok_al and cnt_al > 0:
-                        ocr_count = cnt_al
-                        ocr_subs = subs_al
+            m_a = re.match(r"^[A-Z]+", pref_a)
+            m_b = re.match(r"^[A-Z]+", pref_b)
+            alpha_a = m_a.group(0) if m_a else ""
+            alpha_b = m_b.group(0) if m_b else ""
+
+            is_legit_format_diff = False
+            # 1. Same alphabetic prefix (digits in pref are FY / date expansions, e.g. DS2026 vs DS26)
+            if alpha_a and alpha_b and alpha_a == alpha_b:
+                is_legit_format_diff = True
+            # 2. Known ERP prefixes (SYS, SAP, ORACLE)
+            elif any(
+                (alpha_a.startswith(erp) and alpha_a[len(erp):] == alpha_b)
+                or (alpha_b.startswith(erp) and alpha_b[len(erp):] == alpha_a)
+                for erp in ("SYS", "SAP", "ORACLE")
+            ):
+                is_legit_format_diff = True
+            # 3. Generic invoice prefix omitted on one side (e.g. INV/2025-26/001 vs 202526001)
+            elif (alpha_a in ("INV", "INVOICE", "BILL", "TAXINV", "TI") and not alpha_b) or (
+                alpha_b in ("INV", "INVOICE", "BILL", "TAXINV", "TI") and not alpha_a
+            ):
+                is_legit_format_diff = True
+
+            if not is_legit_format_diff:
+                prefix_changed = True
+                # Also check if prefix change is accompanied by OCR substitutions on body
+                if len(clean_a) == len(clean_b):
+                    pref_len = min(len(pref_a), len(pref_b))
+                    body_a = clean_a[pref_len:]
+                    body_b = clean_b[pref_len:]
+                    if body_a and body_b and len(body_a) == len(body_b):
+                        body_subs = [f"{ca}/{cb}" for ca, cb in zip(body_a, body_b) if (ca, cb) in _OCR_CHAR_PAIRS]
+                        if body_subs:
+                            ocr_count = max(ocr_count, len(body_subs))
+                            ocr_subs = body_subs
+                else:
+                    long_c, short_c = (clean_a, clean_b) if len(clean_a) > len(clean_b) else (clean_b, clean_a)
+                    diff = len(long_c) - len(short_c)
+                    if diff <= 3:
+                        ok_al, cnt_al, subs_al = ocr_alignment(long_c[diff:], short_c)
+                        if ok_al and cnt_al > 0:
+                            ocr_count = cnt_al
+                            ocr_subs = subs_al
 
     # Risk points
     risk_points = 0

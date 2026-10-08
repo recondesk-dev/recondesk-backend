@@ -1267,6 +1267,18 @@ def generic_match_pair(
                     date_diff_days <= _L5_DATE_TOLERANCE_DAYS
                 )
                 if amount_within_l3 and date_within_l5:
+                    if evidence.cumulative_risk_points >= 6:
+                        return _ret(
+                            level=6, matched=False, confidence=0,
+                            requires_human_review=False,
+                            decision_what="No match found",
+                            decision_why="Invoice numbers differ by compound OCR, prefix, and metadata risks",
+                            decision_next="Examine independently",
+                            discrepancies=discrepancies,
+                            identity_confidence="Low",
+                            financial_status=financial_status,
+                            review_reason="COMPOUND_RISK_REJECT",
+                        )
                     if evidence.ocr_substitution_count >= 2:
                         subs_str = ", ".join(evidence.ocr_substitutions) if evidence.ocr_substitutions else f"{evidence.ocr_substitution_count} substitutions"
                         return _ret(
