@@ -1240,9 +1240,19 @@ def _flag_pr_to_pr_clone_duplicates(
     return flagged
 
 
-def _invoice_digit_core(s: str | None) -> str:
-    """Digits-only spine of an invoice number (for mangled-prefix twin checks)."""
-    return re.sub(r"[^0-9]", "", str(s or ""))
+def _terminal_alpha_suffix(inv: str | None, raw: str | None = None) -> str:
+    """Extract terminal meaningful alphabetic series suffix (e.g. 'A' from '019A', 'B' from '019B')."""
+    s = str(raw or inv or "").strip()
+    from app.services.matcher import _RE_BRANCH_SUFFIX, normalize_invoice
+    s_no_branch = _RE_BRANCH_SUFFIX.sub("", s).strip()
+    m = re.search(r"\d+[-/]?([A-Za-z]+)$", s_no_branch)
+    if m:
+        return m.group(1).upper()
+    norm = normalize_invoice(s_no_branch)
+    m_norm = re.search(r"\d+([A-Z]+)$", norm)
+    if m_norm:
+        return m_norm.group(1).upper()
+    return ""
 
 
 def _is_distinct_sequential_invoices(
@@ -1253,7 +1263,7 @@ def _is_distinct_sequential_invoices(
 ) -> bool:
     """True when two invoice numbers belong to the same sequential series
     but have distinct sequence numbers (e.g. AB/26-27/0441 vs AB/26-27/0445,
-    or 00242 vs 00272).
+    or 00242 vs 00272, or 019A vs 019B).
     """
     if inv1 == inv2:
         return False
@@ -1267,6 +1277,19 @@ def _is_distinct_sequential_invoices(
     except Exception:
         pass
 
+    # Check terminal alphabetic suffixes (e.g. 019A vs 019B)
+    r1 = raw1 or inv1
+    r2 = raw2 or inv2
+    sfx1 = _terminal_alpha_suffix(inv1, r1)
+    sfx2 = _terminal_alpha_suffix(inv2, r2)
+    if sfx1 != sfx2 and (sfx1 or sfx2):
+        if sfx1 in ("A", "B") or sfx2 in ("A", "B") or (sfx1 and sfx2):
+            return True
+        from app.services.matcher import ocr_alignment
+        ok_align, cnt, _ = ocr_alignment(r1, r2)
+        if not (ok_align and cnt <= 1):
+            return True
+
     # Check digit transposition (e.g. SL192825 vs SL912825)
     d1 = "".join(re.findall(r"\d", inv1)).lstrip("0")
     d2 = "".join(re.findall(r"\d", inv2)).lstrip("0")
@@ -1276,8 +1299,6 @@ def _is_distinct_sequential_invoices(
     def _extract_nums(s: str) -> list[int]:
         return [int(m) for m in re.findall(r"\d+", s)]
 
-    r1 = raw1 or inv1
-    r2 = raw2 or inv2
     nums1 = _extract_nums(r1)
     nums2 = _extract_nums(r2)
     if nums1 and nums2:
@@ -1314,7 +1335,7 @@ def _same_canonical_invoice_identity(
        and no prefix or structural alteration is present.
 
     Rejects:
-    - Differing terminal sequence numbers/letters (e.g. 014A vs 014B, 012A vs 012C)
+    - Differing terminal sequence numbers/letters (e.g. 014A vs 014B, 019A vs 019B)
     - Sequential series mismatches
     - Multi-OCR substitutions or prefix alterations
     - Materially different invoice numbers even with high string similarity
@@ -1325,6 +1346,18 @@ def _same_canonical_invoice_identity(
         return True
     raw_a = a_raw or a_inv
     raw_b = b_raw or b_inv
+
+    # Terminal alphabetic suffix guard: suffixes like A and B must remain distinct
+    sfx_a = _terminal_alpha_suffix(a_inv, raw_a)
+    sfx_b = _terminal_alpha_suffix(b_inv, raw_b)
+    if sfx_a != sfx_b and (sfx_a or sfx_b):
+        if sfx_a in ("A", "B") or sfx_b in ("A", "B") or (sfx_a and sfx_b):
+            return False
+        from app.services.matcher import ocr_alignment
+        ok_align, cnt, _ = ocr_alignment(raw_a, raw_b)
+        if not (ok_align and cnt <= 1):
+            return False
+
     if is_sequential_series_mismatch(a_inv, b_inv, raw_a, raw_b):
         return False
     if _is_distinct_sequential_invoices(a_inv, b_inv, raw_a, raw_b):
@@ -2427,19 +2460,15 @@ def _levenshtein_distance(s1: str, s2: str) -> int:
 
 
 def _invoice_digit_core(s: str | None) -> str:
-    """Digits-only spine of an invoice number (for mangled-prefix twin checks)."""
+    """Digits-and-suffix spine of an invoice number (for mangled-prefix twin checks)."""
     raw = str(s or "").upper()
     if not any(c.isdigit() for c in raw):
         return ""
     raw = re.sub(r"FY\s*\d{2,4}[-/]?", "", raw)
-    raw = re.sub(r"[-/][AR]$", "", raw)
     raw = re.sub(r"\b0+(\d+)", r"\1", raw)
-    from app.services.matcher import ocr_canonical_invoice
-    try:
-        raw = ocr_canonical_invoice(raw)
-    except Exception:
-        pass
-    return re.sub(r"[^0-9]", "", raw)
+    sfx = _terminal_alpha_suffix(raw)
+    digits = re.sub(r"[^0-9]", "", raw)
+    return digits + sfx
 
 
 def _pct_within(a: int, b: int, pct: float) -> bool:
@@ -2503,25 +2532,23 @@ def _peer_pr_invoice_clone_ok(
 ) -> tuple[bool, float]:
     """Stricter identity for PR↔PR duplicates.
 
-    To prevent sequential invoices in the same series (e.g. '0441' vs '0445',
-    '00242' vs '00272') from collapsing into Duplicate Entry, PR clones require:
-    1. Exact normalized equality (a_inv == b_inv), OR
-    2. True invoice format variant (is_invoice_format_variant), OR
-    3. Identical OCR canonical transliteration, OR
-    4. Mangled prefix typo with identical numeric core (ga == gb, len >= 4).
+    Requires identical canonical invoice identity, or mangled prefix typo on the exact same numeric core.
+    Preserves distinct terminal alphabetic suffixes (e.g. A vs B).
     """
     if a_inv == b_inv:
         return True, 1.0
-    from app.services.matcher import is_invoice_format_variant, ocr_canonical_invoice
-    if is_invoice_format_variant(a_inv, b_inv, a_raw, b_raw):
+    raw_a = a_raw or a_inv
+    raw_b = b_raw or b_inv
+    sfx_a = _terminal_alpha_suffix(a_inv, raw_a)
+    sfx_b = _terminal_alpha_suffix(b_inv, raw_b)
+    if sfx_a != sfx_b and (sfx_a or sfx_b):
+        return False, 0.0
+    if is_sequential_series_mismatch(a_inv, b_inv, raw_a, raw_b):
+        return False, 0.0
+    if _is_distinct_sequential_invoices(a_inv, b_inv, raw_a, raw_b):
+        return False, 0.0
+    if _same_canonical_invoice_identity(a_inv, b_inv, raw_a, raw_b):
         return True, 1.0
-    try:
-        o1 = ocr_canonical_invoice(a_inv)
-        o2 = ocr_canonical_invoice(b_inv)
-        if o1 and o2 and o1 == o2:
-            return True, 1.0
-    except Exception:
-        pass
     sim = invoice_similarity(a_inv, b_inv)
     if sim >= 0.75:
         ga, gb = _invoice_digit_core(a_inv), _invoice_digit_core(b_inv)
