@@ -20,6 +20,7 @@ from app.services.matcher import (
     MatchResult,
     are_document_types_compatible,
     build_compared_fields,
+    count_ocr_substitutions,
     invoice_similarity,
     extract_terminal_and_prefix,
     is_invoice_format_variant,
@@ -1149,11 +1150,20 @@ def _is_true_duplicate_pr_group(
     g_tax = abs(int(g.get("total_tax_paise") or 0))
     for pid in p_ids:
         p = pr_by_id[pid]
+        compat, _ = are_document_types_compatible(g, p)
+        if not compat:
+            return False
         p_taxable = abs(_taxable_paise(p))
         p_tax = abs(int(p.get("total_tax_paise") or 0))
         if not _exact_invoice_amounts_near(
             g_taxable, g_tax, p_taxable, p_tax, tolerance_paise=tolerance_paise
         ):
+            return False
+    # Ensure all PRs in the group are mutually document-compatible
+    first_p = pr_by_id[p_ids[0]]
+    for pid in p_ids[1:]:
+        compat, _ = are_document_types_compatible(first_p, pr_by_id[pid])
+        if not compat:
             return False
     return True
 
@@ -1184,7 +1194,7 @@ def _flag_pr_to_pr_clone_duplicates(
         return 0
 
     # Greedy clusters: each PR joins the first cluster whose representative is
-    # within exact-invoice amount proximity (₹1 or small %).
+    # within exact-invoice amount proximity (₹1 or small %) and shares compatible document type.
     clusters: list[list[str]] = []
     for pid in remaining:
         p = pr_by_id[pid]
@@ -1193,6 +1203,9 @@ def _flag_pr_to_pr_clone_duplicates(
         placed = False
         for cluster in clusters:
             rep = pr_by_id[cluster[0]]
+            compat, _ = are_document_types_compatible(p, rep)
+            if not compat:
+                continue
             r_taxable = abs(_taxable_paise(rep))
             r_tax = abs(int(rep.get("total_tax_paise") or 0))
             if _exact_invoice_amounts_near(
@@ -1286,6 +1299,50 @@ def _is_distinct_sequential_invoices(
     return False
 
 
+def _same_canonical_invoice_identity(
+    a_inv: str,
+    b_inv: str,
+    a_raw: str | None = None,
+    b_raw: str | None = None,
+) -> bool:
+    """True when two invoice numbers represent the exact same canonical invoice identity.
+
+    Permits:
+    1. Exact normalized equality (a_inv == b_inv)
+    2. Format variants (delimiter differences, leading zeros, valid branch suffix)
+    3. Safe single-OCR substitution where OCR canonical representations match
+       and no prefix or structural alteration is present.
+
+    Rejects:
+    - Differing terminal sequence numbers/letters (e.g. 014A vs 014B, 012A vs 012C)
+    - Sequential series mismatches
+    - Multi-OCR substitutions or prefix alterations
+    - Materially different invoice numbers even with high string similarity
+    """
+    if not a_inv or not b_inv:
+        return False
+    if a_inv == b_inv:
+        return True
+    raw_a = a_raw or a_inv
+    raw_b = b_raw or b_inv
+    if is_sequential_series_mismatch(a_inv, b_inv, raw_a, raw_b):
+        return False
+    if _is_distinct_sequential_invoices(a_inv, b_inv, raw_a, raw_b):
+        return False
+    if is_invoice_format_variant(a_inv, b_inv, raw_a, raw_b):
+        return True
+    ocr_cnt, has_pfx = count_ocr_substitutions(a_inv, b_inv, raw_a, raw_b)
+    if ocr_cnt <= 1 and not has_pfx:
+        try:
+            o1 = ocr_canonical_invoice(a_inv)
+            o2 = ocr_canonical_invoice(b_inv)
+            if o1 and o2 and o1 == o2:
+                return True
+        except Exception:
+            pass
+    return False
+
+
 def flag_fuzzy_duplicates_of_linked_prs(
     state: ReconState,
     pr_records: list[dict],
@@ -1296,22 +1353,15 @@ def flag_fuzzy_duplicates_of_linked_prs(
 ) -> int:
     """Post-match sweep: flag unconsumed PRs that clone an already-linked PR.
 
-    Covers two gaps the exact-key prepass cannot see:
+    A surplus PR row sharing the same vendor GSTIN, canonical invoice identity,
+    and compatible document type with an already-linked PR is a duplicate booking
+    (identical or conflicting amount) — never let it leak into ITC at Risk.
 
-    1. **Same invoice, no GSTR on that key** — the canonical PR matched a GSTR
-       via format-variant / typo / strong-twin, so prepass never grouped the
-       extra with a GSTR and left it to become ITC at Risk.
-    2. **Mangled invoice extras** — e.g. ``NIV455325`` vs linked ``INV455325``
-       with identical GSTIN + taxable + total tax + date.
-
-    Requires same GSTIN, invoice similarity ≥ ``invoice_sim_min`` (or exact
-    norm), date within ``date_tolerance_days``, and amount proximity:
-    exact-invoice pairs use the wider exact-invoice gates; fuzzy pairs need
-    taxable *and* total tax within ₹1 or ``FUZZY_INVOICE_DUP_AMOUNT_PCT``
-    (high-sim alone must not waive the tax check).
-    Routes to Duplicate Entry (never ITC at Risk). Returns extras flagged.
+    Materially different invoice numbers (e.g. amount collisions, 1-to-many
+    surplus rows with different numbers) and conflicting document types
+    (e.g. Invoice vs Debit Note) are strictly rejected from duplicate classification.
     """
-    from app.services.matcher import _parse_invoice_date, is_invoice_format_variant
+    from app.services.matcher import _parse_invoice_date
 
     linked_meta: dict[str, str] = {}  # pr_id -> gstr_id (may be "")
     for row in list(state.clean_matched) + list(state.review_required):
@@ -1339,8 +1389,7 @@ def flag_fuzzy_duplicates_of_linked_prs(
             continue
         by_gstin_taxable[(gst, _taxable_paise(p))].append(p)
 
-    # Also index all linked PRs by GSTIN for the high-sim / 2% taxable path
-    # (when total_tax drifts beyond paise tolerance on messy clones).
+    # Also index all linked PRs by GSTIN
     linked_by_gstin: dict[str, list[dict]] = defaultdict(list)
     for pid in linked_meta:
         p = pr_by_id.get(pid)
@@ -1364,6 +1413,7 @@ def flag_fuzzy_duplicates_of_linked_prs(
         inv = str(p.get("invoice_number_normalized") or "")
         if not inv:
             continue
+        p_raw = str(p.get("invoice_number") or "")
         p_date = _parse_invoice_date(p)
 
         best = None
@@ -1371,7 +1421,6 @@ def flag_fuzzy_duplicates_of_linked_prs(
         for tkey in (tax - 100, tax + 100):
             if tkey >= 0:
                 candidates.extend(by_gstin_taxable.get((gst, tkey), []))
-        # High-sim path: scan all linked same-GSTIN rows (taxable within 2%).
         seen_cids = {str(c["id"]) for c in candidates}
         for cp in linked_by_gstin.get(gst, []):
             cid = str(cp["id"])
@@ -1383,55 +1432,44 @@ def flag_fuzzy_duplicates_of_linked_prs(
             cid = str(cp["id"])
             if cid == pid:
                 continue
-            c_tax = abs(_taxable_paise(cp))
-            c_tot = abs(int(cp.get("total_tax_paise") or 0))
+
+            # 1. Document type compatibility gate
+            compat, _ = are_document_types_compatible(p, cp)
+            if not compat:
+                continue
+
+            # 2. Canonical invoice identity gate
             c_inv = str(cp.get("invoice_number_normalized") or "")
             if not c_inv:
                 continue
-            c_date = _parse_invoice_date(cp)
-            exact_inv = c_inv == inv
-            if not exact_inv:
-                if _is_distinct_sequential_invoices(
-                    inv,
-                    c_inv,
-                    str(p.get("invoice_number") or ""),
-                    str(cp.get("invoice_number") or ""),
-                ):
-                    continue
-            sim = 1.0 if exact_inv else invoice_similarity(inv, c_inv)
-            if not exact_inv and sim < invoice_sim_min:
-                ok_digit, _ = _invoice_twin_similarity_ok(
-                    inv, c_inv, sim_min=invoice_sim_min, digit_dist_max=2
-                )
-                if not ok_digit:
-                    continue
-            # Exact invoice: any surplus ERP row sharing identical vendor GSTIN and
-            # normalized invoice with an already-linked PR is a duplicate booking
-            # (identical or conflicting amount) — never let it leak into ITC at Risk.
-            if exact_inv:
-                max_date_days = EXACT_INVOICE_DUP_DATE_DAYS
-            else:
-                taxable_ok = abs(c_tax - abs(tax)) <= amount_tolerance_paise or (
-                    sim >= 0.85
-                    and _pct_within(c_tax, abs(tax), FUZZY_INVOICE_DUP_AMOUNT_PCT)
-                )
-                if not taxable_ok:
-                    continue
-                tax_ok = abs(c_tot - tot) <= amount_tolerance_paise or (
-                    sim >= 0.85
-                    and _pct_within(c_tot, tot, FUZZY_INVOICE_DUP_AMOUNT_PCT)
-                )
-                if not tax_ok:
-                    continue
-                max_date_days = date_tolerance_days
-            if p_date and c_date and abs((p_date - c_date).days) > max_date_days:
+            cp_raw = str(cp.get("invoice_number") or "")
+            if not _same_canonical_invoice_identity(inv, c_inv, p_raw, cp_raw):
                 continue
-            if best is None or sim > best[0] or (sim == best[0] and cid < str(best[1]["id"])):
-                best = (sim, cp)
+
+            # 3. Date proximity gate
+            c_date = _parse_invoice_date(cp)
+            if p_date and c_date and abs((p_date - c_date).days) > EXACT_INVOICE_DUP_DATE_DAYS:
+                continue
+
+            c_tax = abs(_taxable_paise(cp))
+            c_tot = abs(int(cp.get("total_tax_paise") or 0))
+            sim = 1.0 if c_inv == inv else 0.95
+            cost = (abs(c_tax - tax), abs(c_tot - tot))
+
+            if best is None:
+                best = (sim, cost, cid, cp)
+            else:
+                b_sim, b_cost, b_cid, _ = best
+                if sim > b_sim:
+                    best = (sim, cost, cid, cp)
+                elif sim == b_sim and cost < b_cost:
+                    best = (sim, cost, cid, cp)
+                elif sim == b_sim and cost == b_cost and cid < b_cid:
+                    best = (sim, cost, cid, cp)
 
         if best is None:
             continue
-        _sim, cp = best
+        _sim, _cost, _cid, cp = best
         _push_duplicate_entry(
             state,
             extra_pr_id=pid,
@@ -1506,10 +1544,18 @@ def flag_fuzzy_pr_peer_duplicates(
                 eid = str(extra["id"])
                 if eid in state.consumed_pr_ids or eid in claimed:
                     continue
+                compat, _ = are_document_types_compatible(canon, extra)
+                if not compat:
+                    continue
                 e_inv = str(extra.get("invoice_number_normalized") or "")
                 if not e_inv:
                     continue
-                ok, sim = _peer_pr_invoice_clone_ok(c_inv, e_inv)
+                ok, sim = _peer_pr_invoice_clone_ok(
+                    c_inv,
+                    e_inv,
+                    str(canon.get("invoice_number") or ""),
+                    str(extra.get("invoice_number") or ""),
+                )
                 if not ok:
                     continue
                 exact_inv = c_inv == e_inv

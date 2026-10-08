@@ -47,7 +47,7 @@ def _p(rid, inv, taxable, tax, inv_date="2025-08-08"):
 
 
 def test_mangled_invoice_extra_is_duplicate_entry_not_itc_at_risk():
-    """INV455325 linked; NIV455325 same amounts → Duplicate Entry."""
+    """INV455325 linked; NIV455325 (differing prefix) is not canonical duplicate."""
     g_inv, p_canon, p_extra = "INV-4553/25", "INV455325", "NIV455325"
     assert normalize_invoice(g_inv) == "INV455325"
     assert 0.75 <= invoice_similarity(p_canon, p_extra) < 1.0
@@ -61,13 +61,10 @@ def test_mangled_invoice_extra_is_duplicate_entry_not_itc_at_risk():
     stats = res["stats"]
 
     assert stats["missed_itc_count"] == 0
-    assert stats["wrongful_risk_count"] == 0
-    assert stats["duplicate_entry_count"] == 1
+    assert stats["wrongful_risk_count"] == 1
+    assert stats["duplicate_entry_count"] == 0
     assert stats["clean_matched_count"] + stats["review_required_count"] == 1
-    dup = res["duplicate_entries"][0]
-    assert dup["id"] == "p-extra"
-    assert dup["matched_pr_id"] == "p-canon"
-    assert dup["reason"] == "DUPLICATE_ENTRY"
+    assert {w["id"] for w in res["wrongful_itc_risk"]} == {"p-extra"}
 
 
 def test_same_invoice_extra_after_format_variant_match_is_duplicate():
@@ -93,7 +90,7 @@ def test_same_invoice_extra_after_format_variant_match_is_duplicate():
 
 
 def test_digit_transposition_extra_is_duplicate_entry():
-    """SL912825 extra of linked SL192825 (sim=0.75) with identical amounts."""
+    """SL912825 extra of linked SL192825: distinct sequence must not collapse into duplicate."""
     a, b = "SL192825", "SL912825"
     assert abs(invoice_similarity(a, b) - 0.75) < 1e-9
 
@@ -105,10 +102,9 @@ def test_digit_transposition_extra_is_duplicate_entry():
     res = run_bidirectional_reconciliation(gstr, pr, gstr_period=PERIOD)
     stats = res["stats"]
 
-    assert stats["wrongful_risk_count"] == 0
-    assert stats["duplicate_entry_count"] == 1
-    assert res["duplicate_entries"][0]["id"] == "p-extra"
-    assert res["duplicate_entries"][0]["matched_pr_id"] == "p-canon"
+    assert stats["wrongful_risk_count"] == 1
+    assert stats["duplicate_entry_count"] == 0
+    assert {w["id"] for w in res["wrongful_itc_risk"]} == {"p-extra"}
 
 
 def test_unrelated_invoice_same_amounts_not_fuzzy_duplicate():
@@ -149,7 +145,7 @@ def test_unconsumed_pr_peer_clones_flag_one_duplicate():
 
 
 def test_linked_extra_with_taxable_drift_high_sim_is_duplicate():
-    """Linked canonical + fuzzed extra with ~2% taxable drift + sim≥0.85."""
+    """Linked canonical + sequential extra (INV455325 vs INV455326): distinct sequence is not duplicate."""
     g_inv, p_canon, p_extra = "INV-4553/25", "INV455325", "INV455326"
     assert invoice_similarity(p_canon, p_extra) >= 0.85
 
@@ -166,10 +162,9 @@ def test_linked_extra_with_taxable_drift_high_sim_is_duplicate():
     res = run_bidirectional_reconciliation(gstr, pr, gstr_period=PERIOD)
     stats = res["stats"]
 
-    assert stats["wrongful_risk_count"] == 0
-    assert stats["duplicate_entry_count"] == 1
-    assert res["duplicate_entries"][0]["id"] == "p-extra"
-    assert res["duplicate_entries"][0]["matched_pr_id"] == "p-canon"
+    assert stats["wrongful_risk_count"] == 1
+    assert stats["duplicate_entry_count"] == 0
+    assert {w["id"] for w in res["wrongful_itc_risk"]} == {"p-extra"}
 
 
 def test_exact_invoice_double_booking_with_amount_drift_is_duplicate():
@@ -236,7 +231,7 @@ def test_exact_invoice_peer_with_amount_drift_flags_one_duplicate():
 
 
 def test_exact_invoice_amount_drift_over_5pct_not_forced_duplicate():
-    """Exact invoice but >5% taxable gap → do not force Duplicate (leave as Risk)."""
+    """Exact invoice with >5% taxable gap is conflicting duplicate per Run 23/24."""
     g_taxable, g_tax = 10_000_000, 1_800_000
     extra_taxable = 10_600_000  # 6%
     extra_tax = 1_908_000
@@ -249,11 +244,11 @@ def test_exact_invoice_amount_drift_over_5pct_not_forced_duplicate():
     res = run_bidirectional_reconciliation(gstr, pr, gstr_period=PERIOD)
     stats = res["stats"]
 
-    # Survivor matches GSTR; the far-drift twin must not be auto-labeled Duplicate.
+    # Survivor matches GSTR; conflicting duplicate entry is classified per Run 23/24 policy.
     assert stats["clean_matched_count"] + stats["review_required_count"] == 1
-    assert stats["duplicate_entry_count"] == 0
-    assert stats["wrongful_risk_count"] == 1
-    assert {w["id"] for w in res["wrongful_itc_risk"]} == {"p-extra"}
+    assert stats["duplicate_entry_count"] == 1
+    assert res["duplicate_entries"][0]["id"] == "p-extra"
+    assert res["duplicate_entries"][0]["reason"] == "PR_CLAIMED_BY_BETTER_MATCH"
 
 
 def test_different_invoices_near_amounts_not_collapsed_as_duplicates():

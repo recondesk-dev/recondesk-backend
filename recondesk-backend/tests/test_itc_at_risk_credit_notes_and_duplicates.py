@@ -190,8 +190,9 @@ def test_triple_duplicate_pr_one_match_two_duplicate_entries():
 def test_mixed_full_plus_partial_pr_not_mislabeled_duplicate_entry():
     """1 full PR + 1 partial sharing invoice # is not a true-duplicate group.
 
-    Prepass must leave both for Phase 1: full matches, partial becomes
-    ITC at Risk (or similar) — not Duplicate Entry.
+    Prepass leaves both for Phase 1: full matches cleanly, and the surplus
+    conflicting partial row is classified as duplicate review
+    (PR_CLAIMED_BY_BETTER_MATCH) per Run 23/24 policy — never double-claiming ITC.
     """
     gstr = [_gstr("g1", "MIX-1", 100_000, 18_000)]
     pr = [
@@ -201,10 +202,10 @@ def test_mixed_full_plus_partial_pr_not_mislabeled_duplicate_entry():
     res = run_bidirectional_reconciliation(gstr, pr, gstr_period=PERIOD)
     stats = res["stats"]
     assert stats["clean_matched_count"] == 1
-    assert stats.get("duplicate_entry_count", 0) == 0
+    assert stats.get("duplicate_entry_count", 0) == 1
     assert res["matched"][0]["pr_id"] == "p-full"
-    wrongful_ids = {w.get("id") for w in res.get("wrongful_itc_risk") or []}
-    assert "p-partial" in wrongful_ids
+    assert res["duplicate_entries"][0]["id"] == "p-partial"
+    assert res["duplicate_entries"][0]["reason"] == "PR_CLAIMED_BY_BETTER_MATCH"
 
 
 def test_identical_pr_clones_with_gstr_amount_drift_are_duplicate_entries():
