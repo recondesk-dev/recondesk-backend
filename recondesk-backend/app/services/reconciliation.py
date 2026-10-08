@@ -21,10 +21,12 @@ from app.services.matcher import (
     are_document_types_compatible,
     build_compared_fields,
     invoice_similarity,
+    extract_terminal_and_prefix,
     is_invoice_format_variant,
     is_sequential_series_mismatch,
     match_gstr_to_pr,
     normalize_invoice,
+    ocr_alignment,
     ocr_canonical_invoice,
     same_pan,
     supplier_identity_compatible,
@@ -124,6 +126,20 @@ def _taxable_paise(rec: Mapping[str, Any] | None) -> int:
     if inv_val > 0 and tot_tax >= 0 and inv_val >= tot_tax:
         return inv_val - tot_tax
     return 0
+
+
+def _total_tax_paise(rec: Mapping[str, Any] | None) -> int:
+    if not rec or not isinstance(rec, Mapping):
+        return 0
+    tot = int(rec.get("total_tax_paise") or 0)
+    if tot == 0:
+        tot = (
+            int(rec.get("igst_paise") or 0)
+            + int(rec.get("cgst_paise") or 0)
+            + int(rec.get("sgst_paise") or 0)
+            + int(rec.get("cess_paise") or 0)
+        )
+    return tot
 
 
 def _tie_key(
@@ -1389,18 +1405,10 @@ def flag_fuzzy_duplicates_of_linked_prs(
                 )
                 if not ok_digit:
                     continue
-            # Exact invoice: allow wider amount/date drift (double-booking
-            # typos). Fuzzy invoice: keep the stricter 2%/₹1 + 30d gates on
-            # *both* taxable and total tax (do not waive tax on sim alone).
+            # Exact invoice: any surplus ERP row sharing identical vendor GSTIN and
+            # normalized invoice with an already-linked PR is a duplicate booking
+            # (identical or conflicting amount) — never let it leak into ITC at Risk.
             if exact_inv:
-                if not _exact_invoice_amounts_near(
-                    c_tax,
-                    c_tot,
-                    abs(tax),
-                    tot,
-                    tolerance_paise=amount_tolerance_paise,
-                ):
-                    continue
                 max_date_days = EXACT_INVOICE_DUP_DATE_DAYS
             else:
                 taxable_ok = abs(c_tax - abs(tax)) <= amount_tolerance_paise or (
@@ -1587,8 +1595,8 @@ def _push_duplicate_entry(
                 pr_rec.get("invoice_number_normalized") or ""
             ),
             "invoice_date": pr_rec.get("invoice_date"),
-            "taxable_amount_paise": int(pr_rec.get("taxable_amount_paise") or 0),
-            "total_tax_paise": int(pr_rec.get("total_tax_paise") or 0),
+            "taxable_amount_paise": _taxable_paise(pr_rec),
+            "total_tax_paise": _total_tax_paise(pr_rec),
         }
     )
 
@@ -2410,6 +2418,15 @@ def _invoice_twin_similarity_ok(
     cannot collide via distance 0 on ``\"\"``.
     """
     sim = invoice_similarity(g_inv, p_inv)
+    # Terminal-sequence hard guard: if both sides have meaningful sequence tokens and
+    # the terminal sequence differs materially, reject before fuzzy/twin scoring.
+    term_g, _ = extract_terminal_and_prefix(g_inv)
+    term_p, _ = extract_terminal_and_prefix(p_inv)
+    if term_g is not None and term_p is not None and term_g != term_p:
+        ok_align, ocr_cnt, _ = ocr_alignment(str(term_g), str(term_p))
+        if not (ok_align and ocr_cnt <= 1):
+            return False, 0.0
+
     if sim >= sim_min:
         return True, sim
     if digit_dist_max is not None:
@@ -3408,7 +3425,7 @@ def execute_phase2_and_3(
         if pid and pid in pr_by_id:
             matched_pr_amounts[pid] = (
                 _taxable_paise(pr_by_id[pid]),
-                int(pr_by_id[pid].get("total_tax_paise") or 0),
+                _total_tax_paise(pr_by_id[pid]),
             )
     for r in state.review_required:
         if r.get("gstr_id") and r.get("pr_id"):
@@ -3419,7 +3436,7 @@ def execute_phase2_and_3(
             if pid and pid in pr_by_id:
                 matched_pr_amounts[pid] = (
                     _taxable_paise(pr_by_id[pid]),
-                    int(pr_by_id[pid].get("total_tax_paise") or 0),
+                    _total_tax_paise(pr_by_id[pid]),
                 )
 
     for d in state.duplicate_entries:
@@ -3429,7 +3446,7 @@ def execute_phase2_and_3(
             if (d_inv and d_inv in claimed_inv_norms) or d.get("gstr_id"):
                 m_amt = matched_pr_amounts.get(matched_pid)
                 d_taxable = _taxable_paise(d)
-                d_tax = int(d.get("total_tax_paise") or 0)
+                d_tax = _total_tax_paise(d)
                 if m_amt and abs(m_amt[0] - d_taxable) <= 100 and abs(m_amt[1] - d_tax) <= 100:
                     d["reason"] = "DUPLICATE_ENTRY"
                 else:

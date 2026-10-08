@@ -315,6 +315,12 @@ def analyze_invoice_evidence(
     term_a, pref_a = extract_terminal_and_prefix(raw_a)
     term_b, pref_b = extract_terminal_and_prefix(raw_b)
     terminal_sequence_match = bool(term_a is not None and term_a == term_b)
+    if not terminal_sequence_match and (ocr_a or ocr_b):
+        term_oa, _ = extract_terminal_and_prefix(ocr_a or raw_a)
+        term_ob, _ = extract_terminal_and_prefix(ocr_b or raw_b)
+        if term_oa is not None and term_oa == term_ob:
+            terminal_sequence_match = True
+            term_a, term_b = term_oa, term_ob
 
     # Whitespace-only difference
     raw_a_no_space = re.sub(r"\s+", "", raw_a).upper()
@@ -367,6 +373,15 @@ def analyze_invoice_evidence(
     if clean_a != clean_b and not is_exact_norm and ocr_count == 0:
         if pref_a != pref_b:
             prefix_changed = True
+            # Also check if prefix change is accompanied by OCR substitutions on body
+            if len(clean_a) != len(clean_b):
+                long_c, short_c = (clean_a, clean_b) if len(clean_a) > len(clean_b) else (clean_b, clean_a)
+                diff = len(long_c) - len(short_c)
+                if diff <= 3:
+                    ok_al, cnt_al, subs_al = ocr_alignment(long_c[diff:], short_c)
+                    if ok_al and cnt_al > 0:
+                        ocr_count = cnt_al
+                        ocr_subs = subs_al
 
     # Risk points
     risk_points = 0
@@ -458,14 +473,25 @@ def analyze_invoice_evidence(
     )
 
 
-def count_ocr_substitutions(a: str, b: str) -> tuple[int, bool]:
-    """Count OCR transliteration differences between two normalized invoices.
+def count_ocr_substitutions(
+    a: str,
+    b: str,
+    a_raw: str | None = None,
+    b_raw: str | None = None,
+) -> tuple[int, bool]:
+    """Count OCR transliteration differences between two normalized or raw invoices.
 
     Returns:
         (substitution_count, has_prefix_or_structural_substitution)
     """
-    ev = analyze_invoice_evidence(a, b)
-    return ev.ocr_substitution_count, (ev.prefix_changed or ev.risk_points >= 2)
+    ev = analyze_invoice_evidence(a, b, a_inv_raw=a_raw, b_inv_raw=b_raw)
+    cnt = ev.ocr_substitution_count
+    has_pfx = ev.prefix_changed or ev.risk_points >= 2
+    if a_raw or b_raw:
+        ev_raw = analyze_invoice_evidence(a_raw or a, b_raw or b)
+        cnt = max(cnt, ev_raw.ocr_substitution_count)
+        has_pfx = has_pfx or ev_raw.prefix_changed or ev_raw.risk_points >= 2
+    return cnt, has_pfx
 
 
 def _pan_of(gstin: str | None) -> str:
@@ -857,18 +883,25 @@ def is_sequential_series_mismatch(
                 if is_note_doc or abs(last1 - last2) != 1:
                     return False
 
-            # 1. Same leading alphabetic prefix (e.g. "INV" on both)
+            # 1. Same leading alphabetic prefix (e.g. "INV" on both) or prefix with extraneous letter (e.g. "XSUP" vs "SUP")
             p1 = _RE_LEADING_ALPHA.match(n1)
             p2 = _RE_LEADING_ALPHA.match(n2)
-            if p1 and p2 and p1.group(0) == p2.group(0):
-                return True
+            if p1 and p2:
+                pref1_a = p1.group(0)
+                pref2_a = p2.group(0)
+                if (
+                    pref1_a == pref2_a
+                    or pref1_a.endswith(pref2_a)
+                    or pref2_a.endswith(pref1_a)
+                ):
+                    return True
             # 2. Same normalized series prefix before trailing digits
             m1 = _RE_TRAILING_DIGITS.search(n1)
             m2 = _RE_TRAILING_DIGITS.search(n2)
             if m1 and m2 and m1.group(0) != m2.group(0):
                 pref1 = n1[: m1.start()]
                 pref2 = n2[: m2.start()]
-                if pref1 == pref2:
+                if pref1 == pref2 or pref1.endswith(pref2) or pref2.endswith(pref1):
                     return True
             # 3. Same leading numeric tokens (e.g. same FY [25, 26, 101] vs [25, 26, 197])
             if len(nums1) > 1 and len(nums2) > 1 and nums1[:-1] == nums2[:-1]:
@@ -1906,6 +1939,11 @@ def _match_gstr_to_pr_pair(
     format_variant = False
     if not inv_ok:
         format_variant = is_invoice_format_variant(g_inv, p_inv, g_inv_raw, p_inv_raw)
+        if not format_variant:
+            ocr_g_c = ocr_canonical_invoice(g_inv_raw or g_inv)
+            ocr_p_c = ocr_canonical_invoice(p_inv_raw or p_inv)
+            if ocr_g_c and ocr_p_c and is_invoice_format_variant(ocr_g_c, ocr_p_c):
+                format_variant = True
 
     g_orig = str(gstr_rec.get("original_invoice_number") or gstr_rec.get("oinum") or "").strip()
     p_orig = str(pr_rec.get("original_invoice_number") or pr_rec.get("oinum") or "").strip()
@@ -2138,16 +2176,37 @@ def _match_gstr_to_pr_pair(
     )
     norm_g = normalize_invoice(g_inv)
     norm_p = normalize_invoice(p_inv)
-    ocr_subs, ocr_pfx = count_ocr_substitutions(g_inv, p_inv)
+    ocr_subs, ocr_pfx = count_ocr_substitutions(g_inv, p_inv, a_raw=g_inv_raw, b_raw=p_inv_raw)
+    ev_inv = analyze_invoice_evidence(norm_g, norm_p, a_inv_raw=g_inv_raw, b_inv_raw=p_inv_raw)
+    ocr_subs = max(ocr_subs, ev_inv.ocr_substitution_count)
     ocr_only_match = (
         not raw_inv_ok
-        and bool(norm_g and norm_p and norm_g != norm_p)
+        and (
+            bool(norm_g and norm_p and norm_g != norm_p)
+            or bool(g_inv_raw and p_inv_raw and g_inv_raw != p_inv_raw)
+        )
         and (
             ocr_canonical_invoice(norm_g) == ocr_canonical_invoice(norm_p)
+            or ocr_canonical_invoice(g_inv_raw) == ocr_canonical_invoice(p_inv_raw)
             or ocr_subs > 0
         )
     )
     is_risky_ocr = ocr_only_match and ((ocr_subs >= 2) or ocr_pfx)
+
+    is_branch_variant = bool(
+        (_RE_BRANCH_SUFFIX.search(g_inv_raw) or _RE_BRANCH_SUFFIX.search(p_inv_raw))
+        and (
+            _RE_BRANCH_SUFFIX.sub("", g_inv_raw) == _RE_BRANCH_SUFFIX.sub("", p_inv_raw)
+            or normalize_invoice(_RE_BRANCH_SUFFIX.sub("", g_inv_raw))
+            == normalize_invoice(_RE_BRANCH_SUFFIX.sub("", p_inv_raw))
+        )
+    )
+    is_note = (
+        _is_note_doc(gstr_rec)
+        or _is_note_doc(pr_rec)
+        or (ev_inv.prefix_a in ("CN", "DN", "CRN", "DRN", "CR", "DR", "CDN") and not ev_inv.prefix_b)
+        or (ev_inv.prefix_b in ("CN", "DN", "CRN", "DRN", "CR", "DR", "CDN") and not ev_inv.prefix_a)
+    )
 
     if (
         gstin_match
@@ -2158,9 +2217,9 @@ def _match_gstr_to_pr_pair(
         and tax_structure_match
         and not rcm_conflict
     ):
-        if is_risky_ocr:
+        if is_risky_ocr or ocr_subs >= 2:
             ocr_discrepancies = list(discrepancies) + [
-                f"ocr_review: Invoice numbers differ by {ocr_subs} OCR character(s) ({g_inv} vs {p_inv})"
+                f"ocr_review: Invoice numbers differ by {ocr_subs} OCR character(s) ({g_inv_raw or g_inv} vs {p_inv_raw or p_inv})"
             ]
             return _ret(
                 level=3,
@@ -2169,7 +2228,7 @@ def _match_gstr_to_pr_pair(
                 requires_human_review=True,
                 decision_what=f"Invoice matched via OCR correction with {ocr_subs} character substitutions",
                 decision_why=(
-                    f"Invoice numbers {g_inv} (GSTR-2B) and {p_inv} (PR) differ by {ocr_subs} "
+                    f"Invoice numbers {g_inv_raw or g_inv} (GSTR-2B) and {p_inv_raw or p_inv} (PR) differ by {ocr_subs} "
                     "OCR character substitutions. Physical invoice review required."
                 ),
                 decision_next="Verify physical document to ensure invoice number OCR reading is correct before claiming ITC.",
@@ -2177,6 +2236,26 @@ def _match_gstr_to_pr_pair(
                 identity_confidence="Medium",
                 financial_status="Exact",
                 review_reason="OCR_CONFIDENCE_REVIEW",
+            )
+        if not is_note and not is_branch_variant and ev_inv.prefix_changed and ev_inv.terminal_sequence_match:
+            prefix_discrepancies = list(discrepancies) + [
+                f"prefix_review: Invoice prefix differs ({ev_inv.prefix_a} vs {ev_inv.prefix_b}) with matching sequence {ev_inv.terminal_seq_a}"
+            ]
+            return _ret(
+                level=3,
+                matched=True,
+                confidence=75,
+                requires_human_review=True,
+                decision_what="Invoice Series / Prefix Mismatch",
+                decision_why=(
+                    f"Invoice numbers {g_inv_raw or g_inv} and {p_inv_raw or p_inv} share numeric sequence {ev_inv.terminal_seq_a} "
+                    f"but differ in prefix ({ev_inv.prefix_a} vs {ev_inv.prefix_b}). Physical invoice review required."
+                ),
+                decision_next="Confirm whether both numbers belong to the same invoice series/branch before claiming ITC.",
+                discrepancies=prefix_discrepancies,
+                identity_confidence="Medium",
+                financial_status="Exact",
+                review_reason="PREFIX_ALTERATION_REVIEW",
             )
         # L1 only when raw invoice strings are identical. Normalized / format-
         # variant identity with zero financial diff stays on Matched as L2
@@ -2311,10 +2390,14 @@ def _match_gstr_to_pr_pair(
             # A genuinely zero-discrepancy pair is already handled by the
             # zero-discrepancy invariant above and never reaches this branch;
             # anything landing here has a real (if small) amount/date diff.
-            if is_risky_ocr:
+            if is_risky_ocr or ocr_subs >= 2:
                 rr = "OCR_CONFIDENCE_REVIEW"
                 d_what = f"Invoice matched via OCR correction with {ocr_subs} character substitutions"
                 d_why = f"Same normalized invoice identity via OCR transliteration ({ocr_subs} corrections); verification required"
+            elif not is_note and not is_branch_variant and ev_inv.prefix_changed and ev_inv.terminal_sequence_match:
+                rr = "PREFIX_ALTERATION_REVIEW"
+                d_what = "Invoice Series / Prefix Mismatch"
+                d_why = f"Invoice numbers {g_inv_raw or g_inv} and {p_inv_raw or p_inv} share sequence {ev_inv.terminal_seq_a} but differ in prefix ({ev_inv.prefix_a} vs {ev_inv.prefix_b})"
             elif date_diff_days > 0 and amount_within_l1 and tax_only_diff <= AMOUNT_TOLERANCE_L1_PAISE:
                 d_what = f"Invoice matched; invoice date differs by {date_diff_days} days"
                 d_why = f"Same normalized invoice and GSTIN, date differs by {date_diff_days} days (within {DATE_TOLERANCE_L2_DAYS}-day tolerance)"
