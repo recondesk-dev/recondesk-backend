@@ -1,0 +1,22 @@
+version: 1
+applications:
+  - appRoot: recondesk-frontend
+    frontend:
+      phases:
+        preBuild:
+          commands:
+            - nvm use 20 || true
+            - node scripts/validate-staging-env.mjs
+            - npm ci --cache .npm --prefer-offline
+        build:
+          commands:
+            - node scripts/generate-build-env.mjs
+            - npm run build
+            - rm -rf .next/cache
+      artifacts:
+        baseDirectory: .next
+        files:
+          - '**/*'
+      cache:
+        paths:
+          - .npm/**/*
