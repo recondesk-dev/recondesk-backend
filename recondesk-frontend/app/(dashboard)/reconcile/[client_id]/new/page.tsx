@@ -1094,7 +1094,7 @@ export default function NewReconcileWizardPage() {
     requiredOk && taxOk && lowOk && !!mappingLocal?.length && highRiskWarningsOk;
 
   const step3BlockingWarnings = blockingAckWarnings.filter((c) =>
-    ["multi_sheet_combine", "missing_invoice_number"].includes(String(c.id))
+    ["multi_sheet_combine", "missing_invoice_number", "sheet_selection_required"].includes(String(c.id))
   );
 
   const gstnConnected = isGstnConnected(clientRow);

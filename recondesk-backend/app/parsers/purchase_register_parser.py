@@ -301,6 +301,7 @@ _SKIP_SHEET_WORDS: frozenset[str] = frozenset(
         "master", "vendor master", "vendormaster", "item master", "itemmaster",
         "customer master", "customermaster", "party master", "partymaster",
         "ledger master", "ledgermaster", "chart of accounts", "chartofaccounts",
+        "control", "controls", "control sheet", "run control", "run30 control",
     ]
 )
 
@@ -844,6 +845,94 @@ def detect_column_mapping(df: pd.DataFrame, client_gstin: str | None = None) -> 
     return mapping
 
 
+def is_transactional_pr_sheet(mapping: dict[str, str] | None) -> tuple[bool, str]:
+    """Check if the detected column mapping represents a valid transactional PR schema.
+
+    A valid transactional purchase-register sheet must contain:
+    1. Document / invoice identifier: invoice_number or note_number
+    2. At least one core counterparty or valuation attribute:
+       - Supplier identifier (gstin or supplier_name), OR
+       - Financial valuation (taxable_amount, total_amount, igst, cgst, sgst, cess, total_tax, note_amount)
+    """
+    if not mapping:
+        return False, "no_column_mapping"
+
+    has_inv = "invoice_number" in mapping or "note_number" in mapping
+    if not has_inv:
+        return False, "missing_invoice_number"
+
+    has_supplier = "gstin" in mapping or "supplier_name" in mapping
+    amount_keys = (
+        "taxable_amount",
+        "total_amount",
+        "igst",
+        "cgst",
+        "sgst",
+        "cess",
+        "total_tax",
+        "note_amount",
+    )
+    has_amount = any(k in mapping for k in amount_keys)
+
+    if not (has_supplier or has_amount):
+        return False, "missing_supplier_or_amount"
+
+    return True, "valid_pr_schema"
+
+
+def are_sheet_schemas_compatible(
+    mapping_a: dict[str, str], mapping_b: dict[str, str]
+) -> bool:
+    """True when two PR sheet mappings have compatible transactional schemas.
+
+    Only auto-combine sheets when their mapped schemas are compatible:
+    - Same document nature (both invoice or both note)
+    - Both map invoice_number (or note_number)
+    - Both map gstin (or both only supplier_name)
+    - Both map invoice_date (or posting_date)
+    - Valuation & tax compatibility:
+      * both have tax breakdown (taxable_amount + tax columns) or both have lump-sum
+      * both have taxable_amount or both lack it
+      * both have tax columns or both lack them
+    """
+    keys_a = set(mapping_a.keys())
+    keys_b = set(mapping_b.keys())
+
+    if keys_a == keys_b:
+        return True
+
+    # Note vs Invoice
+    if ("note_number" in keys_a) != ("note_number" in keys_b):
+        return False
+    if ("invoice_number" in keys_a) != ("invoice_number" in keys_b):
+        return False
+
+    # GSTIN vs supplier name
+    if ("gstin" in keys_a) != ("gstin" in keys_b):
+        return False
+
+    # Date
+    has_date_a = "invoice_date" in keys_a or "posting_date" in keys_a
+    has_date_b = "invoice_date" in keys_b or "posting_date" in keys_b
+    if has_date_a != has_date_b:
+        return False
+
+    # Valuation & tax structure compatibility
+    tax_fields = {"cgst", "sgst", "igst", "cess", "total_tax"}
+    has_tax_a = bool(keys_a & tax_fields)
+    has_tax_b = bool(keys_b & tax_fields)
+
+    has_taxable_a = "taxable_amount" in keys_a
+    has_taxable_b = "taxable_amount" in keys_b
+
+    if has_tax_a != has_tax_b:
+        return False
+    if has_taxable_a != has_taxable_b:
+        return False
+
+    return True
+
+
 def is_note_sheet_name(sheet_name: str | None) -> bool:
     """True when the Excel sheet name looks like a credit/debit notes tab."""
     if not sheet_name:
@@ -1381,7 +1470,9 @@ def list_mappable_pr_sheets(file_content: bytes, filename: str) -> list[str]:
             continue
         best_df, best_mapping, _ = _find_best_header_from_raw(raw_df)
         if best_df is not None and best_mapping:
-            names.append(str(sheet_name))
+            is_trans, _ = is_transactional_pr_sheet(best_mapping)
+            if is_trans:
+                names.append(str(sheet_name))
     return names
 
 
@@ -1872,14 +1963,22 @@ def _process_pr_sheet_rows(
 
 
 def parse_purchase_register(
-    file_content: bytes, filename: str, client_gstin: str | None = None
+    file_content: bytes,
+    filename: str,
+    client_gstin: str | None = None,
+    selected_sheets: list[str] | None = None,
+    selected_sheet: str | None = None,
 ) -> dict:
     """Parse a purchase-register file and return a structured result dict.
 
-    Multi-sheet Excel workbooks: every non-skipped sheet with a valid column
-    mapping is parsed and combined. Sheets used vs skipped are returned in
-    ``sheets_used`` / ``sheets_skipped`` and mirrored in ``warnings``.
+    Multi-sheet Excel workbooks:
+    - Non-transactional sheets (Control, Summary, Instructions, etc.) are ignored.
+    - Transactional sheets are auto-combined only when their mapped schemas are compatible.
+    - If valid transactional sheets differ in schema, user confirmation & sheet selection is required.
     """
+    if selected_sheet is not None:
+        selected_sheets = [selected_sheet]
+
     result: dict[str, Any] = {
         "success": False,
         "total_rows": 0,
@@ -1890,6 +1989,9 @@ def parse_purchase_register(
         "sheets_skipped": [],
         "missing_invoice_number_count": 0,
         "warnings": [],
+        "requires_sheet_selection": False,
+        "candidate_sheets": [],
+        "ignored_sheets": [],
     }
     if not file_content or not file_content.strip():
         result["errors"].append("Empty file")
@@ -1921,6 +2023,8 @@ def parse_purchase_register(
     sheet_jobs: list[tuple[str | None, pd.DataFrame, dict[str, str], int, list]] = []
     sheets_skipped: list[dict[str, Any]] = []
     recovery_warnings: list[str] = []
+    requires_sheet_selection = False
+    all_candidate_sheets: list[str] = []
 
     try:
         if ext in (".xlsx", ".xls"):
@@ -1943,16 +2047,17 @@ def parse_purchase_register(
                         f"{len(sheet_jobs)} sheet(s). Re-upload a smaller file "
                         f"or raise PR_PARSE_SOFT_TIMEOUT_SEC."
                     )
-                norm_sheet = normalize_header(str(sheet_name))
+                str_name = str(sheet_name)
+                norm_sheet = normalize_header(str_name)
                 if any(w in norm_sheet for w in _SKIP_SHEET_WORDS):
                     logger.info(
-                        "Skipping sheet '%s' (matched skip-word).", sheet_name
+                        "Skipping sheet '%s' (matched skip-word).", str_name
                     )
                     sheets_skipped.append(
                         {
-                            "sheet": str(sheet_name),
-                            "reason": "skip_word",
-                            "detail": "name matched summary/total/instruction/readme",
+                            "sheet": str_name,
+                            "reason": "non_transactional",
+                            "detail": "name matched non-transactional pattern (summary/control/instruction)",
                         }
                     )
                     continue
@@ -1970,7 +2075,7 @@ def parse_purchase_register(
                 except Exception as exc:
                     sheets_skipped.append(
                         {
-                            "sheet": str(sheet_name),
+                            "sheet": str_name,
                             "reason": "read_error",
                             "detail": str(exc),
                         }
@@ -1982,42 +2087,102 @@ def parse_purchase_register(
                 )
                 sheet_elapsed = time.perf_counter() - sheet_t0
                 if best_df is not None and best_mapping:
-                    sheet_jobs.append(
-                        (
-                            str(sheet_name),
-                            best_df,
-                            best_mapping,
-                            best_header_row,
-                            list(best_df.columns),
+                    is_trans, trans_reason = is_transactional_pr_sheet(best_mapping)
+                    if is_trans:
+                        sheet_jobs.append(
+                            (
+                                str_name,
+                                best_df,
+                                best_mapping,
+                                best_header_row,
+                                list(best_df.columns),
+                            )
                         )
-                    )
-                    logger.info(
-                        "PR sheet '%s' accepted (header_row=%s, mapped=%s, "
-                        "rows=%d, elapsed=%.2fs)",
-                        sheet_name,
-                        best_header_row,
-                        sorted(best_mapping.keys()),
-                        len(best_df),
-                        sheet_elapsed,
-                    )
+                        logger.info(
+                            "PR sheet '%s' accepted (header_row=%s, mapped=%s, "
+                            "rows=%d, elapsed=%.2fs)",
+                            str_name,
+                            best_header_row,
+                            sorted(best_mapping.keys()),
+                            len(best_df),
+                            sheet_elapsed,
+                        )
+                    else:
+                        sheets_skipped.append(
+                            {
+                                "sheet": str_name,
+                                "reason": "non_transactional",
+                                "detail": f"non-transactional schema ({trans_reason})",
+                            }
+                        )
+                        logger.info(
+                            "PR sheet '%s' ignored as non-transactional (%s, elapsed=%.2fs)",
+                            str_name,
+                            trans_reason,
+                            sheet_elapsed,
+                        )
                 else:
                     sheets_skipped.append(
                         {
-                            "sheet": str(sheet_name),
-                            "reason": "no_column_mapping",
+                            "sheet": str_name,
+                            "reason": "non_transactional",
                             "detail": "could not detect required purchase-register columns",
                         }
                     )
                     logger.info(
                         "PR sheet '%s' skipped (no mapping, elapsed=%.2fs)",
-                        sheet_name,
+                        str_name,
                         sheet_elapsed,
                     )
 
             if not sheet_jobs:
                 raise ParseError(
-                    "Could not find a valid column mapping in any sheet or header row"
+                    "Could not find a valid purchase-register schema in any sheet or header row"
                 )
+
+            all_candidate_sheets = [j[0] for j in sheet_jobs if j[0]]
+
+            if selected_sheets:
+                selected_set = set(selected_sheets)
+                chosen_jobs = [j for j in sheet_jobs if j[0] in selected_set]
+                if not chosen_jobs:
+                    raise ParseError(
+                        f"Selected sheet(s) {selected_sheets} not found among valid sheets: {all_candidate_sheets}"
+                    )
+                sheet_jobs = chosen_jobs
+            elif len(sheet_jobs) > 1:
+                def _is_job_note(job: tuple) -> bool:
+                    s_name, _df, s_map, _hrow, s_cols = job
+                    return (
+                        is_note_sheet_name(s_name)
+                        or headers_indicate_notes(s_cols)
+                        or ("note_number" in s_map and "invoice_number" not in s_map)
+                    )
+
+                inv_jobs = [j for j in sheet_jobs if not _is_job_note(j)]
+                note_jobs = [j for j in sheet_jobs if _is_job_note(j)]
+
+                inv_compat = (
+                    all(are_sheet_schemas_compatible(inv_jobs[0][2], j[2]) for j in inv_jobs[1:])
+                    if len(inv_jobs) > 1
+                    else True
+                )
+                note_compat = (
+                    all(are_sheet_schemas_compatible(note_jobs[0][2], j[2]) for j in note_jobs[1:])
+                    if len(note_jobs) > 1
+                    else True
+                )
+
+                schemas_compatible = inv_compat and note_compat
+                if not schemas_compatible:
+                    requires_sheet_selection = True
+                    diff_warning = (
+                        f"Multiple valid transactional sheets with differing schemas detected: "
+                        f"{', '.join(all_candidate_sheets)}. User confirmation and sheet selection required."
+                    )
+                    recovery_warnings.append(diff_warning)
+                    # Keep primary valid sheet for preview, but do not auto-combine incompatible sheets
+                    sheet_jobs = [sheet_jobs[0]]
 
         elif ext == ".csv":
             found = False
@@ -2219,11 +2384,13 @@ def parse_purchase_register(
                 f"{used_names}. If sheets overlap, invoices may be double-counted."
             )
             logger.warning("PR multi-sheet combine: %s", used_names)
-        if sheets_skipped:
-            skipped_names = ", ".join(
-                f"{s['sheet']} ({s['reason']})" for s in sheets_skipped
-            )
-            warnings.append(f"Sheets skipped: {skipped_names}.")
+
+        # Show ignored sheets separately (Requirement 6)
+        for s in sheets_skipped:
+            if s.get("reason") in ("non_transactional", "skip_word"):
+                warnings.append(f"Ignored non-transactional sheet: {s['sheet']}")
+            else:
+                warnings.append(f"Ignored sheet: {s['sheet']} ({s.get('detail') or s.get('reason')})")
 
         # Cross-sheet duplicate detection (keep all rows; flag for review).
         seen_keys: dict[tuple, dict] = {}
@@ -2293,6 +2460,9 @@ def parse_purchase_register(
         result["sheets_used"] = sheets_used
         result["sheets_skipped"] = sheets_skipped
         result["missing_invoice_number_count"] = missing_invoice_number_count
+        result["requires_sheet_selection"] = requires_sheet_selection
+        result["candidate_sheets"] = all_candidate_sheets if len(all_candidate_sheets) > 1 else []
+        result["ignored_sheets"] = [s["sheet"] for s in sheets_skipped]
         return result
 
     result["total_rows"] = total_rows
@@ -2325,6 +2495,9 @@ def parse_purchase_register(
     result["sheets_used"] = sheets_used
     result["sheets_skipped"] = sheets_skipped
     result["missing_invoice_number_count"] = missing_invoice_number_count
+    result["requires_sheet_selection"] = requires_sheet_selection
+    result["candidate_sheets"] = all_candidate_sheets if len(all_candidate_sheets) > 1 else []
+    result["ignored_sheets"] = [s["sheet"] for s in sheets_skipped]
     if df_canon_parts:
         result["normalized_columns"] = list(df_canon_parts[0].columns)
         try:

@@ -2106,6 +2106,10 @@ export interface DetectColumnsResponse {
   multi_sheet_combine?: SanityCheckItem | null;
   /** Present when PR rows lack invoice_number (must be acknowledged). */
   missing_invoice_number?: SanityCheckItem | null;
+  /** Present when multiple transactional sheets have differing schemas (must be acknowledged). */
+  sheet_selection_required?: SanityCheckItem | null;
+  requires_sheet_selection?: boolean;
+  candidate_sheets?: string[];
   sanity_check_results?: SanityCheckItem[] | null;
 }
 

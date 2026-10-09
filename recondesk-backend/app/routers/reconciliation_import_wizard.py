@@ -591,6 +591,8 @@ async def detect_columns(
         parse_warnings,
         missing_invoice_count,
         sheets_used,
+        requires_sheet_selection,
+        candidate_sheets,
     ) = ws.detect_pr_columns_from_r2(pr_key, pr_name)
 
     from app.services import client_import_mapping as cim
@@ -608,6 +610,9 @@ async def detect_columns(
     pr_parse_warning = missing_check["detail"] if missing_check else None
 
     multi_check = ws.build_multi_sheet_combine_check(sheets_used)
+    sheet_sel_check = ws.build_sheet_selection_check(
+        requires_sheet_selection, candidate_sheets
+    )
     sanity_results = list(r.get("sanity_check_results") or [])
     sanity_results = ws.upsert_sanity_check(
         sanity_results,
@@ -618,6 +623,11 @@ async def detect_columns(
         sanity_results,
         missing_check,
         check_id=ws.MISSING_INVOICE_CHECK_ID,
+    )
+    sanity_results = ws.upsert_sanity_check(
+        sanity_results,
+        sheet_sel_check,
+        check_id=ws.SHEET_SELECTION_REQUIRED_CHECK_ID,
     )
 
     sb.table(ws.T_RUNS).update(
@@ -640,6 +650,7 @@ async def detect_columns(
             "sheets_used": len(sheets_used or []),
             "multi_sheet_combine": bool(multi_check),
             "missing_invoice_number": int(missing_invoice_count or 0),
+            "sheet_selection_required": bool(sheet_sel_check),
         },
     )
     return jsonable_encoder(
@@ -654,6 +665,9 @@ async def detect_columns(
             "missing_invoice_number_count": missing_invoice_count,
             "multi_sheet_combine": multi_check,
             "missing_invoice_number": missing_check,
+            "sheet_selection_required": sheet_sel_check,
+            "requires_sheet_selection": requires_sheet_selection,
+            "candidate_sheets": candidate_sheets,
             "sanity_check_results": sanity_results,
         }
     )

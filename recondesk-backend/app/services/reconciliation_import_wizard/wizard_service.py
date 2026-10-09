@@ -437,6 +437,36 @@ def _skip_breakdown_affected_records(
 MULTI_SHEET_COMBINE_CHECK_ID = "multi_sheet_combine"
 MISSING_INVOICE_CHECK_ID = "missing_invoice_number"
 ISD_IMPG_UNPROCESSED_CHECK_ID = "isd_impg_unprocessed"
+SHEET_SELECTION_REQUIRED_CHECK_ID = "sheet_selection_required"
+
+
+def build_sheet_selection_check(
+    requires_sheet_selection: bool,
+    candidate_sheets: list[str] | None = None,
+) -> dict[str, Any] | None:
+    """Blocking warning check when multiple transactional sheets have differing schemas."""
+    if not requires_sheet_selection:
+        return None
+    sheets = [str(s) for s in (candidate_sheets or []) if s]
+    sheets_str = ", ".join(sheets)
+    return {
+        "id": SHEET_SELECTION_REQUIRED_CHECK_ID,
+        "label": "Sheet selection required",
+        "status": "warning",
+        "detail": (
+            f"Multiple valid transactional sheets with differing schemas detected: {sheets_str}. "
+            "User confirmation and sheet selection required."
+        ),
+        "affected_records": [
+            {
+                "gstin": "",
+                "invoice_number": str(s),
+            }
+            for s in sheets
+        ],
+        "requires_acknowledgment": True,
+        "acknowledged": False,
+    }
 
 
 def build_multi_sheet_combine_check(
@@ -764,9 +794,10 @@ def _read_pr_dataframe(raw: bytes, filename: str) -> pd.DataFrame:
 
 def detect_pr_columns_from_r2(
     key: str, filename: str
-) -> tuple[list[dict], list[str], int, list[str], int, list[dict]]:
+) -> tuple[list[dict], list[str], int, list[str], int, list[dict], bool, list[str]]:
     """Return wizard columns, headers, row count, parse warnings, missing-invoice
-    count, and ``sheets_used`` from the purchase-register parse.
+    count, ``sheets_used``, ``requires_sheet_selection``, and ``candidate_sheets``
+    from the purchase-register parse.
     """
     c = _r2()
     o = c.get_object(Bucket=settings.R2_BUCKET_NAME, Key=key)
@@ -785,19 +816,24 @@ def detect_pr_columns_from_r2(
     parse_warnings: list[str] = []
     missing_invoice_count = 0
     sheets_used: list[dict] = []
+    requires_sheet_selection = False
+    candidate_sheets: list[str] = []
     if len(candidates) > 1:
         parsed = parse_purchase_register(raw, filename)
         row_count = int(parsed.get("valid_rows") or 0)
         parse_warnings = list(parsed.get("warnings") or [])
         missing_invoice_count = int(parsed.get("missing_invoice_number_count") or 0)
         sheets_used = list(parsed.get("sheets_used") or [])
+        requires_sheet_selection = bool(parsed.get("requires_sheet_selection"))
+        candidate_sheets = list(parsed.get("candidate_sheets") or [])
         _log.info(
             "[detect-columns] multi-sheet PR: used=%s skipped=%s valid_rows=%s "
-            "missing_invoice=%s",
+            "missing_invoice=%s requires_sheet_selection=%s",
             sheets_used,
             parsed.get("sheets_skipped"),
             row_count,
             missing_invoice_count,
+            requires_sheet_selection,
         )
     else:
         row_count = int(len(df_full))
@@ -809,6 +845,8 @@ def detect_pr_columns_from_r2(
                 parsed.get("missing_invoice_number_count") or 0
             )
             sheets_used = list(parsed.get("sheets_used") or [])
+            requires_sheet_selection = bool(parsed.get("requires_sheet_selection"))
+            candidate_sheets = list(parsed.get("candidate_sheets") or [])
             if parsed.get("valid_rows"):
                 row_count = int(parsed["valid_rows"])
         except Exception:  # noqa: BLE001
@@ -823,6 +861,8 @@ def detect_pr_columns_from_r2(
         parse_warnings,
         missing_invoice_count,
         sheets_used,
+        requires_sheet_selection,
+        candidate_sheets,
     )
 
 

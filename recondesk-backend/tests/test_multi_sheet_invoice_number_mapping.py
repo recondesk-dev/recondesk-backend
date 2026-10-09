@@ -127,7 +127,7 @@ def test_multi_sheet_different_invoice_headers_all_populated(
 
 
 def test_sheet_without_invoice_column_surfaces_missing_count():
-    """A sheet with GSTIN but no invoice-like header must not fail silently."""
+    """A sheet with GSTIN but no invoice-like header is ignored as non-transactional."""
     ok_sheet = pd.DataFrame(
         {
             "Invoice Date": ["01-04-2026"],
@@ -153,10 +153,12 @@ def test_sheet_without_invoice_column_surfaces_missing_count():
     raw = _xlsx_bytes({"Good": ok_sheet, "No Invoice Col": bad_sheet})
     result = parse_purchase_register(raw, "partial.xlsx")
     assert result["success"] is True
-    assert int(result.get("missing_invoice_number_count") or 0) >= 1
+    # Non-transactional sheet without invoice column must be ignored
+    assert "No Invoice Col" in result["ignored_sheets"]
+    assert len(result["sheets_used"]) == 1
+    assert result["sheets_used"][0]["sheet"] == "Good"
     warns = " ".join(result.get("warnings") or []).lower()
-    assert "invoice number" in warns
-    assert "no invoice col" in warns or "missing invoice" in warns
+    assert "ignored non-transactional sheet: no invoice col" in warns
 
 
 def test_supplier_invoice_preferred_over_voucher_number():
