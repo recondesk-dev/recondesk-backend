@@ -2707,11 +2707,18 @@ export const filingApi = {
   readinessUpload: (
     token: string,
     period: string,
-    params: { client_gstin_id: string; sales_register_file: File }
+    params: {
+      client_gstin_id: string;
+      sales_register_file: File;
+      patches?: Array<Record<string, unknown>>;
+    }
   ) => {
     const form = new FormData();
     form.append("client_gstin_id", params.client_gstin_id);
     form.append("sales_register_file", params.sales_register_file);
+    if (params.patches && params.patches.length > 0) {
+      form.append("patches", JSON.stringify(params.patches));
+    }
     return apiFetch<FilingReadinessResponse>(
       `${filingPeriodPath(period)}/readiness-upload`,
       { method: "POST", body: form, token }
@@ -2725,6 +2732,7 @@ export const filingApi = {
       client_gstin_id: string;
       period: string;
       records: Record<string, unknown>[];
+      patches?: Array<Record<string, unknown>>;
     }
   ) =>
     apiFetch<FilingReadinessResponse>(`${filingPeriodPath(period)}/readiness`, {
@@ -2742,6 +2750,7 @@ export const filingApi = {
       session_id?: string | null;
       gt?: number;
       cur_gt?: number;
+      patches?: Array<Record<string, unknown>>;
     }
   ) => {
     const form = new FormData();
@@ -2750,6 +2759,9 @@ export const filingApi = {
     if (params.session_id) form.append("session_id", params.session_id);
     if (params.gt != null) form.append("gt", String(params.gt));
     if (params.cur_gt != null) form.append("cur_gt", String(params.cur_gt));
+    if (params.patches && params.patches.length > 0) {
+      form.append("patches", JSON.stringify(params.patches));
+    }
     return apiFetch<FilingSaveResponse>(
       `${filingPeriodPath(period)}/save-upload`,
       { method: "POST", body: form, token }
@@ -2887,6 +2899,7 @@ export const filingApi = {
       records: Record<string, unknown>[];
       gt?: number;
       cur_gt?: number;
+      patches?: Array<Record<string, unknown>>;
     }
   ) =>
     apiFetch<Gstr1ExportJsonResponse>(
@@ -2902,6 +2915,7 @@ export const filingApi = {
       sales_register_file: File;
       gt?: number;
       cur_gt?: number;
+      patches?: Array<Record<string, unknown>>;
     }
   ) => {
     const form = new FormData();
@@ -2909,6 +2923,9 @@ export const filingApi = {
     form.append("sales_register_file", params.sales_register_file);
     if (params.gt != null) form.append("gt", String(params.gt));
     if (params.cur_gt != null) form.append("cur_gt", String(params.cur_gt));
+    if (params.patches && params.patches.length > 0) {
+      form.append("patches", JSON.stringify(params.patches));
+    }
     return apiFetch<Gstr1ExportJsonResponse>(
       `${filingPeriodPath(period)}/export-json-upload`,
       { method: "POST", body: form, token }

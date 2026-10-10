@@ -145,6 +145,7 @@ class SaveGstr1Body(_StripModel):
     records: list[dict[str, Any]] = Field(default_factory=list)
     gt: float = 0.0
     cur_gt: float = 0.0
+    patches: Optional[list[dict[str, Any]]] = None
 
     @field_validator("client_gstin_id", "period")
     @classmethod
@@ -161,6 +162,7 @@ class ReadinessBody(_StripModel):
     client_gstin_id: str
     period: str
     records: list[dict[str, Any]] = Field(default_factory=list)
+    patches: Optional[list[dict[str, Any]]] = None
 
     @field_validator("client_gstin_id", "period")
     @classmethod
@@ -189,6 +191,7 @@ class ExportGstr1JsonBody(_StripModel):
     records: list[dict[str, Any]] = Field(default_factory=list)
     gt: float = 0.0
     cur_gt: float = 0.0
+    patches: Optional[list[dict[str, Any]]] = None
 
     @field_validator("client_gstin_id")
     @classmethod
@@ -699,6 +702,98 @@ def _parse_sr_upload(file_content: bytes, filename: str) -> list[dict[str, Any]]
     return [r for r in records if isinstance(r, dict)]
 
 
+def _parse_patches(raw: Any) -> list[dict[str, Any]]:
+    """Safe parser for patch JSON string, dict, or list."""
+    if not raw:
+        return []
+    if isinstance(raw, list):
+        return [p for p in raw if isinstance(p, dict)]
+    if isinstance(raw, dict):
+        return [raw]
+    if isinstance(raw, str):
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, list):
+                return [p for p in parsed if isinstance(p, dict)]
+            if isinstance(parsed, dict):
+                return [parsed]
+        except Exception:
+            return []
+    return []
+
+
+def _apply_record_patches(
+    records: list[dict[str, Any]],
+    patches: list[dict[str, Any]] | None,
+) -> list[dict[str, Any]]:
+    """In-memory patch application on Sales Register records before GSTR-1 mapping.
+
+    Allows immediate in-browser quick-fixes for typos, missing POS, or
+    unclassified invoice types without forcing full Excel re-upload.
+    """
+    if not patches or not records:
+        return records
+
+    by_row: dict[int, dict[str, Any]] = {}
+    by_inv: dict[str, dict[str, Any]] = {}
+    for p in patches:
+        rn = p.get("row_number")
+        if rn is not None:
+            try:
+                by_row[int(rn)] = p
+            except (ValueError, TypeError):
+                pass
+        inv = str(p.get("invoice_number") or p.get("inum") or "").strip().lower()
+        if inv:
+            by_inv[inv] = p
+
+    patched: list[dict[str, Any]] = []
+    for rec in records:
+        r = dict(rec)
+        patch = None
+        rn = r.get("row_number")
+        if rn is not None:
+            try:
+                if int(rn) in by_row:
+                    patch = by_row[int(rn)]
+            except (ValueError, TypeError):
+                pass
+        if not patch:
+            raw_inv = str(
+                r.get("invoice_number_raw") or r.get("invoice_number") or ""
+            ).strip().lower()
+            if raw_inv and raw_inv in by_inv:
+                patch = by_inv[raw_inv]
+
+        if patch:
+            if "gstin" in patch and patch["gstin"]:
+                clean_gstin = str(patch["gstin"]).strip().upper()
+                r["gstin"] = clean_gstin
+                r["gstin_valid"] = True
+                r["gstin_format_ok"] = True
+            if "place_of_supply" in patch and patch["place_of_supply"]:
+                r["place_of_supply"] = str(patch["place_of_supply"]).strip()
+            if "invoice_type" in patch and patch["invoice_type"]:
+                itype = str(patch["invoice_type"]).strip().upper()
+                r["invoice_type"] = itype
+                r["invoice_type_raw"] = itype
+            if "note_type" in patch and patch["note_type"]:
+                ntype = str(patch["note_type"]).strip().upper()
+                r["note_type"] = ntype
+                r["note_type_raw"] = ntype
+            if "export_type" in patch and patch["export_type"]:
+                etype = str(patch["export_type"]).strip().upper()
+                r["export_type"] = etype
+                r["export_type_raw"] = etype
+            if "tax_rate" in patch and patch["tax_rate"] is not None:
+                try:
+                    r["tax_rate"] = float(patch["tax_rate"])
+                except (ValueError, TypeError):
+                    pass
+        patched.append(r)
+    return patched
+
+
 def _readiness_payload_for_client(
     *,
     sb,
@@ -706,11 +801,13 @@ def _readiness_payload_for_client(
     client_gstin_id: str,
     period: str,
     records: list[dict[str, Any]],
+    patches: list[dict[str, Any]] | None = None,
 ) -> tuple[dict[str, Any], Any, str]:
     client_row = _assert_client_access(sb, current_user, client_gstin_id)
     gstin = str(client_row["gstin"]).strip().upper()
+    effective_records = _apply_record_patches(records, patches)
     mapped = map_sales_register_to_gstr1(
-        records,
+        effective_records,
         filer_state=gstin[:2],
         filing_period=period,
     )
@@ -718,6 +815,7 @@ def _readiness_payload_for_client(
     payload["gstin"] = gstin
     payload["client_gstin_id"] = client_gstin_id
     payload["record_count"] = len(records)
+    payload["patches_applied"] = len(patches) if patches else 0
     return payload, mapped, gstin
 
 
@@ -820,6 +918,7 @@ def gstr1_readiness(
         client_gstin_id=body.client_gstin_id,
         period=period,
         records=body.records,
+        patches=body.patches,
     )
     return payload
 
@@ -829,6 +928,7 @@ async def gstr1_readiness_upload(
     period: str,
     client_gstin_id: str = Form(...),
     sales_register_file: UploadFile = File(...),
+    patches: Optional[str] = Form(None),
     current_user: dict = Depends(get_current_active_user),
 ):
     """Parse an uploaded Sales Register and return filing readiness (no GSTN)."""
@@ -839,12 +939,14 @@ async def gstr1_readiness_upload(
     records = _parse_sr_upload(
         content, sales_register_file.filename or "upload.xlsx",
     )
+    parsed_patches = _parse_patches(patches)
     payload, _, _ = _readiness_payload_for_client(
         sb=sb,
         current_user=current_user,
         client_gstin_id=client_gstin_id.strip(),
         period=period,
         records=records,
+        patches=parsed_patches,
     )
     payload["source_filename"] = sales_register_file.filename
     return payload
@@ -866,6 +968,7 @@ def save_gstr1(
     firm_id = _firm_id(sb, current_user)
     client_row = _assert_client_access(sb, current_user, body.client_gstin_id)
     gstin = str(client_row["gstin"]).strip().upper()
+    effective_records = _apply_record_patches(body.records, body.patches)
     return _execute_save(
         sb=sb,
         firm_id=firm_id,
@@ -873,7 +976,7 @@ def save_gstr1(
         gstin=gstin,
         period=period,
         session_id=body.session_id,
-        records=body.records,
+        records=effective_records,
         gt=body.gt,
         cur_gt=body.cur_gt,
     )
@@ -884,6 +987,7 @@ async def save_gstr1_upload(
     period: str,
     client_gstin_id: str = Form(...),
     sales_register_file: UploadFile = File(...),
+    patches: Optional[str] = Form(None),
     session_id: Optional[str] = Form(None),
     gt: float = Form(0.0),
     cur_gt: float = Form(0.0),
@@ -899,6 +1003,7 @@ async def save_gstr1_upload(
     records = _parse_sr_upload(
         content, sales_register_file.filename or "upload.xlsx",
     )
+    effective_records = _apply_record_patches(records, _parse_patches(patches))
     return _execute_save(
         sb=sb,
         firm_id=firm_id,
@@ -906,7 +1011,7 @@ async def save_gstr1_upload(
         gstin=gstin,
         period=period,
         session_id=(session_id.strip() if session_id else None),
-        records=records,
+        records=effective_records,
         gt=gt,
         cur_gt=cur_gt,
     )
@@ -933,8 +1038,9 @@ def gstr1_export_json(
             detail="No records provided to export",
         )
 
+    effective_records = _apply_record_patches(body.records, body.patches)
     map_res = map_sales_register_to_gstr1(
-        body.records, filer_state=state_code, filing_period=period,
+        effective_records, filer_state=state_code, filing_period=period,
     )
     save_body = build_save_body(
         map_res.save_payload, gstin=gstin, period=period, gt=body.gt, cur_gt=body.cur_gt,
@@ -944,7 +1050,7 @@ def gstr1_export_json(
         "filename": filename,
         "gstin": gstin,
         "fp": fp,
-        "record_count": len(body.records),
+        "record_count": len(effective_records),
         "summary": {
             "b2b": len(map_res.save_payload.get("b2b", [])),
             "b2cl": len(map_res.save_payload.get("b2cl", [])),
@@ -964,6 +1070,7 @@ async def gstr1_export_json_upload(
     period: str,
     client_gstin_id: str = Form(...),
     sales_register_file: UploadFile = File(...),
+    patches: Optional[str] = Form(None),
     gt: float = Form(0.0),
     cur_gt: float = Form(0.0),
     current_user: dict = Depends(get_current_active_user),
@@ -985,8 +1092,9 @@ async def gstr1_export_json_upload(
             detail="No valid sales register rows found in uploaded file",
         )
 
+    effective_records = _apply_record_patches(records, _parse_patches(patches))
     map_res = map_sales_register_to_gstr1(
-        records, filer_state=state_code, filing_period=period,
+        effective_records, filer_state=state_code, filing_period=period,
     )
     save_body = build_save_body(
         map_res.save_payload, gstin=gstin, period=period, gt=gt, cur_gt=cur_gt,
@@ -996,7 +1104,7 @@ async def gstr1_export_json_upload(
         "filename": filename,
         "gstin": gstin,
         "fp": fp,
-        "record_count": len(records),
+        "record_count": len(effective_records),
         "source_filename": sales_register_file.filename,
         "summary": {
             "b2b": len(map_res.save_payload.get("b2b", [])),

@@ -18,6 +18,7 @@ import {
   SaveToGstnAction,
   type SaveServerState,
 } from "@/components/filing/SaveToGstnAction";
+import type { Gstr1PatchRecord } from "@/lib/gstr1PatchVoucher";
 import { toFilingPeriodYyyyMm } from "@/components/filing/filingHelpers";
 import {
   SectionHeader,
@@ -64,6 +65,7 @@ function Gstr1FilingPageContent() {
   const [readinessError, setReadinessError] = useState<string | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<SaveServerState>(EMPTY_SAVE);
+  const [patches, setPatches] = useState<Gstr1PatchRecord[]>([]);
 
   const clientsKey = token ? (["filing-clients", token] as const) : null;
   const { data: clients, isLoading: clientsLoading } = useSWR(
@@ -80,42 +82,77 @@ function Gstr1FilingPageContent() {
     if (clientFromQuery) setClientGstinId(clientFromQuery);
   }, [clientFromQuery]);
 
-  // Changing SR / client / period invalidates prior Save confirmation and readiness.
+  // Changing SR / client / period invalidates prior Save confirmation, readiness, and patches.
   useEffect(() => {
     setSaveState(EMPTY_SAVE);
+    setPatches([]);
   }, [clientGstinId, period, srFile]);
 
-  const runReadiness = useCallback(async () => {
-    if (!token || !period || !clientGstinId || !srFile) {
-      setReadinessError(
-        "Select a client, confirm the period (YYYY-MM), and upload a Sales Register."
-      );
-      return;
-    }
-    setReadinessBusy(true);
-    setReadinessError(null);
-    setReadiness(null);
-    try {
-      const res = await filingApi.readinessUpload(token, period, {
-        client_gstin_id: clientGstinId,
-        sales_register_file: srFile,
-      });
-      setReadiness(res);
-      // Fresh readiness must not imply Save succeeded.
-      setSaveState(EMPTY_SAVE);
-    } catch (err) {
+  const runReadiness = useCallback(
+    async (overridePatches?: Gstr1PatchRecord[]) => {
+      if (!token || !period || !clientGstinId || !srFile) {
+        setReadinessError(
+          "Select a client, confirm the period (YYYY-MM), and upload a Sales Register."
+        );
+        return;
+      }
+      setReadinessBusy(true);
+      setReadinessError(null);
       setReadiness(null);
-      setReadinessError(
-        isApiError(err)
-          ? err.detail
-          : err instanceof Error
-            ? err.message
-            : "Readiness check failed"
-      );
-    } finally {
-      setReadinessBusy(false);
-    }
-  }, [clientGstinId, period, srFile, token]);
+      const activePatches = overridePatches ?? patches;
+      try {
+        const res = await filingApi.readinessUpload(token, period, {
+          client_gstin_id: clientGstinId,
+          sales_register_file: srFile,
+          patches:
+            activePatches.length > 0
+              ? activePatches.map((p) => p.patch_data)
+              : undefined,
+        });
+        setReadiness(res);
+        // Fresh readiness must not imply Save succeeded.
+        setSaveState(EMPTY_SAVE);
+      } catch (err) {
+        setReadiness(null);
+        setReadinessError(
+          isApiError(err)
+            ? err.detail
+            : err instanceof Error
+              ? err.message
+              : "Readiness check failed"
+        );
+      } finally {
+        setReadinessBusy(false);
+      }
+    },
+    [clientGstinId, patches, period, srFile, token]
+  );
+
+  const handleApplyPatch = useCallback(
+    (patch: Gstr1PatchRecord) => {
+      const nextPatches = [
+        ...patches.filter(
+          (p) =>
+            (p.row_number != null && patch.row_number != null
+              ? p.row_number !== patch.row_number
+              : true) && p.invoice_number !== patch.invoice_number
+        ),
+        patch,
+      ];
+      setPatches(nextPatches);
+      void runReadiness(nextPatches);
+    },
+    [patches, runReadiness]
+  );
+
+  const handleRemovePatch = useCallback(
+    (invNum: string) => {
+      const nextPatches = patches.filter((p) => p.invoice_number !== invNum);
+      setPatches(nextPatches);
+      void runReadiness(nextPatches);
+    },
+    [patches, runReadiness]
+  );
 
   const [exportBusy, setExportBusy] = useState(false);
   const [exportSuccess, setExportSuccess] = useState<string | null>(null);
@@ -133,6 +170,10 @@ function Gstr1FilingPageContent() {
       const res = await filingApi.exportGstr1JsonUpload(token, period, {
         client_gstin_id: clientGstinId,
         sales_register_file: srFile,
+        patches:
+          patches.length > 0
+            ? patches.map((p) => p.patch_data)
+            : undefined,
       });
       downloadJsonFile(res.filename, res.payload);
       const counts = [
@@ -157,7 +198,7 @@ function Gstr1FilingPageContent() {
     } finally {
       setExportBusy(false);
     }
-  }, [clientGstinId, period, srFile, token]);
+  }, [clientGstinId, patches, period, srFile, token]);
 
   if (tokenState === null) {
     return (
@@ -336,6 +377,15 @@ function Gstr1FilingPageContent() {
             items={readiness.pending_review}
             byTable={readiness.pending_review_by_table}
             reUploadHref="#sr-upload"
+            patches={patches}
+            onApplyPatch={handleApplyPatch}
+            onRemovePatch={handleRemovePatch}
+            onRecheckReadiness={() => void runReadiness()}
+            filingPeriod={period}
+            gstin={gstin}
+            companyName={
+              selectedClient?.trade_name || selectedClient?.legal_name || ""
+            }
           />
         </>
       ) : null}
@@ -359,6 +409,9 @@ function Gstr1FilingPageContent() {
         canSaveHint={!!readiness?.filing_readiness.can_save}
         serverState={saveState}
         onServerState={setSaveState}
+        patches={
+          patches.length > 0 ? patches.map((p) => p.patch_data) : undefined
+        }
       />
 
       <EvcAndFilePanel

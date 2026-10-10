@@ -458,3 +458,35 @@ def test_portal_mirror_generation():
     assert totals["total_taxable_value"] == 1500.0
     assert totals["total_tax"] == 270.0
 
+
+def test_apply_record_patches_resolves_pending_review():
+    """Verify that in-app quick patches correct ambiguous records into saved lanes."""
+    from app.routers.filing import _apply_record_patches
+
+    # Row with ambiguous raw type ("SEZ") -> lands in pending_review for B2B review
+    bad_row = _b2b(
+        invoice_number="INV-999",
+        invoice_number_raw="INV-999",
+        invoice_type_raw="SEZ",
+    )
+    res_before = map_sales_register_to_gstr1(
+        [bad_row], filer_state=FILER, filing_period=PERIOD,
+    )
+    assert res_before.pending_count >= 1
+
+    # Apply patch: clarify invoice_type to regular B2B
+    patches = [
+        {
+            "invoice_number": "INV-999",
+            "invoice_type": "B2B",
+        }
+    ]
+    patched_rows = _apply_record_patches([bad_row], patches)
+    res_after = map_sales_register_to_gstr1(
+        patched_rows, filer_state=FILER, filing_period=PERIOD,
+    )
+    # The patched row should now be cleanly saved in B2B!
+    assert res_after.pending_count == 0
+    assert res_after.row_accounting.saved == 1
+    assert "b2b" in res_after.save_payload
+

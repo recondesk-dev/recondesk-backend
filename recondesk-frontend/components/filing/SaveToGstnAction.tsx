@@ -41,6 +41,7 @@ type Props = {
   canSaveHint: boolean;
   serverState: SaveServerState;
   onServerState: (next: SaveServerState) => void;
+  patches?: Array<Record<string, unknown>>;
 };
 
 export function SaveToGstnAction({
@@ -52,6 +53,7 @@ export function SaveToGstnAction({
   canSaveHint,
   serverState,
   onServerState,
+  patches,
 }: Props) {
   const [busy, setBusy] = useState(false);
   const [pollNote, setPollNote] = useState<string | null>(null);
@@ -94,6 +96,7 @@ export function SaveToGstnAction({
         client_gstin_id: clientGstinId,
         sales_register_file: srFile,
         session_id: sessionId,
+        patches,
       });
     } catch (err) {
       const detail = isApiError(err)
