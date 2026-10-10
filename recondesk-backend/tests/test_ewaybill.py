@@ -218,6 +218,7 @@ def test_build_nic_bulk_json():
 
     payload = build_nic_bulk_json(records)
     assert payload["version"] == "1.0.1124"
+    assert payload["userGstin"] == "27AABCR1234F1Z5"
     assert len(payload["billLists"]) == 1
 
     bill = payload["billLists"][0]
@@ -225,5 +226,11 @@ def test_build_nic_bulk_json():
     assert bill["docNo"] == "INV/001"
     assert bill["vehicleNo"] == "MH12AB1234"
     assert bill["totInvValue"] == 59000.0
+    assert bill["actFromStateCode"] == 27
+    assert bill["actToStateCode"] == 29
+    assert bill["mainHsnCode"] == 9031
+    assert bill["transMode"] == "1"
     assert len(bill["itemList"]) == 1
+    assert bill["itemList"][0]["itemNo"] == 1
     assert bill["itemList"][0]["hsnCode"] == 9031
+    assert bill["itemList"][0]["cessNonAdvol"] == 0

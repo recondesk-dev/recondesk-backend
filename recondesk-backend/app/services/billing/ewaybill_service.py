@@ -447,12 +447,14 @@ def build_nic_bulk_json(records: List[Dict[str, Any]]) -> Dict[str, Any]:
 
         items_list = []
         raw_items = rec.get("items") or []
-        for itm in raw_items:
+        for idx, itm in enumerate(raw_items, start=1):
+            hsn_int = int(str(itm.get("hsn_code") or "9999").strip())
             items_list.append(
                 {
+                    "itemNo": idx,
                     "productName": itm.get("item_name") or "Goods",
                     "productDesc": itm.get("description") or itm.get("item_name") or "Goods",
-                    "hsnCode": int(str(itm.get("hsn_code") or "9999").strip()),
+                    "hsnCode": hsn_int,
                     "quantity": float(itm.get("quantity") or 1.0),
                     "qtyUnit": str(itm.get("unit") or "NOS").strip(),
                     "taxableAmount": float(itm.get("taxable_value") or 0.0),
@@ -460,8 +462,22 @@ def build_nic_bulk_json(records: List[Dict[str, Any]]) -> Dict[str, Any]:
                     "sgstRate": float(itm.get("sgst_rate") or 0.0),
                     "igstRate": float(itm.get("igst_rate") or 0.0),
                     "cessRate": float(itm.get("cess_rate") or 0.0),
+                    "cessNonAdvol": 0,
                 }
             )
+
+        main_hsn = items_list[0]["hsnCode"] if items_list else 9999
+
+        formatted_trans_doc_dt = ""
+        if rec.get("trans_doc_date"):
+            try:
+                td_obj = datetime.strptime(str(rec["trans_doc_date"])[:10], "%Y-%m-%d")
+                formatted_trans_doc_dt = td_obj.strftime("%d/%m/%Y")
+            except Exception:
+                formatted_trans_doc_dt = str(rec["trans_doc_date"])
+
+        from_st = int(str(rec.get("from_state_code") or "27"))
+        to_st = int(str(rec.get("to_state_code") or "27"))
 
         bill = {
             "userGstin": rec.get("from_gstin"),
@@ -477,34 +493,40 @@ def build_nic_bulk_json(records: List[Dict[str, Any]]) -> Dict[str, Any]:
             "fromAddr2": rec.get("from_addr2") or "",
             "fromPlace": rec.get("from_place"),
             "fromPincode": int(rec.get("from_pincode") or 400001),
-            "fromStateCode": int(str(rec.get("from_state_code") or "27")),
-            "actualFromStateCode": int(str(rec.get("from_state_code") or "27")),
+            "fromStateCode": from_st,
+            "actFromStateCode": from_st,
+            "actualFromStateCode": from_st,
             "toGstin": rec.get("to_gstin"),
             "toTrdName": rec.get("to_trade_name"),
             "toAddr1": rec.get("to_addr1"),
             "toAddr2": rec.get("to_addr2") or "",
             "toPlace": rec.get("to_place"),
             "toPincode": int(rec.get("to_pincode") or 400001),
-            "toStateCode": int(str(rec.get("to_state_code") or "27")),
-            "actualToStateCode": int(str(rec.get("to_state_code") or "27")),
+            "toStateCode": to_st,
+            "actToStateCode": to_st,
+            "actualToStateCode": to_st,
             "totalValue": float(rec.get("total_taxable_value") or 0.0),
             "cgstValue": float(rec.get("cgst_amount") or 0.0),
             "sgstValue": float(rec.get("sgst_amount") or 0.0),
             "igstValue": float(rec.get("igst_amount") or 0.0),
             "cessValue": float(rec.get("cess_amount") or 0.0),
             "totInvValue": float(rec.get("total_invoice_value") or 0.0),
+            "mainHsnCode": main_hsn,
+            "transMode": str(rec.get("trans_mode") or "1"),
             "transDistance": str(rec.get("distance_km") or 10),
             "transporterId": rec.get("transporter_id") or "",
             "transporterName": rec.get("transporter_name") or "",
             "transDocNo": rec.get("trans_doc_no") or "",
-            "transDocDate": "",
+            "transDocDate": formatted_trans_doc_dt,
             "vehicleNo": rec.get("vehicle_no") or "",
             "vehicleType": rec.get("vehicle_type") or "R",
             "itemList": items_list,
         }
         bill_lists.append(bill)
 
+    user_gstin = records[0].get("from_gstin") if records else ""
     return {
         "version": "1.0.1124",
+        "userGstin": user_gstin,
         "billLists": bill_lists,
     }
