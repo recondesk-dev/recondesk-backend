@@ -94,6 +94,16 @@ function InvoiceDetailContent() {
       .then((data) => setInvoice(data))
       .catch((err) => setError(err.detail || "Failed to load invoice"))
       .finally(() => setLoading(false));
+
+    ewaybillApi
+      .list(token, clientGstinId)
+      .then((records) => {
+        const found = records.find((r) => r.invoice_id === invoiceId);
+        if (found) {
+          setGeneratedEwbNo(found.ewb_number);
+        }
+      })
+      .catch(() => {});
   }, [token, invoiceId, clientGstinId]);
 
   const handleFinalize = async () => {

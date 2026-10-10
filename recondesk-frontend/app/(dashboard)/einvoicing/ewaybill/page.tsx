@@ -93,7 +93,21 @@ function EwayBillWorkbenchContent() {
       }
     }
     loadClients();
-  }, [token, selectedClientId]);
+  }, [token]);
+
+  useEffect(() => {
+    const sel = clients.find((c) => c.id === selectedClientId);
+    if (sel) {
+      if (!createFromGstin) setCreateFromGstin(sel.gstin);
+      if (!createFromTrdName) setCreateFromTrdName(sel.trade_name || sel.legal_name || "");
+      if (sel.gstin && sel.gstin.length >= 2) {
+        const sc = sel.gstin.substring(0, 2);
+        if (/^\d{2}$/.test(sc)) {
+          setCreateFromState(sc);
+        }
+      }
+    }
+  }, [selectedClientId, clients, createFromGstin, createFromTrdName]);
 
   useEffect(() => {
     async function loadEwayBills() {
@@ -226,10 +240,23 @@ function EwayBillWorkbenchContent() {
     }
   };
 
-  const handleDownloadBulkJson = () => {
-    if (!selectedClientId) return;
-    const url = ewaybillApi.getBulkJsonExportUrl(selectedClientId, statusFilter || undefined);
-    window.open(url, "_blank");
+  const handleDownloadBulkJson = async () => {
+    if (!token || !selectedClientId) return;
+    try {
+      const blob = await ewaybillApi.downloadBulkJson(token, selectedClientId, statusFilter || undefined);
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      const client = clients.find((c) => c.id === selectedClientId);
+      const gstinTag = client?.gstin ? `_${client.gstin}` : "";
+      a.download = `EWAYBILL_BULK${gstinTag}_${records.length}_RECORDS.json`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (err: any) {
+      alert("Failed to download NIC Bulk JSON: " + (err.message || err));
+    }
   };
 
   return (

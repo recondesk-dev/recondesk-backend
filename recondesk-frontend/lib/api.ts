@@ -4617,6 +4617,19 @@ export const ewaybillApi = {
       token,
     }),
 
+  downloadBulkJson: async (token: string, clientGstinId: string, status?: string): Promise<Blob> => {
+    const baseUrl = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000").replace(/\/+$/, "");
+    const res = await fetch(
+      `${baseUrl}/api/ewaybill/export-bulk-json?client_gstin_id=${encodeURIComponent(clientGstinId)}${status ? `&status=${encodeURIComponent(status)}` : ""}`,
+      {
+        method: "GET",
+        headers: { Authorization: `Bearer ${token}` },
+      }
+    );
+    if (!res.ok) throw new Error("Failed to export E-Way Bill JSON from backend");
+    return res.blob();
+  },
+
   getBulkJsonExportUrl: (clientGstinId: string, status?: string) =>
     `/api/ewaybill/export-bulk-json?client_gstin_id=${encodeURIComponent(clientGstinId)}${status ? `&status=${encodeURIComponent(status)}` : ""}`,
 };
