@@ -9,7 +9,7 @@ import { Avatar } from "@/components/ui/Avatar";
 import { LanguageToggle } from "@/components/ui/LanguageToggle";
 import { useToast } from "@/components/providers/ToastProvider";
 import { useTranslations } from "next-intl";
-import { Menu, X, PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { Menu, X, PanelLeftClose, PanelLeftOpen, Truck } from "lucide-react";
 import {
   billingApi,
   isApiError,
@@ -201,6 +201,10 @@ function NavIconFileText({ className }: { className?: string }) {
       />
     </svg>
   );
+}
+
+function NavIconTruck({ className }: { className?: string }) {
+  return <Truck className={className} size={18} />;
 }
 
 
@@ -481,6 +485,7 @@ export default function DashboardShellLayout({
     { href: "/vendors", label: tNav("vendors"), Icon: NavIconVendors },
     { href: "/reconciliations", label: tNav("reconciliations"), Icon: NavIconRefresh },
     { href: "/einvoicing", label: tNav("einvoicing"), Icon: NavIconFileText },
+    { href: "/einvoicing/ewaybill", label: tNav("ewaybill"), Icon: NavIconTruck },
     ...(currentUser.role === "ADMIN"
       ? [{ href: "/manage-data", label: tNav("manageData"), Icon: NavIconDatabase }]
       : []),
@@ -581,6 +586,8 @@ export default function DashboardShellLayout({
             const isActive =
               href === "/dashboard"
                 ? pathname === "/dashboard"
+                : href === "/einvoicing"
+                ? pathname === "/einvoicing" || (pathname.startsWith("/einvoicing/") && !pathname.startsWith("/einvoicing/ewaybill"))
                 : pathname === href || pathname.startsWith(`${href}/`);
             const navLink = (
               <Link

@@ -14,6 +14,7 @@ import {
   ChevronLeft,
   FileText,
   FileCheck,
+  Truck,
 } from "lucide-react";
 
 const NAV_ITEMS = [
@@ -22,6 +23,7 @@ const NAV_ITEMS = [
   { href: "/reconciliation", label: "Reconciliation", icon: RefreshCcw },
   { href: "/filing", label: "GST Filing", icon: FileCheck },
   { href: "/einvoicing", label: "E-Invoicing", icon: FileText },
+  { href: "/einvoicing/ewaybill", label: "E-Way Bill", icon: Truck },
   { href: "/billing", label: "Billing", icon: CreditCard },
   { href: "/team", label: "Team", icon: UsersRound },
   { href: "/settings", label: "Settings", icon: Settings },
@@ -39,6 +41,9 @@ export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
 
   const isActive = (href: string) => {
     if (href === "/dashboard") return pathname === "/dashboard";
+    if (href === "/einvoicing") {
+      return pathname === "/einvoicing" || (pathname.startsWith("/einvoicing/") && !pathname.startsWith("/einvoicing/ewaybill"));
+    }
     return pathname.startsWith(href);
   };
 
