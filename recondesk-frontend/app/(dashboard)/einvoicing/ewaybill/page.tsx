@@ -527,74 +527,85 @@ function EwayBillWorkbenchContent() {
 
       {/* MODAL 1: Update Vehicle */}
       {isUpdateVehicleOpen && selectedEwb && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
-            <div className="flex items-center justify-between border-b pb-3">
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-xs p-4 sm:p-6"
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="flex max-h-[90vh] w-full max-w-md flex-col overflow-hidden rounded-2xl bg-white shadow-2xl border border-gray-100">
+            <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4 shrink-0 bg-white">
               <h3 className="text-lg font-bold text-gray-900">Update Vehicle (Part B)</h3>
-              <button onClick={() => setIsUpdateVehicleOpen(false)} className="text-gray-400 hover:text-gray-600">
+              <button
+                type="button"
+                onClick={() => setIsUpdateVehicleOpen(false)}
+                className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
+                aria-label="Close"
+              >
                 <X className="h-5 w-5" />
               </button>
             </div>
-            <form onSubmit={handleUpdateVehicle} className="mt-4 space-y-4">
-              <div>
-                <label className="text-xs font-semibold text-gray-700">E-Way Bill Number</label>
-                <input
-                  type="text"
-                  disabled
-                  value={selectedEwb.ewb_number}
-                  className="mt-1 w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-600"
-                />
+            <form onSubmit={handleUpdateVehicle} className="flex min-h-0 flex-1 flex-col">
+              <div className="min-h-0 flex-1 overflow-y-auto p-6 space-y-4">
+                <div>
+                  <label className="text-xs font-semibold text-gray-700">E-Way Bill Number</label>
+                  <input
+                    type="text"
+                    disabled
+                    value={selectedEwb.ewb_number}
+                    className="mt-1 w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-600"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-gray-700">New Vehicle Number *</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. MH12AB1234"
+                    value={updateVehicleNo}
+                    onChange={(e) => setUpdateVehicleNo(e.target.value)}
+                    className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-gray-700">Place of Transshipment / Update *</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. Pune Hub"
+                    value={updateFromPlace}
+                    onChange={(e) => setUpdateFromPlace(e.target.value)}
+                    className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-gray-700">Reason for Vehicle Change</label>
+                  <select
+                    value={updateReasonCode}
+                    onChange={(e) => setUpdateReasonCode(e.target.value)}
+                    className="mt-1 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                  >
+                    <option value="1">1 - Vehicle Breakdown</option>
+                    <option value="2">2 - Transshipment</option>
+                    <option value="3">3 - Others</option>
+                    <option value="4">4 - First Time Vehicle Update</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-gray-700">Remarks (Optional)</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Transferred goods to secondary fleet"
+                    value={updateRemark}
+                    onChange={(e) => setUpdateRemark(e.target.value)}
+                    className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
               </div>
-              <div>
-                <label className="text-xs font-semibold text-gray-700">New Vehicle Number *</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. MH12AB1234"
-                  value={updateVehicleNo}
-                  onChange={(e) => setUpdateVehicleNo(e.target.value)}
-                  className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
-                />
-              </div>
-              <div>
-                <label className="text-xs font-semibold text-gray-700">Place of Transshipment / Update *</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Pune Hub"
-                  value={updateFromPlace}
-                  onChange={(e) => setUpdateFromPlace(e.target.value)}
-                  className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
-                />
-              </div>
-              <div>
-                <label className="text-xs font-semibold text-gray-700">Reason for Vehicle Change</label>
-                <select
-                  value={updateReasonCode}
-                  onChange={(e) => setUpdateReasonCode(e.target.value)}
-                  className="mt-1 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
-                >
-                  <option value="1">1 - Vehicle Breakdown</option>
-                  <option value="2">2 - Transshipment</option>
-                  <option value="3">3 - Others</option>
-                  <option value="4">4 - First Time Vehicle Update</option>
-                </select>
-              </div>
-              <div>
-                <label className="text-xs font-semibold text-gray-700">Remarks (Optional)</label>
-                <input
-                  type="text"
-                  placeholder="e.g. Transferred goods to secondary fleet"
-                  value={updateRemark}
-                  onChange={(e) => setUpdateRemark(e.target.value)}
-                  className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
-                />
-              </div>
-              <div className="flex justify-end gap-3 pt-3">
+              <div className="flex justify-end gap-3 border-t border-gray-100 bg-gray-50/70 px-6 py-4 shrink-0 rounded-b-2xl">
                 <button
                   type="button"
                   onClick={() => setIsUpdateVehicleOpen(false)}
-                  className="rounded-xl border border-gray-200 px-4 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-50"
+                  className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-50 shadow-xs"
                 >
                   Close
                 </button>
@@ -613,47 +624,58 @@ function EwayBillWorkbenchContent() {
 
       {/* MODAL 2: Cancel E-Way Bill */}
       {isCancelModalOpen && selectedEwb && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
-            <div className="flex items-center justify-between border-b pb-3">
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-xs p-4 sm:p-6"
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="flex max-h-[90vh] w-full max-w-md flex-col overflow-hidden rounded-2xl bg-white shadow-2xl border border-gray-100">
+            <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4 shrink-0 bg-white">
               <h3 className="text-lg font-bold text-red-600">Cancel E-Way Bill (24h Window)</h3>
-              <button onClick={() => setIsCancelModalOpen(false)} className="text-gray-400 hover:text-gray-600">
+              <button
+                type="button"
+                onClick={() => setIsCancelModalOpen(false)}
+                className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
+                aria-label="Close"
+              >
                 <X className="h-5 w-5" />
               </button>
             </div>
-            <form onSubmit={handleCancelEwb} className="mt-4 space-y-4">
-              <p className="text-xs text-gray-500">
-                Under statutory Rule 138(9), an E-Way Bill can only be cancelled within 24 hours of generation if the goods are not in transit.
-              </p>
-              <div>
-                <label className="text-xs font-semibold text-gray-700">Reason for Cancellation</label>
-                <select
-                  value={cancelReasonCode}
-                  onChange={(e) => setCancelReasonCode(e.target.value)}
-                  className="mt-1 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm focus:border-red-500 focus:outline-none"
-                >
-                  <option value="1">1 - Duplicate Consignment</option>
-                  <option value="2">2 - Order Cancelled by Buyer</option>
-                  <option value="3">3 - Data Entry Mistake</option>
-                  <option value="4">4 - Others</option>
-                </select>
+            <form onSubmit={handleCancelEwb} className="flex min-h-0 flex-1 flex-col">
+              <div className="min-h-0 flex-1 overflow-y-auto p-6 space-y-4">
+                <p className="text-xs text-gray-500">
+                  Under statutory Rule 138(9), an E-Way Bill can only be cancelled within 24 hours of generation if the goods are not in transit.
+                </p>
+                <div>
+                  <label className="text-xs font-semibold text-gray-700">Reason for Cancellation</label>
+                  <select
+                    value={cancelReasonCode}
+                    onChange={(e) => setCancelReasonCode(e.target.value)}
+                    className="mt-1 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm focus:border-red-500 focus:outline-none"
+                  >
+                    <option value="1">1 - Duplicate Consignment</option>
+                    <option value="2">2 - Order Cancelled by Buyer</option>
+                    <option value="3">3 - Data Entry Mistake</option>
+                    <option value="4">4 - Others</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-gray-700">Cancellation Remarks *</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. Order cancelled prior to dispatch"
+                    value={cancelRemarks}
+                    onChange={(e) => setCancelRemarks(e.target.value)}
+                    className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:border-red-500 focus:outline-none"
+                  />
+                </div>
               </div>
-              <div>
-                <label className="text-xs font-semibold text-gray-700">Cancellation Remarks *</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Order cancelled prior to dispatch"
-                  value={cancelRemarks}
-                  onChange={(e) => setCancelRemarks(e.target.value)}
-                  className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:border-red-500 focus:outline-none"
-                />
-              </div>
-              <div className="flex justify-end gap-3 pt-3">
+              <div className="flex justify-end gap-3 border-t border-gray-100 bg-gray-50/70 px-6 py-4 shrink-0 rounded-b-2xl">
                 <button
                   type="button"
                   onClick={() => setIsCancelModalOpen(false)}
-                  className="rounded-xl border border-gray-200 px-4 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-50"
+                  className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-50 shadow-xs"
                 >
                   Back
                 </button>
@@ -672,227 +694,243 @@ function EwayBillWorkbenchContent() {
 
       {/* MODAL 3: Standalone E-Way Bill Generation */}
       {isCreateModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 overflow-y-auto">
-          <div className="my-8 w-full max-w-2xl rounded-2xl bg-white p-6 shadow-xl">
-            <div className="flex items-center justify-between border-b pb-3">
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-xs p-4 sm:p-6"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="new-ewaybill-modal-title"
+        >
+          <div className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl border border-gray-100">
+            <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4 shrink-0 bg-white">
               <div>
-                <h3 className="text-lg font-bold text-gray-900">New Standalone E-Way Bill</h3>
-                <p className="text-xs text-gray-500">Generates Part A & Part B conforming to Government NIC Schema V1.04.</p>
+                <h3 id="new-ewaybill-modal-title" className="text-lg font-bold text-gray-900">
+                  New Standalone E-Way Bill
+                </h3>
+                <p className="text-xs text-gray-500">
+                  Generates Part A & Part B conforming to Government NIC Schema V1.04.
+                </p>
               </div>
-              <button onClick={() => setIsCreateModalOpen(false)} className="text-gray-400 hover:text-gray-600">
+              <button
+                type="button"
+                onClick={() => setIsCreateModalOpen(false)}
+                className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
+                aria-label="Close"
+              >
                 <X className="h-5 w-5" />
               </button>
             </div>
 
-            <form onSubmit={handleCreateStandalone} className="mt-4 space-y-6">
-              {/* Document details */}
-              <div>
-                <h4 className="text-xs font-bold uppercase tracking-wider text-gray-400">1. Document Details</h4>
-                <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-3">
-                  <div>
-                    <label className="text-xs font-semibold text-gray-700">Document Type</label>
-                    <select
-                      value={createDocType}
-                      onChange={(e) => setCreateDocType(e.target.value)}
-                      className="mt-1 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm"
-                    >
-                      <option value="INV">Tax Invoice</option>
-                      <option value="BIL">Bill of Supply</option>
-                      <option value="CHL">Delivery Challan</option>
-                      <option value="CNT">Credit Note</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="text-xs font-semibold text-gray-700">Document No. *</label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="e.g. INV/2026/001"
-                      value={createDocNo}
-                      onChange={(e) => setCreateDocNo(e.target.value)}
-                      className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2 text-sm"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs font-semibold text-gray-700">Document Date *</label>
-                    <input
-                      type="date"
-                      required
-                      value={createDocDate}
-                      onChange={(e) => setCreateDocDate(e.target.value)}
-                      className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2 text-sm"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* From & To */}
-              <div>
-                <h4 className="text-xs font-bold uppercase tracking-wider text-gray-400">2. Consignor & Consignee</h4>
-                <div className="mt-2 grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <div className="rounded-xl border border-gray-100 bg-gray-50/50 p-3 space-y-2">
-                    <span className="text-xs font-bold text-gray-700">Consignor (Dispatch From)</span>
-                    <input
-                      type="text"
-                      placeholder="From GSTIN (15 chars)"
-                      value={createFromGstin}
-                      onChange={(e) => setCreateFromGstin(e.target.value)}
-                      className="w-full rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs"
-                    />
-                    <input
-                      type="text"
-                      placeholder="Trade Name / Legal Name"
-                      value={createFromTrdName}
-                      onChange={(e) => setCreateFromTrdName(e.target.value)}
-                      className="w-full rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs"
-                    />
-                    <div className="grid grid-cols-2 gap-2">
+            <form onSubmit={handleCreateStandalone} className="flex min-h-0 flex-1 flex-col">
+              <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5 space-y-6">
+                {/* Document details */}
+                <div>
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-gray-400">1. Document Details</h4>
+                  <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                    <div>
+                      <label className="text-xs font-semibold text-gray-700">Document Type</label>
+                      <select
+                        value={createDocType}
+                        onChange={(e) => setCreateDocType(e.target.value)}
+                        className="mt-1 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm"
+                      >
+                        <option value="INV">Tax Invoice</option>
+                        <option value="BIL">Bill of Supply</option>
+                        <option value="CHL">Delivery Challan</option>
+                        <option value="CNT">Credit Note</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs font-semibold text-gray-700">Document No. *</label>
                       <input
                         type="text"
-                        placeholder="City"
-                        value={createFromPlace}
-                        onChange={(e) => setCreateFromPlace(e.target.value)}
-                        className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs"
-                      />
-                      <input
-                        type="text"
-                        placeholder="PIN Code"
-                        value={createFromPin}
-                        onChange={(e) => setCreateFromPin(e.target.value)}
-                        className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs"
+                        required
+                        placeholder="e.g. INV/2026/001"
+                        value={createDocNo}
+                        onChange={(e) => setCreateDocNo(e.target.value)}
+                        className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2 text-sm"
                       />
                     </div>
-                  </div>
-
-                  <div className="rounded-xl border border-gray-100 bg-gray-50/50 p-3 space-y-2">
-                    <span className="text-xs font-bold text-gray-700">Consignee (Bill/Ship To)</span>
-                    <input
-                      type="text"
-                      placeholder="To GSTIN (or URP for unregistered)"
-                      value={createToGstin}
-                      onChange={(e) => setCreateToGstin(e.target.value)}
-                      className="w-full rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs"
-                    />
-                    <input
-                      type="text"
-                      placeholder="Buyer Trade Name"
-                      value={createToTrdName}
-                      onChange={(e) => setCreateToTrdName(e.target.value)}
-                      className="w-full rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs"
-                    />
-                    <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-xs font-semibold text-gray-700">Document Date *</label>
                       <input
-                        type="text"
-                        placeholder="Destination City"
-                        value={createToPlace}
-                        onChange={(e) => setCreateToPlace(e.target.value)}
-                        className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs"
-                      />
-                      <input
-                        type="text"
-                        placeholder="Destination PIN"
-                        value={createToPin}
-                        onChange={(e) => setCreateToPin(e.target.value)}
-                        className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs"
+                        type="date"
+                        required
+                        value={createDocDate}
+                        onChange={(e) => setCreateDocDate(e.target.value)}
+                        className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2 text-sm"
                       />
                     </div>
                   </div>
                 </div>
-              </div>
 
-              {/* Items & Values */}
-              <div>
-                <h4 className="text-xs font-bold uppercase tracking-wider text-gray-400">3. Goods & Financials</h4>
-                <div className="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-4">
-                  <div>
-                    <label className="text-[11px] font-semibold text-gray-600">Product Desc</label>
-                    <input
-                      type="text"
-                      value={createItemDesc}
-                      onChange={(e) => setCreateItemDesc(e.target.value)}
-                      className="mt-1 w-full rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs"
-                    />
+                {/* From & To */}
+                <div>
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-gray-400">2. Consignor & Consignee</h4>
+                  <div className="mt-2 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <div className="rounded-xl border border-gray-100 bg-gray-50/50 p-3 space-y-2">
+                      <span className="text-xs font-bold text-gray-700">Consignor (Dispatch From)</span>
+                      <input
+                        type="text"
+                        placeholder="From GSTIN (15 chars)"
+                        value={createFromGstin}
+                        onChange={(e) => setCreateFromGstin(e.target.value)}
+                        className="w-full rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs"
+                      />
+                      <input
+                        type="text"
+                        placeholder="Trade Name / Legal Name"
+                        value={createFromTrdName}
+                        onChange={(e) => setCreateFromTrdName(e.target.value)}
+                        className="w-full rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs"
+                      />
+                      <div className="grid grid-cols-2 gap-2">
+                        <input
+                          type="text"
+                          placeholder="City"
+                          value={createFromPlace}
+                          onChange={(e) => setCreateFromPlace(e.target.value)}
+                          className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs"
+                        />
+                        <input
+                          type="text"
+                          placeholder="PIN Code"
+                          value={createFromPin}
+                          onChange={(e) => setCreateFromPin(e.target.value)}
+                          className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl border border-gray-100 bg-gray-50/50 p-3 space-y-2">
+                      <span className="text-xs font-bold text-gray-700">Consignee (Bill/Ship To)</span>
+                      <input
+                        type="text"
+                        placeholder="To GSTIN (or URP for unregistered)"
+                        value={createToGstin}
+                        onChange={(e) => setCreateToGstin(e.target.value)}
+                        className="w-full rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs"
+                      />
+                      <input
+                        type="text"
+                        placeholder="Buyer Trade Name"
+                        value={createToTrdName}
+                        onChange={(e) => setCreateToTrdName(e.target.value)}
+                        className="w-full rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs"
+                      />
+                      <div className="grid grid-cols-2 gap-2">
+                        <input
+                          type="text"
+                          placeholder="Destination City"
+                          value={createToPlace}
+                          onChange={(e) => setCreateToPlace(e.target.value)}
+                          className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs"
+                        />
+                        <input
+                          type="text"
+                          placeholder="Destination PIN"
+                          value={createToPin}
+                          onChange={(e) => setCreateToPin(e.target.value)}
+                          className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs"
+                        />
+                      </div>
+                    </div>
                   </div>
-                  <div>
-                    <label className="text-[11px] font-semibold text-gray-600">HSN Code</label>
-                    <input
-                      type="text"
-                      value={createItemHsn}
-                      onChange={(e) => setCreateItemHsn(e.target.value)}
-                      className="mt-1 w-full rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs"
-                    />
+                </div>
+
+                {/* Items & Values */}
+                <div>
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-gray-400">3. Goods & Financials</h4>
+                  <div className="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-4">
+                    <div>
+                      <label className="text-[11px] font-semibold text-gray-600">Product Desc</label>
+                      <input
+                        type="text"
+                        value={createItemDesc}
+                        onChange={(e) => setCreateItemDesc(e.target.value)}
+                        className="mt-1 w-full rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-semibold text-gray-600">HSN Code</label>
+                      <input
+                        type="text"
+                        value={createItemHsn}
+                        onChange={(e) => setCreateItemHsn(e.target.value)}
+                        className="mt-1 w-full rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-semibold text-gray-600">Quantity</label>
+                      <input
+                        type="number"
+                        value={createItemQty}
+                        onChange={(e) => setCreateItemQty(e.target.value)}
+                        className="mt-1 w-full rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-semibold text-gray-600">Taxable Value (₹)</label>
+                      <input
+                        type="number"
+                        value={createItemValue}
+                        onChange={(e) => setCreateItemValue(e.target.value)}
+                        className="mt-1 w-full rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-semibold"
+                      />
+                    </div>
                   </div>
-                  <div>
-                    <label className="text-[11px] font-semibold text-gray-600">Quantity</label>
-                    <input
-                      type="number"
-                      value={createItemQty}
-                      onChange={(e) => setCreateItemQty(e.target.value)}
-                      className="mt-1 w-full rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[11px] font-semibold text-gray-600">Taxable Value (₹)</label>
-                    <input
-                      type="number"
-                      value={createItemValue}
-                      onChange={(e) => setCreateItemValue(e.target.value)}
-                      className="mt-1 w-full rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-semibold"
-                    />
+                </div>
+
+                {/* Part B Transport */}
+                <div>
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-gray-400">4. Part B Transport Details</h4>
+                  <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                    <div>
+                      <label className="text-xs font-semibold text-gray-700">Approx Distance (KM) *</label>
+                      <input
+                        type="number"
+                        required
+                        placeholder="e.g. 250"
+                        value={createDistance}
+                        onChange={(e) => setCreateDistance(e.target.value)}
+                        className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2 text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-semibold text-gray-700">Vehicle Number</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. MH12AB1234"
+                        value={createVehicleNo}
+                        onChange={(e) => setCreateVehicleNo(e.target.value)}
+                        className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2 text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-semibold text-gray-700">Transporter ID (Optional)</label>
+                      <input
+                        type="text"
+                        placeholder="Transporter GSTIN"
+                        value={createTransId}
+                        onChange={(e) => setCreateTransId(e.target.value)}
+                        className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2 text-sm"
+                      />
+                    </div>
                   </div>
                 </div>
               </div>
 
-              {/* Part B Transport */}
-              <div>
-                <h4 className="text-xs font-bold uppercase tracking-wider text-gray-400">4. Part B Transport Details</h4>
-                <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-3">
-                  <div>
-                    <label className="text-xs font-semibold text-gray-700">Approx Distance (KM) *</label>
-                    <input
-                      type="number"
-                      required
-                      placeholder="e.g. 250"
-                      value={createDistance}
-                      onChange={(e) => setCreateDistance(e.target.value)}
-                      className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2 text-sm"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs font-semibold text-gray-700">Vehicle Number</label>
-                    <input
-                      type="text"
-                      placeholder="e.g. MH12AB1234"
-                      value={createVehicleNo}
-                      onChange={(e) => setCreateVehicleNo(e.target.value)}
-                      className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2 text-sm"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs font-semibold text-gray-700">Transporter ID (Optional)</label>
-                    <input
-                      type="text"
-                      placeholder="Transporter GSTIN"
-                      value={createTransId}
-                      onChange={(e) => setCreateTransId(e.target.value)}
-                      className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2 text-sm"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex justify-end gap-3 pt-3 border-t">
+              <div className="flex justify-end gap-3 border-t border-gray-100 bg-gray-50/70 px-6 py-4 shrink-0 rounded-b-2xl">
                 <button
                   type="button"
                   onClick={() => setIsCreateModalOpen(false)}
-                  className="rounded-xl border border-gray-200 px-4 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-50"
+                  className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-50 shadow-xs"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="rounded-xl bg-[var(--ink)] px-5 py-2 text-xs font-semibold text-white shadow hover:opacity-90 disabled:opacity-50"
+                  className="rounded-xl bg-[var(--ink)] px-5 py-2 text-xs font-semibold text-white shadow-sm hover:opacity-90 disabled:opacity-50"
                 >
                   {isSubmitting ? "Generating..." : "Generate E-Way Bill"}
                 </button>

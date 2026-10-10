@@ -740,7 +740,13 @@ export default function DashboardShellLayout({
 
             <div className="rd-workspace-breadcrumb hidden lg:flex" aria-label="Current workspace">
               <span>ReconDesk</span><span aria-hidden="true">/</span>
-              <strong>{nav.find(({ href }) => pathname === href || pathname.startsWith(`${href}/`))?.label ?? "Workspace"}</strong>
+              <strong>
+                {nav.find(({ href }) => pathname === href)?.label ??
+                  nav
+                    .filter(({ href }) => pathname.startsWith(`${href}/`))
+                    .sort((a, b) => b.href.length - a.href.length)[0]?.label ??
+                  "Workspace"}
+              </strong>
             </div>
             <button
               type="button"

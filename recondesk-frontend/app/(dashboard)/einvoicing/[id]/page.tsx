@@ -569,7 +569,7 @@ function InvoiceDetailContent() {
 
       {/* Modal: Finalize Confirmation */}
       {showFinalizeModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[100] bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4" role="dialog" aria-modal="true">
           <div className="bg-white border border-gray-200 rounded-2xl w-full max-w-md p-6 space-y-4 shadow-2xl text-center">
             <div className="w-12 h-12 rounded-2xl bg-slate-100 text-slate-900 mx-auto flex items-center justify-center border border-slate-200">
               <Lock className="w-6 h-6" />
@@ -602,7 +602,7 @@ function InvoiceDetailContent() {
 
       {/* Modal: Cancel IRN Confirmation */}
       {showCancelModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[100] bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4" role="dialog" aria-modal="true">
           <div className="bg-white border border-gray-200 rounded-2xl w-full max-w-md p-6 space-y-4 shadow-2xl text-left">
             <div className="w-12 h-12 rounded-2xl bg-red-50 text-red-600 mx-auto flex items-center justify-center border border-red-200">
               <ShieldAlert className="w-6 h-6" />
@@ -689,82 +689,93 @@ function InvoiceDetailContent() {
 
       {/* MODAL: Generate E-Way Bill */}
       {showEwbModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
-            <div className="flex items-center justify-between border-b pb-3">
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-xs p-4 sm:p-6"
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="flex max-h-[90vh] w-full max-w-md flex-col overflow-hidden rounded-2xl bg-white shadow-2xl border border-gray-100">
+            <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4 shrink-0 bg-white">
               <div className="flex items-center gap-2">
                 <Truck className="h-5 w-5 text-blue-600" />
                 <h3 className="text-base font-bold text-slate-900">Generate E-Way Bill</h3>
               </div>
-              <button onClick={() => setShowEwbModal(false)} className="text-gray-400 hover:text-gray-600">
+              <button
+                type="button"
+                onClick={() => setShowEwbModal(false)}
+                className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
+                aria-label="Close"
+              >
                 <X className="h-5 w-5" />
               </button>
             </div>
 
-            <form onSubmit={handleGenerateEwb} className="mt-4 space-y-4">
-              <p className="text-xs text-slate-500">
-                Generate Part A & Part B conforming to Government NIC Schema V1.04 for invoice{" "}
-                <span className="font-semibold text-slate-800">{invoice.invoice_number}</span>.
-              </p>
+            <form onSubmit={handleGenerateEwb} className="flex min-h-0 flex-1 flex-col">
+              <div className="min-h-0 flex-1 overflow-y-auto p-6 space-y-4">
+                <p className="text-xs text-slate-500">
+                  Generate Part A & Part B conforming to Government NIC Schema V1.04 for invoice{" "}
+                  <span className="font-semibold text-slate-800">{invoice.invoice_number}</span>.
+                </p>
 
-              <div>
-                <label className="text-xs font-semibold text-slate-700">Approximate Distance (KM) *</label>
-                <input
-                  type="number"
-                  required
-                  min={1}
-                  max={4000}
-                  value={ewbDistance}
-                  onChange={(e) => setEwbDistance(e.target.value)}
-                  placeholder="e.g. 250"
-                  className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2 text-xs focus:border-blue-500 focus:outline-none"
-                />
-                <span className="text-[10px] text-slate-400 mt-0.5 block">
-                  Validity calculated at 1 day per 200 km under Rule 138(10).
-                </span>
+                <div>
+                  <label className="text-xs font-semibold text-slate-700">Approximate Distance (KM) *</label>
+                  <input
+                    type="number"
+                    required
+                    min={1}
+                    max={4000}
+                    value={ewbDistance}
+                    onChange={(e) => setEwbDistance(e.target.value)}
+                    placeholder="e.g. 250"
+                    className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2 text-xs focus:border-blue-500 focus:outline-none"
+                  />
+                  <span className="text-[10px] text-slate-400 mt-0.5 block">
+                    Validity calculated at 1 day per 200 km under Rule 138(10).
+                  </span>
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-slate-700">Vehicle Number (Part B)</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. MH12AB1234 (Leave blank for Part A only)"
+                    value={ewbVehicleNo}
+                    onChange={(e) => setEwbVehicleNo(e.target.value)}
+                    className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2 text-xs focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-slate-700">Transport Mode</label>
+                  <select
+                    value={ewbMode}
+                    onChange={(e) => setEwbMode(e.target.value)}
+                    className="mt-1 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs focus:border-blue-500 focus:outline-none"
+                  >
+                    <option value="1">1 - Road</option>
+                    <option value="2">2 - Rail</option>
+                    <option value="3">3 - Air</option>
+                    <option value="4">4 - Ship</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-slate-700">Transporter GSTIN / TRANSIN (Optional)</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. 27AAAAA0000A1Z5"
+                    value={ewbTransporterId}
+                    onChange={(e) => setEwbTransporterId(e.target.value)}
+                    className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2 text-xs focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
               </div>
 
-              <div>
-                <label className="text-xs font-semibold text-slate-700">Vehicle Number (Part B)</label>
-                <input
-                  type="text"
-                  placeholder="e.g. MH12AB1234 (Leave blank for Part A only)"
-                  value={ewbVehicleNo}
-                  onChange={(e) => setEwbVehicleNo(e.target.value)}
-                  className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2 text-xs focus:border-blue-500 focus:outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="text-xs font-semibold text-slate-700">Transport Mode</label>
-                <select
-                  value={ewbMode}
-                  onChange={(e) => setEwbMode(e.target.value)}
-                  className="mt-1 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs focus:border-blue-500 focus:outline-none"
-                >
-                  <option value="1">1 - Road</option>
-                  <option value="2">2 - Rail</option>
-                  <option value="3">3 - Air</option>
-                  <option value="4">4 - Ship</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="text-xs font-semibold text-slate-700">Transporter GSTIN / TRANSIN (Optional)</label>
-                <input
-                  type="text"
-                  placeholder="e.g. 27AAAAA0000A1Z5"
-                  value={ewbTransporterId}
-                  onChange={(e) => setEwbTransporterId(e.target.value)}
-                  className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2 text-xs focus:border-blue-500 focus:outline-none"
-                />
-              </div>
-
-              <div className="flex justify-end gap-3 pt-3 border-t">
+              <div className="flex justify-end gap-3 border-t border-gray-100 bg-gray-50/70 px-6 py-4 shrink-0 rounded-b-2xl">
                 <button
                   type="button"
                   onClick={() => setShowEwbModal(false)}
-                  className="rounded-xl border border-gray-200 px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-gray-50"
+                  className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-gray-50 shadow-xs"
                 >
                   Cancel
                 </button>

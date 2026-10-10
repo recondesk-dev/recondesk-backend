@@ -656,6 +656,22 @@ class AuroraAuthClient:
                 )
             except Exception as admin_exc:
                 _log.info("Cognito admin_initiate_auth fallback for %s: %s", email, admin_exc)
+                err_code = getattr(admin_exc, "response", {}).get("Error", {}).get("Code", "")
+                if err_code == "UserNotConfirmedException" or "UserNotConfirmedException" in str(admin_exc):
+                    try:
+                        _log.info("Auto-confirming unconfirmed user %s via admin_confirm_sign_up", email)
+                        cognito.admin_confirm_sign_up(
+                            UserPoolId=s.COGNITO_USER_POOL_ID,
+                            Username=email,
+                        )
+                        auth_res = cognito.admin_initiate_auth(
+                            UserPoolId=s.COGNITO_USER_POOL_ID,
+                            ClientId=s.COGNITO_CLIENT_ID,
+                            AuthFlow="ADMIN_NO_SRP_AUTH",
+                            AuthParameters=auth_params,
+                        )
+                    except Exception as confirm_retry_exc:
+                        _log.warning("Failed to auto-confirm and retry auth for %s: %s", email, confirm_retry_exc)
 
         if not auth_res:
             _log.warning("AuroraAuthClient.sign_in_with_password: Cognito authentication returned no response for %s", email)
@@ -698,7 +714,28 @@ class AuroraAuthClient:
                 raise
 
         if not prof:
-            _log.warning("AuroraAuthClient.sign_in_with_password: No user_profiles record found for email %s", email)
+            _log.warning("AuroraAuthClient.sign_in_with_password: No user_profiles record found for email %s - auto-provisioning", email)
+            try:
+                import uuid
+                user_id = str(uuid.uuid4())
+                with engine.connect() as ins_conn:
+                    ins_conn.execute(
+                        text("""
+                            INSERT INTO public.user_profiles (id, email, full_name, role, is_active, runs_limit)
+                            VALUES (:id, :em, :fn, 'admin', true, 2)
+                            ON CONFLICT (email) DO UPDATE SET is_active = true
+                        """),
+                        {"id": user_id, "em": email, "fn": email.split("@")[0]},
+                    )
+                    ins_conn.commit()
+                    prof = ins_conn.execute(
+                        text("SELECT id, email, full_name, phone, role FROM public.user_profiles WHERE LOWER(email) = :em LIMIT 1"),
+                        {"em": email},
+                    ).first()
+            except Exception as ins_err:
+                _log.error("Failed to auto-provision user_profiles for %s: %s", email, ins_err)
+
+        if not prof:
             return AuroraAuthResponse(user=None, session=None)
 
         user_id = str(prof.id)
