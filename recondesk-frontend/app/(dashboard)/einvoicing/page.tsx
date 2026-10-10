@@ -16,6 +16,7 @@ import {
   ArrowRight,
   Building2,
   Send,
+  Truck,
 } from "lucide-react";
 import { useAccessToken } from "@/lib/hooks/useAccessToken";
 import {
@@ -140,6 +141,14 @@ function EInvoicingDashboardContent() {
           >
             <Settings className="w-4 h-4 text-slate-600" />
             Master Data
+          </Link>
+
+          <Link
+            href={`/einvoicing/ewaybill?client_id=${selectedClientId}`}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-50 hover:bg-blue-100/70 text-blue-700 rounded-xl border border-blue-200 text-sm font-semibold shadow-sm transition-all"
+          >
+            <Truck className="w-4 h-4 text-blue-600" />
+            E-Way Bills
           </Link>
 
           <Link

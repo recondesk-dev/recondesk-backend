@@ -18,9 +18,12 @@ import {
   Check,
   XCircle,
   ShieldAlert,
+  Truck,
+  ExternalLink,
+  X,
 } from "lucide-react";
 import { useAccessToken } from "@/lib/hooks/useAccessToken";
-import { billingModuleApi, BillingInvoice } from "@/lib/api";
+import { billingModuleApi, BillingInvoice, ewaybillApi } from "@/lib/api";
 
 function InvoiceDetailContent() {
   const params = useParams();
@@ -47,6 +50,41 @@ function InvoiceDetailContent() {
   const [cancelRemarks, setCancelRemarks] = useState<string>("Data entry error in invoice header");
 
   const [copiedIrn, setCopiedIrn] = useState<boolean>(false);
+
+  // E-Way Bill state
+  const [showEwbModal, setShowEwbModal] = useState<boolean>(false);
+  const [ewbVehicleNo, setEwbVehicleNo] = useState<string>("");
+  const [ewbDistance, setEwbDistance] = useState<string>("250");
+  const [ewbTransporterId, setEwbTransporterId] = useState<string>("");
+  const [ewbTransporterName, setEwbTransporterName] = useState<string>("");
+  const [ewbMode, setEwbMode] = useState<string>("1");
+  const [generatingEwb, setGeneratingEwb] = useState<boolean>(false);
+  const [generatedEwbNo, setGeneratedEwbNo] = useState<string | null>(null);
+
+  const handleGenerateEwb = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!token || !invoiceId || !clientGstinId) return;
+    setGeneratingEwb(true);
+    try {
+      const res = await ewaybillApi.generateFromInvoice(token, {
+        client_gstin_id: clientGstinId,
+        invoice_id: invoiceId,
+        distance_km: parseInt(ewbDistance, 10) || 250,
+        vehicle_no: ewbVehicleNo || undefined,
+        transporter_id: ewbTransporterId || undefined,
+        transporter_name: ewbTransporterName || undefined,
+        trans_mode: ewbMode,
+        vehicle_type: "R",
+      });
+      setGeneratedEwbNo(res.ewb_number);
+      alert(`E-Way Bill generated successfully! EWB No: ${res.ewb_number}`);
+      setShowEwbModal(false);
+    } catch (err: any) {
+      alert("Failed to generate E-Way Bill: " + (err.detail || err.message));
+    } finally {
+      setGeneratingEwb(false);
+    }
+  };
 
   useEffect(() => {
     if (!token || !invoiceId || !clientGstinId) return;
@@ -236,6 +274,16 @@ function InvoiceDetailContent() {
             >
               <Send className="w-4 h-4" />
               {submittingIrp ? "Submitting to IRP..." : "Submit to IRP"}
+            </button>
+          )}
+
+          {isFinalized && !isIrpCancelled && (
+            <button
+              onClick={() => setShowEwbModal(true)}
+              className="flex items-center gap-1.5 px-4 py-2 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-xs font-semibold rounded-xl shadow-sm transition-all"
+            >
+              <Truck className="w-4 h-4 text-blue-600" />
+              {generatedEwbNo ? `EWB: ${generatedEwbNo}` : "Generate E-Way Bill"}
             </button>
           )}
 
@@ -625,6 +673,101 @@ function InvoiceDetailContent() {
                 {cancellingIrn ? "Cancelling IRN..." : "Confirm & Cancel IRN"}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: Generate E-Way Bill */}
+      {showEwbModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+            <div className="flex items-center justify-between border-b pb-3">
+              <div className="flex items-center gap-2">
+                <Truck className="h-5 w-5 text-blue-600" />
+                <h3 className="text-base font-bold text-slate-900">Generate E-Way Bill</h3>
+              </div>
+              <button onClick={() => setShowEwbModal(false)} className="text-gray-400 hover:text-gray-600">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleGenerateEwb} className="mt-4 space-y-4">
+              <p className="text-xs text-slate-500">
+                Generate Part A & Part B conforming to Government NIC Schema V1.04 for invoice{" "}
+                <span className="font-semibold text-slate-800">{invoice.invoice_number}</span>.
+              </p>
+
+              <div>
+                <label className="text-xs font-semibold text-slate-700">Approximate Distance (KM) *</label>
+                <input
+                  type="number"
+                  required
+                  min={1}
+                  max={4000}
+                  value={ewbDistance}
+                  onChange={(e) => setEwbDistance(e.target.value)}
+                  placeholder="e.g. 250"
+                  className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2 text-xs focus:border-blue-500 focus:outline-none"
+                />
+                <span className="text-[10px] text-slate-400 mt-0.5 block">
+                  Validity calculated at 1 day per 200 km under Rule 138(10).
+                </span>
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-slate-700">Vehicle Number (Part B)</label>
+                <input
+                  type="text"
+                  placeholder="e.g. MH12AB1234 (Leave blank for Part A only)"
+                  value={ewbVehicleNo}
+                  onChange={(e) => setEwbVehicleNo(e.target.value)}
+                  className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2 text-xs focus:border-blue-500 focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-slate-700">Transport Mode</label>
+                <select
+                  value={ewbMode}
+                  onChange={(e) => setEwbMode(e.target.value)}
+                  className="mt-1 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs focus:border-blue-500 focus:outline-none"
+                >
+                  <option value="1">1 - Road</option>
+                  <option value="2">2 - Rail</option>
+                  <option value="3">3 - Air</option>
+                  <option value="4">4 - Ship</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-slate-700">Transporter GSTIN / TRANSIN (Optional)</label>
+                <input
+                  type="text"
+                  placeholder="e.g. 27AAAAA0000A1Z5"
+                  value={ewbTransporterId}
+                  onChange={(e) => setEwbTransporterId(e.target.value)}
+                  className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2 text-xs focus:border-blue-500 focus:outline-none"
+                />
+              </div>
+
+              <div className="flex justify-end gap-3 pt-3 border-t">
+                <button
+                  type="button"
+                  onClick={() => setShowEwbModal(false)}
+                  className="rounded-xl border border-gray-200 px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={generatingEwb}
+                  className="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-4 py-2 text-xs font-semibold text-white shadow-sm hover:bg-blue-700 disabled:opacity-50"
+                >
+                  <Truck className="h-3.5 w-3.5" />
+                  {generatingEwb ? "Generating..." : "Generate E-Way Bill"}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

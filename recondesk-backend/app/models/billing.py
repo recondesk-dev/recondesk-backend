@@ -226,7 +226,7 @@ class InvoiceCreateInput(BaseModel):
     due_date: Optional[date] = None
     place_of_supply: Optional[str] = None  # state_code
     notes: Optional[str] = None
-    line_items: List[InvoiceLineItemInput] = Field(..., min_items=1)
+    line_items: List[InvoiceLineItemInput] = Field(..., min_length=1)
 
 
 class InvoiceUpdateInput(BaseModel):

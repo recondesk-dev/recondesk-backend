@@ -68,6 +68,7 @@ from app.routers.billing import masters as billing_masters_router
 from app.routers.billing import invoices as billing_invoices_router
 from app.routers.billing import irp as billing_irp_router
 from app.routers.billing import cdn as billing_cdn_router
+from app.routers.billing import ewaybill as billing_ewaybill_router
 from app.routers import work_items as work_items_router
 from app.routers.cognito_auth import router as cognito_auth_router
 from app.utils.rate_limit import limiter
@@ -563,6 +564,16 @@ app.include_router(
     billing_cdn_router.router,
     prefix="/api/einvoicing/credit-debit-notes",
     tags=["E-Invoicing CDNR"],
+)
+app.include_router(
+    billing_ewaybill_router.router,
+    prefix="/api/billing/ewaybill",
+    tags=["E-Way Bill Suite"],
+)
+app.include_router(
+    billing_ewaybill_router.router,
+    prefix="/api/ewaybill",
+    tags=["E-Way Bill Suite"],
 )
 app.include_router(notifications.router, prefix="/api/v1/notifications", tags=["Notifications"])
 app.include_router(

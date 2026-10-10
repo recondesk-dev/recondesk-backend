@@ -4439,5 +4439,187 @@ export const gstr4Api = {
     `/api/v1/gstr4/clients/${encodeURIComponent(clientId)}/export-json?fy=${encodeURIComponent(fy)}&category=${encodeURIComponent(category)}`,
 };
 
+// ─── E-Way Bill Suite API ───────────────────────────────────────────────────
+
+export interface EwayBillItem {
+  item_name: string;
+  description?: string;
+  hsn_code: string;
+  quantity: number;
+  unit: string;
+  taxable_value: number;
+  cgst_rate?: number;
+  cgst_amount?: number;
+  sgst_rate?: number;
+  sgst_amount?: number;
+  igst_rate?: number;
+  igst_amount?: number;
+  cess_rate?: number;
+  cess_amount?: number;
+}
+
+export interface EwayBillRecord {
+  id: string;
+  client_gstin_id: string;
+  invoice_id?: string | null;
+  ewb_number: string;
+  ewb_date: string;
+  valid_until?: string | null;
+  status: "ACTIVE" | "PART_A_ONLY" | "CANCELLED" | "EXPIRED";
+  doc_type: string;
+  doc_number: string;
+  doc_date: string;
+  supply_type: string;
+  sub_supply_type: string;
+  from_gstin: string;
+  from_trade_name: string;
+  from_addr1: string;
+  from_place: string;
+  from_pincode: number;
+  from_state_code: string;
+  to_gstin: string;
+  to_trade_name: string;
+  to_addr1: string;
+  to_place: string;
+  to_pincode: number;
+  to_state_code: string;
+  total_taxable_value: number;
+  cgst_amount: number;
+  sgst_amount: number;
+  igst_amount: number;
+  cess_amount: number;
+  total_invoice_value: number;
+  transporter_id?: string | null;
+  transporter_name?: string | null;
+  trans_mode: string;
+  distance_km: number;
+  trans_doc_no?: string | null;
+  trans_doc_date?: string | null;
+  vehicle_no?: string | null;
+  vehicle_type: string;
+  vehicle_history?: Array<{
+    vehicle_no: string;
+    from_place: string;
+    updated_at: string;
+    reason?: string;
+  }>;
+  items?: EwayBillItem[];
+  cancel_reason?: string | null;
+  cancel_remarks?: string | null;
+  cancelled_at?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface EwayBillCreateInput {
+  client_gstin_id: string;
+  invoice_id?: string;
+  supply_type: string;
+  sub_supply_type: string;
+  sub_supply_desc?: string;
+  doc_type: string;
+  doc_number: string;
+  doc_date: string;
+  from_gstin: string;
+  from_trade_name: string;
+  from_addr1: string;
+  from_addr2?: string;
+  from_place: string;
+  from_pincode: number;
+  from_state_code: string;
+  to_gstin: string;
+  to_trade_name: string;
+  to_addr1: string;
+  to_addr2?: string;
+  to_place: string;
+  to_pincode: number;
+  to_state_code: string;
+  total_taxable_value: number;
+  cgst_amount: number;
+  sgst_amount: number;
+  igst_amount: number;
+  cess_amount: number;
+  total_invoice_value: number;
+  items: EwayBillItem[];
+  transporter_id?: string;
+  transporter_name?: string;
+  trans_mode: string;
+  distance_km: number;
+  trans_doc_no?: string;
+  trans_doc_date?: string;
+  vehicle_no?: string;
+  vehicle_type: string;
+}
+
+export interface EwbFromInvoiceInput {
+  client_gstin_id: string;
+  invoice_id: string;
+  transporter_id?: string;
+  transporter_name?: string;
+  trans_mode: string;
+  distance_km: number;
+  trans_doc_no?: string;
+  trans_doc_date?: string;
+  vehicle_no?: string;
+  vehicle_type: string;
+}
+
+export interface UpdateVehicleInput {
+  ewb_number: string;
+  vehicle_no: string;
+  from_place: string;
+  from_state_code: string;
+  reason_code: string;
+  reason_remark?: string;
+  trans_doc_no?: string;
+  trans_doc_date?: string;
+  trans_mode: string;
+}
+
+export interface CancelEwayBillInput {
+  ewb_number: string;
+  cancel_reason_code: string;
+  cancel_remarks: string;
+}
+
+export const ewaybillApi = {
+  list: (token: string, clientGstinId: string, status?: string) =>
+    apiFetch<EwayBillRecord[]>(
+      `/api/ewaybill/list?client_gstin_id=${encodeURIComponent(clientGstinId)}${status ? `&status=${encodeURIComponent(status)}` : ""}`,
+      { token }
+    ),
+
+  generate: (token: string, body: EwayBillCreateInput) =>
+    apiFetch<EwayBillRecord>("/api/ewaybill/generate", {
+      method: "POST",
+      body: JSON.stringify(body),
+      token,
+    }),
+
+  generateFromInvoice: (token: string, body: EwbFromInvoiceInput) =>
+    apiFetch<EwayBillRecord>("/api/ewaybill/generate-from-invoice", {
+      method: "POST",
+      body: JSON.stringify(body),
+      token,
+    }),
+
+  updateVehicle: (token: string, ewbId: string, body: UpdateVehicleInput) =>
+    apiFetch<EwayBillRecord>(`/api/ewaybill/${encodeURIComponent(ewbId)}/update-vehicle`, {
+      method: "POST",
+      body: JSON.stringify(body),
+      token,
+    }),
+
+  cancel: (token: string, ewbId: string, body: CancelEwayBillInput) =>
+    apiFetch<EwayBillRecord>(`/api/ewaybill/${encodeURIComponent(ewbId)}/cancel`, {
+      method: "POST",
+      body: JSON.stringify(body),
+      token,
+    }),
+
+  getBulkJsonExportUrl: (clientGstinId: string, status?: string) =>
+    `/api/ewaybill/export-bulk-json?client_gstin_id=${encodeURIComponent(clientGstinId)}${status ? `&status=${encodeURIComponent(status)}` : ""}`,
+};
+
 
 
