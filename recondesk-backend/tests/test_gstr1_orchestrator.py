@@ -422,3 +422,39 @@ def test_hsn_pending_does_not_steal_primary_saved_disposition():
     assert "b2b" in result.save_payload
     # HSN blocked or pending — either way primary accounting stays saved
     assert result.row_accounting.sums_to_total
+
+
+def test_portal_mirror_generation():
+    """Verify compute_gstr1_portal_mirror populates the mirror tiles correctly."""
+    from app.filing.gstr1_orchestrator import serialize_gstr1_readiness
+
+    rows = [
+        _b2b(taxable_amount_paise=100_000, tax_rate=18.0),
+        _b2c(taxable_amount_paise=50_000, tax_rate=18.0),
+    ]
+    result = map_sales_register_to_gstr1(
+        rows, filer_state=FILER, filing_period=PERIOD,
+    )
+    serialized = serialize_gstr1_readiness(result)
+    assert "portal_mirror" in serialized
+    mirror = serialized["portal_mirror"]
+    assert "tables" in mirror
+    assert "totals" in mirror
+
+    # B2B tile check
+    b2b_tile = mirror["tables"]["b2b"]
+    assert b2b_tile["table_id"] == "4A, 4B, 6B, 6C"
+    assert b2b_tile["count"] == 1
+    assert b2b_tile["taxable_value"] == 1000.0
+    assert b2b_tile["status"] == "ready"
+
+    # B2CS tile check
+    b2cs_tile = mirror["tables"]["b2cs"]
+    assert b2cs_tile["table_id"] == "7"
+    assert b2cs_tile["taxable_value"] == 500.0
+
+    # Totals check
+    totals = mirror["totals"]
+    assert totals["total_taxable_value"] == 1500.0
+    assert totals["total_tax"] == 270.0
+

@@ -407,6 +407,18 @@ function ClientDetailContent() {
                     Supplier filing cutoff analysis & deferred ITC
                   </span>
                 </Link>
+                <Link
+                  href={id ? `/filing/gstr-4?client_id=${id}` : "/filing/gstr-4"}
+                  title="Composition Scheme Annual Return & CMP-08"
+                  className="flex flex-col items-start gap-1 rounded-[1.25rem] bg-[var(--ink)] px-4 py-3 text-left transition-opacity hover:opacity-90"
+                >
+                  <span className="text-sm font-semibold text-white">
+                    GSTR-4 & CMP-08 Composition
+                  </span>
+                  <span className="text-[11px] font-medium leading-snug text-white/70">
+                    Composition Scheme Annual Return — rate calc & CMP-08 tie-out
+                  </span>
+                </Link>
               </div>
             </div>
           </div>

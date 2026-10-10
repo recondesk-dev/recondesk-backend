@@ -13,6 +13,7 @@ import { EvcAndFilePanel } from "@/components/filing/EvcAndFilePanel";
 import { FilingReadinessSummary } from "@/components/filing/FilingReadinessSummary";
 import { GstnSessionPanel } from "@/components/filing/GstnSessionPanel";
 import { PendingReviewQueue } from "@/components/filing/PendingReviewQueue";
+import { Gstr1PortalMirrorView } from "@/components/filing/Gstr1PortalMirrorView";
 import {
   SaveToGstnAction,
   type SaveServerState,
@@ -324,6 +325,12 @@ function Gstr1FilingPageContent() {
             verdict={readiness.filing_readiness}
             recordCount={readiness.record_count}
           />
+          {readiness.portal_mirror ? (
+            <Gstr1PortalMirrorView
+              mirror={readiness.portal_mirror}
+              filingPeriod={period}
+            />
+          ) : null}
           <ExternalInputGapsPanel gaps={readiness.external_input_gaps} />
           <PendingReviewQueue
             items={readiness.pending_review}

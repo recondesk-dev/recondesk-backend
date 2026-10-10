@@ -2531,6 +2531,44 @@ export type FilingExternalInputGap = {
   blocks_file: boolean;
 };
 
+export type Gstr1PortalTableTile = {
+  table_id: string;
+  title: string;
+  code: string;
+  category: "taxable" | "notes" | "other";
+  count_label: string;
+  count: number;
+  secondary_count_label?: string;
+  secondary_count?: number;
+  taxable_value: number;
+  igst: number;
+  cgst: number;
+  sgst: number;
+  cess: number;
+  total_tax: number;
+  total_value?: number;
+  nil_amount?: number;
+  exempt_amount?: number;
+  non_gst_amount?: number;
+  cancelled_count?: number;
+  net_issued_count?: number;
+  status: "ready" | "empty" | "has_issues";
+};
+
+export type Gstr1PortalMirror = {
+  tables: Record<string, Gstr1PortalTableTile>;
+  totals: {
+    total_taxable_value: number;
+    total_igst: number;
+    total_cgst: number;
+    total_sgst: number;
+    total_cess: number;
+    total_tax: number;
+    total_invoices: number;
+    total_records: number;
+  };
+};
+
 export type FilingReadinessResponse = {
   gstin: string;
   client_gstin_id: string;
@@ -2543,6 +2581,7 @@ export type FilingReadinessResponse = {
   external_input_gaps: FilingExternalInputGap[];
   external_input_tables: string[];
   save_section_keys: string[];
+  portal_mirror?: Gstr1PortalMirror;
   row_accounting: {
     total_rows: number;
     saved: number;
@@ -4198,6 +4237,189 @@ export const gstr2aDeltaApi = {
       `/api/gstr2a-delta/${encodeURIComponent(clientGstinId)}/${encodeURIComponent(period)}/sources`,
       { token }
     ),
+};
+
+// ─── GSTR-4 Composition Annual Return API ──────────────────────────────────────
+
+export interface Gstr4CellMeta {
+  system_value: number;
+  effective_value: number;
+  override_value: number | null;
+  notes: string;
+  is_overridden: boolean;
+}
+
+export interface Cmp08Record {
+  quarter: string;
+  outward_taxable: number;
+  outward_tax: number;
+  rcm_taxable: number;
+  rcm_tax: number;
+  igst: number;
+  cgst: number;
+  sgst: number;
+  cess: number;
+  interest: number;
+  late_fee: number;
+}
+
+export interface Gstr4ComputationResponse {
+  client_id: string;
+  gstin: string;
+  legal_name: string;
+  trade_name: string;
+  financial_year: string;
+  composition_category: "trader" | "manufacturer" | "restaurant" | "service";
+  tables: {
+    table4: {
+      "4A_registered_non_rcm": {
+        taxable_value: Gstr4CellMeta;
+        igst: Gstr4CellMeta;
+        cgst: Gstr4CellMeta;
+        sgst: Gstr4CellMeta;
+        cess: Gstr4CellMeta;
+      };
+      "4B_registered_rcm": {
+        taxable_value: Gstr4CellMeta;
+        tax_payable: Gstr4CellMeta;
+      };
+      "4C_unregistered_rcm": {
+        taxable_value: Gstr4CellMeta;
+        tax_payable: Gstr4CellMeta;
+      };
+      "4D_import_services": {
+        taxable_value: Gstr4CellMeta;
+        tax_payable: Gstr4CellMeta;
+      };
+    };
+    table5: {
+      q1: Cmp08Record;
+      q2: Cmp08Record;
+      q3: Cmp08Record;
+      q4: Cmp08Record;
+      outward_taxable: Gstr4CellMeta;
+      outward_tax: Gstr4CellMeta;
+      rcm_taxable: Gstr4CellMeta;
+      rcm_tax: Gstr4CellMeta;
+      igst: Gstr4CellMeta;
+      cgst: Gstr4CellMeta;
+      sgst: Gstr4CellMeta;
+      cess: Gstr4CellMeta;
+      interest: Gstr4CellMeta;
+      late_fee: Gstr4CellMeta;
+    };
+    table6: {
+      composition_category: string;
+      category_label: string;
+      rate_percentages: {
+        cgst_rate: number;
+        sgst_rate: number;
+        total_rate: number;
+      };
+      outward_supplies: {
+        turnover: Gstr4CellMeta;
+        cgst: Gstr4CellMeta;
+        sgst: Gstr4CellMeta;
+        tax_total: Gstr4CellMeta;
+      };
+      inward_rcm_supplies: {
+        taxable_value: Gstr4CellMeta;
+        tax_total: Gstr4CellMeta;
+      };
+      total_tax_payable: {
+        igst: Gstr4CellMeta;
+        cgst: Gstr4CellMeta;
+        sgst: Gstr4CellMeta;
+        cess: Gstr4CellMeta;
+      };
+    };
+    table7: {
+      tds_credit: Gstr4CellMeta;
+      tcs_credit: Gstr4CellMeta;
+    };
+    table8: {
+      tax_payable: Gstr4CellMeta;
+      cmp08_tax_paid: Gstr4CellMeta;
+      balance_tax_payable: Gstr4CellMeta;
+      due_date: string;
+      days_late: number;
+      is_nil_return?: boolean;
+      late_fee_cap?: number;
+      late_fee_payable: Gstr4CellMeta;
+      interest_payable: Gstr4CellMeta;
+    };
+    table9: {
+      refund_claimed: Gstr4CellMeta;
+    };
+  };
+  kpi_summary: {
+    outward_turnover: number;
+    total_tax_payable: number;
+    cmp08_tax_paid: number;
+    balance_cash_payable: number;
+    days_late: number;
+    late_fee_payable: number;
+  };
+  warnings: Array<{
+    code: string;
+    message: string;
+    severity: "WARNING" | "INFO" | "CRITICAL";
+  }>;
+}
+
+export const gstr4Api = {
+  getComputation: (token: string, clientId: string, fy: string = "2025-26", category: string = "trader") =>
+    apiFetch<Gstr4ComputationResponse>(
+      `/api/v1/gstr4/clients/${encodeURIComponent(clientId)}/computation?fy=${encodeURIComponent(fy)}&category=${encodeURIComponent(category)}`,
+      { token }
+    ),
+
+  saveOverrides: (
+    token: string,
+    clientId: string,
+    fy: string,
+    overrides: Array<{
+      table_key: string;
+      cell_key: string;
+      system_value: number;
+      override_value: number;
+      notes?: string;
+    }>
+  ) =>
+    apiFetch<{ status: string; message: string }>(
+      `/api/v1/gstr4/clients/${encodeURIComponent(clientId)}/overrides`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ financial_year: fy, overrides }),
+        token,
+      }
+    ),
+
+  saveCmp08: (token: string, clientId: string, fy: string, records: Cmp08Record[]) =>
+    apiFetch<{ status: string; message: string; records: Cmp08Record[] }>(
+      `/api/v1/gstr4/clients/${encodeURIComponent(clientId)}/cmp08`,
+      {
+        method: "POST",
+        body: JSON.stringify({ financial_year: fy, records }),
+        token,
+      }
+    ),
+
+  downloadJson: async (token: string, clientId: string, fy: string = "2025-26", category: string = "trader"): Promise<Blob> => {
+    const baseUrl = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000").replace(/\/+$/, "");
+    const res = await fetch(
+      `${baseUrl}/api/v1/gstr4/clients/${encodeURIComponent(clientId)}/export-json?fy=${encodeURIComponent(fy)}&category=${encodeURIComponent(category)}`,
+      {
+        method: "GET",
+        headers: { Authorization: `Bearer ${token}` },
+      }
+    );
+    if (!res.ok) throw new Error("Failed to export GSTR-4 JSON from backend");
+    return res.blob();
+  },
+
+  getExportJsonUrl: (clientId: string, fy: string = "2025-26", category: string = "trader") =>
+    `/api/v1/gstr4/clients/${encodeURIComponent(clientId)}/export-json?fy=${encodeURIComponent(fy)}&category=${encodeURIComponent(category)}`,
 };
 
 

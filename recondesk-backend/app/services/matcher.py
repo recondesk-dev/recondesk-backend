@@ -74,6 +74,10 @@ _RE_BRANCH_SUFFIX = re.compile(
 _RE_BRANCH_NORM = re.compile(
     r"(?:BR|BRANCH|HO|UNIT|PLANT|DEPOT)\d+$", re.IGNORECASE
 )
+_RE_LETTER_SUFFIX = re.compile(r"[-_/]([A-Za-z])$")
+_RE_TRAILING_FY = re.compile(r"[-_/]((?:20\d\d|19\d\d|\d{2}))\s*$", re.IGNORECASE)
+_RE_FY_SPAN = re.compile(r"(?:\d{2}[/-]\d{2}|20\d\d[/-]\d{2,4}|[A-Za-z]{3}\d{2})")
+
 
 
 
@@ -276,6 +280,79 @@ def extract_terminal_and_prefix(s: str | None) -> tuple[int | None, str]:
     clean = _RE_NON_ALNUM.sub("", raw).upper()
     pref = re.sub(r"\d+$", "", clean)
     return term, pref
+
+
+def extract_meaningful_numeric_sequence_token(s: str | None) -> str | None:
+    """Extract meaningful numeric sequence token string (preserving digits)."""
+    raw = str(s or "").strip()
+    if not raw:
+        return None
+    clean_s = _RE_BRANCH_SUFFIX.sub("", raw)
+    m_let = _RE_LETTER_SUFFIX.search(clean_s)
+    if m_let:
+        clean_s = clean_s[: m_let.start()]
+    m_fy = _RE_TRAILING_FY.search(clean_s)
+    if m_fy:
+        fy_val = int(m_fy.group(1))
+        is_fy = (len(m_fy.group(1)) == 2 and 20 <= fy_val <= 35) or (len(m_fy.group(1)) == 4 and 2020 <= fy_val <= 2035)
+        if is_fy:
+            stem = clean_s[: m_fy.start()]
+            has_fy_in_stem = bool(_RE_FY_SPAN.search(stem) or re.search(r"(?:^|[/-])(?:0[1-9]|1[0-2])\d{2}(?:[/-]|$)", stem))
+            if not has_fy_in_stem:
+                stem_nums = re.findall(r"\d+", stem)
+                if stem_nums:
+                    return stem_nums[-1]
+    nums = re.findall(r"\d+", clean_s)
+    if nums:
+        return nums[-1]
+    return None
+
+
+def is_meaningful_numeric_sequence_mismatch(
+    a: str | None,
+    b: str | None,
+    a_raw: str | None = None,
+    b_raw: str | None = None,
+) -> bool:
+    """True when two invoices have a material difference or inserted non-zero digit
+    in their meaningful numeric sequence numbers.
+
+    Harmless leading-zero variations and single OCR character substitutions on
+    normal-length invoices return False.
+    """
+    ra, rb = str(a_raw or a or "").strip(), str(b_raw or b or "").strip()
+    if not ra or not rb or ra == rb:
+        return False
+    na, nb = normalize_invoice(ra), normalize_invoice(rb)
+    if na and nb and na == nb:
+        return False
+    ocr_a, ocr_b = ocr_canonical_invoice(ra), ocr_canonical_invoice(rb)
+    if ocr_a and ocr_b and ocr_a == ocr_b:
+        clean_a, clean_b = _RE_NON_ALNUM.sub("", ra).upper(), _RE_NON_ALNUM.sub("", rb).upper()
+        if len(clean_a) > 4 and len(clean_b) > 4:
+            ocr_c, _ = count_ocr_substitutions(a, b, a_raw=ra, b_raw=rb)
+            if ocr_c <= 1 and not is_short_invoice_fuzzy_risk(a, b, a_raw=ra, b_raw=rb, ocr_subs=ocr_c):
+                return False
+    tok_a, tok_b = extract_meaningful_numeric_sequence_token(ra), extract_meaningful_numeric_sequence_token(rb)
+    tok_oa = extract_meaningful_numeric_sequence_token(ocr_a or ra)
+    tok_ob = extract_meaningful_numeric_sequence_token(ocr_b or rb)
+    if tok_oa and tok_ob and int(tok_oa) == int(tok_ob):
+        return False
+
+    # Check if OCR-canonical sequence tokens differ only by zero-padding
+    if tok_oa and tok_ob:
+        s_o, l_o = (tok_oa, tok_ob) if len(tok_oa) <= len(tok_ob) else (tok_ob, tok_oa)
+        diff_o = Counter(l_o)
+        diff_o.subtract(Counter(s_o))
+        if not any(ch in "123456789" for ch, cnt in diff_o.items() if cnt > 0):
+            return False
+
+    if not tok_a or not tok_b:
+        return False
+    return int(tok_a) != int(tok_b)
+
+
+
 
 
 def analyze_invoice_evidence(
@@ -786,6 +863,10 @@ def is_invoice_format_variant(
     if is_short_invoice_fuzzy_risk(a, b, a_raw, b_raw):
         return False
 
+    if is_meaningful_numeric_sequence_mismatch(a, b, a_raw, b_raw):
+        return False
+
+
     # OCR transliteration equality (e.g. O↔0, I↔1, S↔5, Z↔2, B↔8)
     ocr_a = ocr_canonical_invoice(na)
     ocr_b = ocr_canonical_invoice(nb)
@@ -892,7 +973,16 @@ def is_invoice_format_variant(
                             # fresh appended letter which signals a distinct document (amendment).
                             short2, long2 = (na, nb) if len(na) <= len(nb) else (nb, na)
                             if _extra_chars_are_digits_only(short2, long2):
-                                return True
+                                core_a = [t for t in tokens_a if not (20 <= t <= 35 or 2020 <= t <= 2035)]
+                                core_b = [t for t in tokens_b if not (20 <= t <= 35 or 2020 <= t <= 2035)]
+                                if core_a and core_b and core_a[-1] == core_b[-1]:
+                                    return True
+                                extra = Counter(long2)
+                                extra.subtract(Counter(short2))
+                                if not any(ch in "123456789" for ch, cnt in extra.items() if cnt > 0):
+                                    return True
+
+
                         elif (
                             pref_a.startswith(pref_b)
                             or pref_b.startswith(pref_a)
@@ -2053,14 +2143,16 @@ def _match_gstr_to_pr_pair(
         discrepancies.append(f"rcm_conflict: GSTR-2B={g_rcm}, PR={p_rcm}")
 
     inv_ok = invoices_effectively_match(g_inv, p_inv)
+    is_seq_mismatch = is_meaningful_numeric_sequence_mismatch(g_inv, p_inv, g_inv_raw, p_inv_raw)
     format_variant = False
-    if not inv_ok:
+    if not inv_ok and not is_seq_mismatch:
         format_variant = is_invoice_format_variant(g_inv, p_inv, g_inv_raw, p_inv_raw)
         if not format_variant:
             ocr_g_c = ocr_canonical_invoice(g_inv_raw or g_inv)
             ocr_p_c = ocr_canonical_invoice(p_inv_raw or p_inv)
             if ocr_g_c and ocr_p_c and is_invoice_format_variant(ocr_g_c, ocr_p_c):
                 format_variant = True
+
 
     g_orig = str(gstr_rec.get("original_invoice_number") or gstr_rec.get("oinum") or "").strip()
     p_orig = str(pr_rec.get("original_invoice_number") or pr_rec.get("oinum") or "").strip()

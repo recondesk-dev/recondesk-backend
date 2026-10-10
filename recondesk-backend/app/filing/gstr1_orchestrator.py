@@ -557,6 +557,331 @@ def serialize_external_input_gap(gap: NeedsExternalInput) -> dict[str, Any]:
     }
 
 
+def compute_gstr1_portal_mirror(save_payload: dict[str, Any]) -> dict[str, Any]:
+    """Derive official GST Portal (gst.gov.in) GSTR-1 tile metrics from save_payload.
+
+    Matches the exact layout seen by taxpayers on the GST portal:
+    Tables 4 (B2B), 5 (B2CL), 7 (B2CS), 9B (CDNR & CDNUR), 6A (EXP),
+    8 (NIL), 12 (HSN), and 13 (DOC_ISSUE).
+    """
+    payload = save_payload or {}
+
+    # 1. Table 4: B2B Invoices (4A, 4B, 6B, 6C)
+    b2b_list = payload.get("b2b") or []
+    b2b_recipients = len(b2b_list)
+    b2b_invoices = sum(len(c.get("inv") or []) for c in b2b_list)
+    b2b_txval = 0.0
+    b2b_iamt = 0.0
+    b2b_camt = 0.0
+    b2b_samt = 0.0
+    b2b_csamt = 0.0
+    b2b_tot_val = 0.0
+    for c in b2b_list:
+        for inv in c.get("inv") or []:
+            b2b_tot_val += float(inv.get("val") or 0.0)
+            for itm in inv.get("itms") or []:
+                det = itm.get("itm_det") or {}
+                b2b_txval += float(det.get("txval") or 0.0)
+                b2b_iamt += float(det.get("iamt") or 0.0)
+                b2b_camt += float(det.get("camt") or 0.0)
+                b2b_samt += float(det.get("samt") or 0.0)
+                b2b_csamt += float(det.get("csamt") or 0.0)
+    b2b_tax = b2b_iamt + b2b_camt + b2b_samt + b2b_csamt
+
+    # 2. Table 5: B2C (Large) Invoices (5A, 5B)
+    b2cl_list = payload.get("b2cl") or []
+    b2cl_invoices = sum(len(p.get("inv") or []) for p in b2cl_list)
+    b2cl_txval = 0.0
+    b2cl_iamt = 0.0
+    b2cl_csamt = 0.0
+    b2cl_tot_val = 0.0
+    for p in b2cl_list:
+        for inv in p.get("inv") or []:
+            b2cl_tot_val += float(inv.get("val") or 0.0)
+            for itm in inv.get("itms") or []:
+                det = itm.get("itm_det") or {}
+                b2cl_txval += float(det.get("txval") or 0.0)
+                b2cl_iamt += float(det.get("iamt") or 0.0)
+                b2cl_csamt += float(det.get("csamt") or 0.0)
+    b2cl_tax = b2cl_iamt + b2cl_csamt
+
+    # 3. Table 7: B2C (Others / Small)
+    b2cs_list = payload.get("b2cs") or []
+    b2cs_records = len(b2cs_list)
+    b2cs_txval = sum(float(r.get("txval") or 0.0) for r in b2cs_list)
+    b2cs_iamt = sum(float(r.get("iamt") or 0.0) for r in b2cs_list)
+    b2cs_camt = sum(float(r.get("camt") or 0.0) for r in b2cs_list)
+    b2cs_samt = sum(float(r.get("samt") or 0.0) for r in b2cs_list)
+    b2cs_csamt = sum(float(r.get("csamt") or 0.0) for r in b2cs_list)
+    b2cs_tax = b2cs_iamt + b2cs_camt + b2cs_samt + b2cs_csamt
+
+    # 4. Table 9B: Credit / Debit Notes (Registered) (CDNR)
+    cdnr_list = payload.get("cdnr") or []
+    cdnr_recipients = len(cdnr_list)
+    cdnr_notes = sum(len(c.get("nt") or []) for c in cdnr_list)
+    cdnr_txval = 0.0
+    cdnr_iamt = 0.0
+    cdnr_camt = 0.0
+    cdnr_samt = 0.0
+    cdnr_csamt = 0.0
+    cdnr_tot_val = 0.0
+    for c in cdnr_list:
+        for nt in c.get("nt") or []:
+            cdnr_tot_val += float(nt.get("val") or 0.0)
+            for itm in nt.get("itms") or []:
+                det = itm.get("itm_det") or {}
+                cdnr_txval += float(det.get("txval") or 0.0)
+                cdnr_iamt += float(det.get("iamt") or 0.0)
+                cdnr_camt += float(det.get("camt") or 0.0)
+                cdnr_samt += float(det.get("samt") or 0.0)
+                cdnr_csamt += float(det.get("csamt") or 0.0)
+    cdnr_tax = cdnr_iamt + cdnr_camt + cdnr_samt + cdnr_csamt
+
+    # 5. Table 9B: Credit / Debit Notes (Unregistered) (CDNUR)
+    cdnur_list = payload.get("cdnur") or []
+    cdnur_notes = sum(len(c.get("nt") or []) for c in cdnur_list)
+    cdnur_txval = 0.0
+    cdnur_iamt = 0.0
+    cdnur_camt = 0.0
+    cdnur_samt = 0.0
+    cdnur_csamt = 0.0
+    cdnur_tot_val = 0.0
+    for c in cdnur_list:
+        for nt in c.get("nt") or []:
+            cdnur_tot_val += float(nt.get("val") or 0.0)
+            for itm in nt.get("itms") or []:
+                det = itm.get("itm_det") or {}
+                cdnur_txval += float(det.get("txval") or 0.0)
+                cdnur_iamt += float(det.get("iamt") or 0.0)
+                cdnur_camt += float(det.get("camt") or 0.0)
+                cdnur_samt += float(det.get("samt") or 0.0)
+                cdnur_csamt += float(det.get("csamt") or 0.0)
+    cdnur_tax = cdnur_iamt + cdnur_camt + cdnur_samt + cdnur_csamt
+
+    # 6. Table 6A: Exports Invoices (EXP)
+    exp_list = payload.get("exp") or []
+    exp_invoices = sum(len(e.get("inv") or []) for e in exp_list)
+    exp_txval = 0.0
+    exp_iamt = 0.0
+    exp_tot_val = 0.0
+    for e in exp_list:
+        for inv in e.get("inv") or []:
+            exp_tot_val += float(inv.get("val") or 0.0)
+            for itm in inv.get("itms") or []:
+                det = itm.get("itm_det") or {}
+                exp_txval += float(det.get("txval") or 0.0)
+                exp_iamt += float(det.get("iamt") or 0.0)
+    exp_tax = exp_iamt
+
+    # 7. Table 8: Nil Rated Supplies (NIL)
+    nil_obj = payload.get("nil") or {}
+    nil_invs = nil_obj.get("inv") or [] if isinstance(nil_obj, dict) else []
+    nil_amt = sum(float(r.get("nil_amt") or 0.0) for r in nil_invs)
+    expt_amt = sum(float(r.get("expt_amt") or 0.0) for r in nil_invs)
+    ngsup_amt = sum(float(r.get("ngsup_amt") or 0.0) for r in nil_invs)
+    total_nil_exempt = nil_amt + expt_amt + ngsup_amt
+
+    # 8. Table 12: HSN Summary
+    hsn_obj = payload.get("hsn") or {}
+    hsn_data = hsn_obj.get("data") or [] if isinstance(hsn_obj, dict) else []
+    hsn_records = len(hsn_data)
+    hsn_txval = sum(float(r.get("txval") or 0.0) for r in hsn_data)
+    hsn_iamt = sum(float(r.get("iamt") or 0.0) for r in hsn_data)
+    hsn_camt = sum(float(r.get("camt") or 0.0) for r in hsn_data)
+    hsn_samt = sum(float(r.get("samt") or 0.0) for r in hsn_data)
+    hsn_csamt = sum(float(r.get("csamt") or 0.0) for r in hsn_data)
+    hsn_tax = hsn_iamt + hsn_camt + hsn_samt + hsn_csamt
+
+    # 9. Table 13: Documents Issued
+    doc_obj = payload.get("doc_issue") or {}
+    doc_det = doc_obj.get("doc_det") or [] if isinstance(doc_obj, dict) else []
+    doc_totnum = 0
+    doc_canc = 0
+    doc_net = 0
+    for d in doc_det:
+        for itm in d.get("docs") or []:
+            doc_totnum += int(itm.get("totnum") or 0)
+            doc_canc += int(itm.get("canc") or 0)
+            doc_net += int(itm.get("net_issue") or 0)
+
+    # Net totals across primary outward taxable supplies
+    tot_txval = b2b_txval + b2cl_txval + b2cs_txval + exp_txval
+    tot_iamt = b2b_iamt + b2cl_iamt + b2cs_iamt + exp_iamt
+    tot_camt = b2b_camt + b2cs_camt
+    tot_samt = b2b_samt + b2cs_samt
+    tot_csamt = b2b_csamt + b2cl_csamt + b2cs_csamt
+    tot_tax = tot_iamt + tot_camt + tot_samt + tot_csamt
+
+    tiles = {
+        "b2b": {
+            "table_id": "4A, 4B, 6B, 6C",
+            "title": "B2B Invoices",
+            "code": "b2b",
+            "category": "taxable",
+            "count_label": "Invoices",
+            "count": b2b_invoices,
+            "secondary_count_label": "Recipients",
+            "secondary_count": b2b_recipients,
+            "taxable_value": round(b2b_txval, 2),
+            "igst": round(b2b_iamt, 2),
+            "cgst": round(b2b_camt, 2),
+            "sgst": round(b2b_samt, 2),
+            "cess": round(b2b_csamt, 2),
+            "total_tax": round(b2b_tax, 2),
+            "total_value": round(b2b_tot_val, 2),
+            "status": "ready" if b2b_invoices > 0 else "empty",
+        },
+        "b2cl": {
+            "table_id": "5A, 5B",
+            "title": "B2C (Large) Invoices",
+            "code": "b2cl",
+            "category": "taxable",
+            "count_label": "Invoices",
+            "count": b2cl_invoices,
+            "taxable_value": round(b2cl_txval, 2),
+            "igst": round(b2cl_iamt, 2),
+            "cgst": 0.0,
+            "sgst": 0.0,
+            "cess": round(b2cl_csamt, 2),
+            "total_tax": round(b2cl_tax, 2),
+            "total_value": round(b2cl_tot_val, 2),
+            "status": "ready" if b2cl_invoices > 0 else "empty",
+        },
+        "b2cs": {
+            "table_id": "7",
+            "title": "B2C (Others / Small)",
+            "code": "b2cs",
+            "category": "taxable",
+            "count_label": "POS / Rate Lines",
+            "count": b2cs_records,
+            "taxable_value": round(b2cs_txval, 2),
+            "igst": round(b2cs_iamt, 2),
+            "cgst": round(b2cs_camt, 2),
+            "sgst": round(b2cs_samt, 2),
+            "cess": round(b2cs_csamt, 2),
+            "total_tax": round(b2cs_tax, 2),
+            "status": "ready" if b2cs_records > 0 else "empty",
+        },
+        "cdnr": {
+            "table_id": "9B (Reg)",
+            "title": "Credit / Debit Notes (Reg)",
+            "code": "cdnr",
+            "category": "notes",
+            "count_label": "Notes",
+            "count": cdnr_notes,
+            "secondary_count_label": "Recipients",
+            "secondary_count": cdnr_recipients,
+            "taxable_value": round(cdnr_txval, 2),
+            "igst": round(cdnr_iamt, 2),
+            "cgst": round(cdnr_camt, 2),
+            "sgst": round(cdnr_samt, 2),
+            "cess": round(cdnr_csamt, 2),
+            "total_tax": round(cdnr_tax, 2),
+            "total_value": round(cdnr_tot_val, 2),
+            "status": "ready" if cdnr_notes > 0 else "empty",
+        },
+        "cdnur": {
+            "table_id": "9B (Unreg)",
+            "title": "Credit / Debit Notes (Unreg)",
+            "code": "cdnur",
+            "category": "notes",
+            "count_label": "Notes",
+            "count": cdnur_notes,
+            "taxable_value": round(cdnur_txval, 2),
+            "igst": round(cdnur_iamt, 2),
+            "cgst": round(cdnur_camt, 2),
+            "sgst": round(cdnur_samt, 2),
+            "cess": round(cdnur_csamt, 2),
+            "total_tax": round(cdnur_tax, 2),
+            "total_value": round(cdnur_tot_val, 2),
+            "status": "ready" if cdnur_notes > 0 else "empty",
+        },
+        "exp": {
+            "table_id": "6A",
+            "title": "Exports Invoices",
+            "code": "exp",
+            "category": "taxable",
+            "count_label": "Invoices",
+            "count": exp_invoices,
+            "taxable_value": round(exp_txval, 2),
+            "igst": round(exp_iamt, 2),
+            "cgst": 0.0,
+            "sgst": 0.0,
+            "cess": 0.0,
+            "total_tax": round(exp_tax, 2),
+            "total_value": round(exp_tot_val, 2),
+            "status": "ready" if exp_invoices > 0 else "empty",
+        },
+        "nil": {
+            "table_id": "8A, 8B, 8C, 8D",
+            "title": "Nil Rated / Exempt",
+            "code": "nil",
+            "category": "other",
+            "count_label": "Categories",
+            "count": len(nil_invs),
+            "taxable_value": round(total_nil_exempt, 2),
+            "nil_amount": round(nil_amt, 2),
+            "exempt_amount": round(expt_amt, 2),
+            "non_gst_amount": round(ngsup_amt, 2),
+            "igst": 0.0,
+            "cgst": 0.0,
+            "sgst": 0.0,
+            "cess": 0.0,
+            "total_tax": 0.0,
+            "status": "ready" if len(nil_invs) > 0 else "empty",
+        },
+        "hsn": {
+            "table_id": "12",
+            "title": "HSN Summary",
+            "code": "hsn",
+            "category": "other",
+            "count_label": "HSN Lines",
+            "count": hsn_records,
+            "taxable_value": round(hsn_txval, 2),
+            "igst": round(hsn_iamt, 2),
+            "cgst": round(hsn_camt, 2),
+            "sgst": round(hsn_samt, 2),
+            "cess": round(hsn_csamt, 2),
+            "total_tax": round(hsn_tax, 2),
+            "status": "ready" if hsn_records > 0 else "empty",
+        },
+        "doc_issue": {
+            "table_id": "13",
+            "title": "Documents Issued",
+            "code": "doc_issue",
+            "category": "other",
+            "count_label": "Total Docs",
+            "count": doc_totnum,
+            "cancelled_count": doc_canc,
+            "net_issued_count": doc_net,
+            "taxable_value": 0.0,
+            "total_tax": 0.0,
+            "status": "ready" if doc_totnum > 0 else "empty",
+        },
+    }
+
+    return {
+        "tables": tiles,
+        "totals": {
+            "total_taxable_value": round(tot_txval, 2),
+            "total_igst": round(tot_iamt, 2),
+            "total_cgst": round(tot_camt, 2),
+            "total_sgst": round(tot_samt, 2),
+            "total_cess": round(tot_csamt, 2),
+            "total_tax": round(tot_tax, 2),
+            "total_invoices": b2b_invoices + b2cl_invoices + exp_invoices,
+            "total_records": (
+                b2b_invoices
+                + b2cl_invoices
+                + b2cs_records
+                + exp_invoices
+                + cdnr_notes
+                + cdnur_notes
+            ),
+        },
+    }
+
+
 def serialize_filing_readiness(fr: FilingReadiness) -> dict[str, Any]:
     return {
         "can_save": fr.can_save,
@@ -591,6 +916,7 @@ def serialize_gstr1_readiness(mapped: Gstr1FilingMapResult) -> dict[str, Any]:
             mapped.external_input_gaps.tables_blocked()
         ),
         "save_section_keys": sorted(mapped.save_payload.keys()),
+        "portal_mirror": compute_gstr1_portal_mirror(mapped.save_payload),
         "row_accounting": {
             "total_rows": mapped.row_accounting.total_rows,
             "saved": mapped.row_accounting.saved,
@@ -600,3 +926,4 @@ def serialize_gstr1_readiness(mapped: Gstr1FilingMapResult) -> dict[str, Any]:
             "by_lane": dict(mapped.row_accounting.by_lane),
         },
     }
+
