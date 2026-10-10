@@ -457,7 +457,19 @@ def analyze_invoice_evidence(
             is_legit_format_diff = False
             # 1. Same alphabetic prefix (digits in pref are FY / date expansions, e.g. DS2026 vs DS26)
             if alpha_a and alpha_b and alpha_a == alpha_b:
-                is_legit_format_diff = True
+                rem_a = pref_a[len(alpha_a):]
+                rem_b = pref_b[len(alpha_b):]
+                if (not rem_a or rem_a.isdigit()) and (not rem_b or rem_b.isdigit()):
+                    if rem_a.lstrip("0") == rem_b.lstrip("0"):
+                        is_legit_format_diff = True
+                    else:
+                        s_r, l_r = (rem_a, rem_b) if len(rem_a) <= len(rem_b) else (rem_b, rem_a)
+                        if (len(s_r) == 2 and len(l_r) == 4 and "20" + s_r == l_r and 20 <= int(s_r) <= 35) or (
+                            len(s_r) == 4 and len(l_r) == 8 and l_r == "20" + s_r[:2] + "20" + s_r[2:]
+                        ) or (
+                            not s_r and ((len(l_r) == 2 and 20 <= int(l_r) <= 35) or (len(l_r) == 4 and 2020 <= int(l_r) <= 2035))
+                        ):
+                            is_legit_format_diff = True
             # 2. Known ERP prefixes (SYS, SAP, ORACLE)
             elif any(
                 (alpha_a.startswith(erp) and alpha_a[len(erp):] == alpha_b)
@@ -990,12 +1002,23 @@ def is_invoice_format_variant(
                             or pref_b.endswith(pref_a)
                         ):
                             # Prefix abbreviation (e.g. "FZ" vs "F") or branch prefix (e.g. "MUMINV" vs "INV")
-                            core_a = [t for t in tokens_a if not (20 <= t <= 35 or 2020 <= t <= 2035)]
-                            core_b = [t for t in tokens_b if not (20 <= t <= 35 or 2020 <= t <= 2035)]
-                            if core_a and core_b and core_a[-1] == core_b[-1]:
-                                return True
-                            if not core_a and not core_b and tokens_a and tokens_b and tokens_a[-1] == tokens_b[-1]:
-                                return True
+                            diff = ""
+                            if pref_a.startswith(pref_b):
+                                diff = pref_a[len(pref_b):]
+                            elif pref_b.startswith(pref_a):
+                                diff = pref_b[len(pref_a):]
+                            elif pref_a.endswith(pref_b):
+                                diff = pref_a[:-len(pref_b)]
+                            elif pref_b.endswith(pref_a):
+                                diff = pref_b[:-len(pref_a)]
+
+                            if diff and diff.isalpha():
+                                core_a = [t for t in tokens_a if not (20 <= t <= 35 or 2020 <= t <= 2035)]
+                                core_b = [t for t in tokens_b if not (20 <= t <= 35 or 2020 <= t <= 2035)]
+                                if core_a and core_b and core_a[-1] == core_b[-1]:
+                                    return True
+                                if not core_a and not core_b and tokens_a and tokens_b and tokens_a[-1] == tokens_b[-1]:
+                                    return True
                     elif not (pa and pb):
                         # One side has no alpha prefix (e.g. pure numeric '100' or '89').
                         # The core invoice sequence number (last non-FY numeric token) must match!
@@ -1141,7 +1164,32 @@ def invoice_similarity(inv1: str, inv2: str) -> float:
         ocr_max = max(len(ocr_a), len(ocr_b))
         ocr_dist = levenshtein(ocr_a, ocr_b)
         ocr_sim = (1.0 - (ocr_dist / ocr_max)) if ocr_max else 0.0
-        return max(raw_sim, ocr_sim)
+        raw_sim = max(raw_sim, ocr_sim)
+
+    # Also compute similarity with delimiter-aware segment zero stripping (e.g. NGP0926/00014 vs NGP092X/00014)
+    if inv1 and inv2 and (re.search(r'[^A-Za-z0-9]', str(inv1)) or re.search(r'[^A-Za-z0-9]', str(inv2))):
+        def _norm_per_seg(s: str) -> str:
+            tokens = re.split(r'([^A-Za-z0-9]+)', str(s).strip().upper())
+            res = []
+            for t in tokens:
+                if t.isdigit():
+                    res.append(t.lstrip('0') or '0')
+                else:
+                    parts = re.findall(r'\d+|\D+', t)
+                    parts = [p.lstrip('0') or '0' if p.isdigit() else p for p in parts]
+                    res.append(''.join(parts))
+            col = re.sub(r'[^A-Za-z0-9]', '', ''.join(res))
+            return col.lstrip('0') or col
+
+        sa = _norm_per_seg(inv1)
+        sb = _norm_per_seg(inv2)
+        if sa and sb:
+            if sa == sb:
+                return 1.0
+            s_len = max(len(sa), len(sb))
+            s_dist = levenshtein(sa, sb)
+            s_sim = 1.0 - (s_dist / s_len) if s_len else 0.0
+            raw_sim = max(raw_sim, s_sim)
 
     return raw_sim
 

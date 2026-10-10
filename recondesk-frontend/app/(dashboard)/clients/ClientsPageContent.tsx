@@ -17,6 +17,7 @@ import {
   isApiError,
   teamApi,
   type ClientGstin,
+  type ClientOrganization,
   type TeamMemberListItem,
 } from "@/lib/api";
 import {
@@ -104,6 +105,40 @@ export function ClientsPageContent() {
     ([, t]) => clientsApi.list(t),
     { keepPreviousData: true }
   );
+
+  const organizationsKey =
+    authToken ? (["backend-organizations-list", authToken] as const) : null;
+  const {
+    data: organizations,
+    error: organizationsError,
+    isLoading: organizationsLoading,
+    mutate: mutateOrganizations,
+  } = useSWR(
+    organizationsKey,
+    ([, t]) => clientsApi.organizations(t),
+    { keepPreviousData: true }
+  );
+
+  const [viewMode, setViewMode] = useState<"gstin" | "organization">("gstin");
+  const [expandedPans, setExpandedPans] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (organizations && organizations.length > 0 && expandedPans.size === 0) {
+      setExpandedPans(new Set(organizations.map((o) => o.pan)));
+    }
+  }, [organizations]);
+
+  const togglePanExpanded = (pan: string) => {
+    setExpandedPans((prev) => {
+      const next = new Set(prev);
+      if (next.has(pan)) {
+        next.delete(pan);
+      } else {
+        next.add(pan);
+      }
+      return next;
+    });
+  };
 
   const roleNorm = normalizeAuthRole(me?.role);
   const isAdmin = roleNorm === "admin";
@@ -195,6 +230,24 @@ export function ClientsPageContent() {
       return name.includes(q) || gst.includes(q);
     });
   }, [clients, debouncedSearch]);
+
+  const filteredOrganizations = useMemo(() => {
+    const list = organizations ?? [];
+    const q = debouncedSearch.trim().toLowerCase();
+    if (!q) return list;
+    return list.filter((o) => {
+      const name = (o.company_name ?? "").toLowerCase();
+      const legal = (o.legal_name ?? "").toLowerCase();
+      const pan = (o.pan ?? "").toLowerCase();
+      const childMatch = o.gstins?.some(
+        (g) =>
+          (g.gstin ?? "").toLowerCase().includes(q) ||
+          (g.trade_name ?? "").toLowerCase().includes(q) ||
+          (g.state_name ?? "").toLowerCase().includes(q)
+      );
+      return name.includes(q) || legal.includes(q) || pan.includes(q) || Boolean(childMatch);
+    });
+  }, [organizations, debouncedSearch]);
 
   useEffect(() => {
     if (addOpen && !formAssignedTo) {
@@ -318,6 +371,7 @@ export function ClientsPageContent() {
         setConnectTarget({ id: result.id, gstin: result.gstin });
       }
       await mutateClients();
+      void mutateOrganizations();
       void mutateBilling();
     } catch (e: unknown) {
       const detail = isApiError(e) ? e.detail : "Could not add client.";
@@ -340,9 +394,11 @@ export function ClientsPageContent() {
       await clientsApi.assign(authToken, clientId, assignedTo);
       toast("Client assigned", "success");
       await mutateClients();
+      void mutateOrganizations();
     } catch (e: unknown) {
       toast(isApiError(e) ? e.detail : "Assignment failed.", "error");
       await mutateClients();
+      void mutateOrganizations();
     }
   };
 
@@ -358,6 +414,7 @@ export function ClientsPageContent() {
       await clientsApi.delete(authToken, row.id);
       toast("Client removed", "success");
       await mutateClients();
+      void mutateOrganizations();
       void mutateBilling();
     } catch (e: unknown) {
       toast(isApiError(e) ? e.detail : "Could not remove client.", "error");
@@ -438,26 +495,216 @@ export function ClientsPageContent() {
         </div>
       ) : (
         <section className="dashboard-card space-y-5 p-6">
-          <div className="relative max-w-md">
-            <svg
-              className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400"
-              viewBox="0 0 24 24"
-              fill="none"
-              aria-hidden
-            >
-              <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="1.5" />
-              <path d="M20 20l-3-3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-            </svg>
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="w-full rounded-full border-0 bg-[#F5F5F6] py-2.5 pl-10 pr-4 text-sm font-medium text-gray-700 outline-none transition-shadow placeholder:text-gray-400 focus:ring-2 focus:ring-black/10"
-              placeholder={tClients("searchPlaceholder")}
-            />
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="relative max-w-md flex-1">
+              <svg
+                className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400"
+                viewBox="0 0 24 24"
+                fill="none"
+                aria-hidden
+              >
+                <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="1.5" />
+                <path d="M20 20l-3-3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+              </svg>
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="w-full rounded-full border-0 bg-[#F5F5F6] py-2.5 pl-10 pr-4 text-sm font-medium text-gray-700 outline-none transition-shadow placeholder:text-gray-400 focus:ring-2 focus:ring-black/10"
+                placeholder={
+                  viewMode === "organization"
+                    ? "Search by company name, PAN, state, or GSTIN..."
+                    : tClients("searchPlaceholder")
+                }
+              />
+            </div>
+
+            <div className="inline-flex rounded-full bg-[#F5F5F6] p-1 self-start sm:self-auto">
+              <button
+                type="button"
+                onClick={() => setViewMode("gstin")}
+                className={`rounded-full px-4 py-1.5 text-xs font-semibold transition-all ${
+                  viewMode === "gstin"
+                    ? "bg-white text-[var(--ink)] shadow-sm"
+                    : "text-gray-500 hover:text-gray-900"
+                }`}
+              >
+                By GSTIN ({clients?.length ?? 0})
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode("organization")}
+                className={`rounded-full px-4 py-1.5 text-xs font-semibold transition-all ${
+                  viewMode === "organization"
+                    ? "bg-white text-[var(--ink)] shadow-sm"
+                    : "text-gray-500 hover:text-gray-900"
+                }`}
+              >
+                By Company / PAN ({organizations?.length ?? 0})
+              </button>
+            </div>
           </div>
 
-          {showSkeleton ? (
+          {showSkeleton || (viewMode === "organization" && organizationsLoading && !organizations) ? (
             <ClientsSkeleton />
+          ) : viewMode === "organization" ? (
+            <div className="space-y-4">
+              {filteredOrganizations.map((org) => {
+                const isExpanded = expandedPans.has(org.pan);
+                return (
+                  <div
+                    key={org.pan}
+                    className="overflow-hidden rounded-[1.25rem] border border-[#F0F0F0] bg-white shadow-sm transition-all hover:border-gray-300"
+                  >
+                    <div className="flex flex-col gap-3 p-5 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="space-y-1.5">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h3 className="text-base font-semibold text-[var(--ink)]">
+                            {org.company_name}
+                          </h3>
+                          <span className="rounded-md bg-gray-100 px-2 py-0.5 font-mono text-xs font-medium text-gray-700">
+                            PAN: {org.pan}
+                          </span>
+                          <span className="rounded-md bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700">
+                            {org.entity_type}
+                          </span>
+                          {org.requires_dsc ? (
+                            <span
+                              className="inline-flex items-center gap-1 rounded-md border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-800"
+                              title="CGST Rule 26: Corporate entities and LLPs must file GST returns using DSC"
+                            >
+                              <svg className="h-3 w-3 text-amber-700" fill="currentColor" viewBox="0 0 20 20">
+                                <path
+                                  fillRule="evenodd"
+                                  d="M10 2a4 4 0 00-4 4v2H5a2 2 0 00-2 2v6a2 2 0 002 2h10a2 2 0 002-2v-6a2 2 0 00-2-2h-1V6a4 4 0 00-4-4zm2 6V6a2 2 0 10-4 0v2h4z"
+                                  clipRule="evenodd"
+                                />
+                              </svg>
+                              DSC Mandatory
+                            </span>
+                          ) : (
+                            <span className="rounded-md border border-gray-200 bg-gray-50 px-2 py-0.5 text-xs text-gray-600">
+                              EVC / DSC Allowed
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500">
+                          {org.legal_name && org.legal_name !== org.company_name && (
+                            <span>Legal: {org.legal_name} • </span>
+                          )}
+                          <span>
+                            {org.total_gstins} registration{org.total_gstins !== 1 ? "s" : ""} across {org.states.length} state{org.states.length !== 1 ? "s" : ""}
+                          </span>
+                          <span>•</span>
+                          {org.all_connected ? (
+                            <span className="font-medium text-emerald-700">All Portals Connected</span>
+                          ) : org.connected_count > 0 ? (
+                            <span className="font-medium text-amber-700">
+                              {org.connected_count}/{org.total_gstins} Portals Connected
+                            </span>
+                          ) : (
+                            <span className="text-gray-400">No GSTN Portals Connected</span>
+                          )}
+                        </div>
+
+                        <div className="flex flex-wrap gap-1.5 pt-1">
+                          {org.states.map((st) => (
+                            <span
+                              key={st.code}
+                              className="rounded-full bg-slate-100 px-2.5 py-0.5 text-[11px] font-medium text-slate-700"
+                            >
+                              {st.name} ({st.code})
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 pt-2 sm:pt-0">
+                        {org.primary_client_id && (
+                          <Link
+                            href={`/clients/${org.primary_client_id}`}
+                            className="inline-flex min-h-[36px] items-center justify-center rounded-full bg-[var(--ink)] px-4 text-xs font-semibold text-white transition-opacity hover:opacity-90"
+                          >
+                            Open Workspace
+                          </Link>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => togglePanExpanded(org.pan)}
+                          className="inline-flex min-h-[36px] items-center justify-center rounded-full border border-gray-200 bg-white px-3 text-xs font-semibold text-gray-700 transition-colors hover:bg-gray-50"
+                        >
+                          {isExpanded ? "Hide GSTINs ▲" : `View GSTINs (${org.total_gstins}) ▼`}
+                        </button>
+                      </div>
+                    </div>
+
+                    {isExpanded && (
+                      <div className="border-t border-[#F0F0F0] bg-gray-50/50 p-4">
+                        <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white">
+                          <table className="w-full text-left text-xs">
+                            <thead>
+                              <tr className="border-b border-gray-100 bg-gray-50/70 text-[10px] font-medium uppercase tracking-wider text-gray-400">
+                                <th className="px-4 py-2.5">State</th>
+                                <th className="px-4 py-2.5">GSTIN</th>
+                                <th className="px-4 py-2.5">Trade Name</th>
+                                <th className="px-4 py-2.5">Filing Frequency</th>
+                                <th className="px-4 py-2.5">Assigned To</th>
+                                <th className="px-4 py-2.5">GSTN Status</th>
+                                <th className="px-4 py-2.5 text-right">Action</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-100">
+                              {org.gstins.map((g) => (
+                                <tr key={g.id} className="hover:bg-gray-50/80">
+                                  <td className="px-4 py-2.5 font-medium text-gray-800">
+                                    {g.state_name ?? g.state_code ?? "—"}
+                                  </td>
+                                  <td className="px-4 py-2.5 font-mono font-medium text-gray-600">
+                                    {g.gstin}
+                                  </td>
+                                  <td className="px-4 py-2.5 text-gray-700">
+                                    {g.trade_name ?? "—"}
+                                  </td>
+                                  <td className="px-4 py-2.5 capitalize text-gray-600">
+                                    {g.scheme_type ?? "regular"} · {g.filing_frequency ?? "monthly"}
+                                  </td>
+                                  <td className="px-4 py-2.5 text-gray-600">
+                                    {assignLabel(g.assigned_to, assigneeNames)}
+                                  </td>
+                                  <td className="px-4 py-2.5">
+                                    {g.is_gstn_connected ? (
+                                      <span className="inline-flex items-center gap-1 font-medium text-emerald-700">
+                                        <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                                        Connected
+                                      </span>
+                                    ) : (
+                                      <span className="text-gray-400">Not Connected</span>
+                                    )}
+                                  </td>
+                                  <td className="px-4 py-2.5 text-right">
+                                    <Link
+                                      href={`/clients/${g.id}`}
+                                      className="font-semibold text-[var(--ink)] hover:underline"
+                                    >
+                                      Workspace →
+                                    </Link>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+              {filteredOrganizations.length === 0 && (organizations?.length ?? 0) > 0 && (
+                <p className="border-t border-[#F0F0F0] px-5 py-6 text-center text-sm text-gray-400">
+                  No companies match your search.
+                </p>
+              )}
+            </div>
           ) : (
             <div className="overflow-hidden rounded-[1.25rem] ring-1 ring-[#F0F0F0]">
               <div className="overflow-x-auto">

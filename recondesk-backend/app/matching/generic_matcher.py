@@ -1261,7 +1261,10 @@ def generic_match_pair(
             # Terminal sequence mismatch across different prefixes: NEVER match
             pass
         elif not is_sequential_series_mismatch(a_inv, b_inv, a_inv_raw, b_inv_raw):
-            inv_sim = invoice_similarity(a_inv, b_inv)
+            inv_sim = max(
+                invoice_similarity(a_inv, b_inv),
+                invoice_similarity(a_inv_raw or a_doc, b_inv_raw or b_doc) if (a_inv_raw or b_inv_raw or a_doc or b_doc) else 0.0,
+            )
             if inv_sim >= _L5_INVOICE_SIM_THRESHOLD:
                 date_within_l5 = skip_date or (
                     date_diff_days <= _L5_DATE_TOLERANCE_DAYS

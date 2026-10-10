@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict
 from app.auth import AuthenticatedUser, get_current_active_user, get_current_user, require_admin
 from app.database import ensure_user_profile, get_supabase, get_user_profile
 from app.routers.reconciliation_api import _parse_uuid
+from app.services.normalizer import NormalizationError, normalize_gstin
 from app.services.billing_gate import assert_gstin_capacity
 from app.services.firm_access import list_accessible_client_gstin_ids
 from app.services.carry_forward import get_chronic_risks
@@ -36,6 +37,7 @@ _log = logging.getLogger(__name__)
 GSTIN_RE = re.compile(
     r"^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$"
 )
+PAN_RE = re.compile(r"^[A-Z]{5}[0-9]{4}[A-Z]{1}$")
 
 
 def _pg_unique_violation(exc: BaseException) -> bool:
@@ -56,16 +58,87 @@ def _pg_unique_violation(exc: BaseException) -> bool:
 
 
 GSTIN_STATE_NAMES: dict[str, str] = {
+    "01": "Jammu & Kashmir",
+    "02": "Himachal Pradesh",
+    "03": "Punjab",
+    "04": "Chandigarh",
+    "05": "Uttarakhand",
+    "06": "Haryana",
+    "07": "Delhi",
+    "08": "Rajasthan",
+    "09": "Uttar Pradesh",
+    "10": "Bihar",
+    "11": "Sikkim",
+    "12": "Arunachal Pradesh",
+    "13": "Nagaland",
+    "14": "Manipur",
+    "15": "Mizoram",
+    "16": "Tripura",
+    "17": "Meghalaya",
+    "18": "Assam",
+    "19": "West Bengal",
+    "20": "Jharkhand",
+    "21": "Odisha",
+    "22": "Chhattisgarh",
+    "23": "Madhya Pradesh",
+    "24": "Gujarat",
+    "26": "Dadra & Nagar Haveli and Daman & Diu",
     "27": "Maharashtra",
     "29": "Karnataka",
-    "07": "Delhi",
-    "33": "Tamil Nadu",
-    "09": "Uttar Pradesh",
-    "24": "Gujarat",
-    "06": "Haryana",
-    "19": "West Bengal",
+    "30": "Goa",
+    "31": "Lakshadweep",
     "32": "Kerala",
+    "33": "Tamil Nadu",
+    "34": "Puducherry",
+    "35": "Andaman & Nicobar Islands",
+    "36": "Telangana",
+    "37": "Andhra Pradesh",
+    "38": "Ladakh",
+    "97": "Other Territory",
 }
+
+PAN_ENTITY_TYPES: dict[str, str] = {
+    "C": "Company",
+    "F": "Partnership / LLP",
+    "P": "Proprietorship / Individual",
+    "H": "HUF",
+    "T": "Trust",
+    "A": "Association of Persons (AOP)",
+    "B": "Body of Individuals (BOI)",
+    "G": "Government Entity",
+    "L": "Local Authority",
+    "J": "Artificial Juridical Person",
+}
+
+
+def extract_pan_from_gstin(gstin: str) -> Optional[str]:
+    """Extract 10-char PAN from 15-char GSTIN if present and valid."""
+    g = (gstin or "").strip().upper()
+    if len(g) >= 12:
+        candidate = g[2:12]
+        if PAN_RE.match(candidate):
+            return candidate
+        return candidate
+    if len(g) == 10 and PAN_RE.match(g):
+        return g
+    return None
+
+
+def get_entity_type_from_pan(pan: str) -> str:
+    """Infer legal entity category from 4th character of 10-char PAN."""
+    p = (pan or "").strip().upper()
+    if len(p) >= 4:
+        code = p[3]
+        return PAN_ENTITY_TYPES.get(code, "Other")
+    return "Other"
+
+
+def requires_dsc_for_pan(pan: str) -> bool:
+    """CGST Rule 26: Companies ('C') and LLPs/Firms ('F') must file with DSC."""
+    p = (pan or "").strip().upper()
+    if len(p) >= 4:
+        return p[3] in ("C", "F")
+    return False
 
 
 def _validate_gstin_error_message(reason: str) -> str:
@@ -229,8 +302,7 @@ def serialize_client(row: dict[str, Any] | None) -> dict[str, Any] | None:
     return safe
 
 
-@router.get("")
-async def list_clients(current_user: dict = Depends(get_current_active_user)):
+async def _get_accessible_clients_list(current_user: dict) -> list[dict[str, Any]]:
     uid = str(current_user.get("id", "")).strip()
     prof = get_user_profile(uid) or {}
     role = (current_user.get("role") or prof.get("role") or "").strip().lower()
@@ -247,7 +319,7 @@ async def list_clients(current_user: dict = Depends(get_current_active_user)):
         aurora_clients = None
 
     if aurora_clients is not None:
-        return aurora_clients
+        return [serialize_client(r) for r in aurora_clients if r]
 
     # 2. Aurora miss: Supabase fallback
     sb = get_supabase()
@@ -271,7 +343,88 @@ async def list_clients(current_user: dict = Depends(get_current_active_user)):
             .limit(500)
             .execute()
         )
-    return [serialize_client(r) for r in (res.data or [])]
+    return [serialize_client(r) for r in (res.data or []) if r]
+
+
+@router.get("")
+async def list_clients(current_user: dict = Depends(get_current_active_user)):
+    return await _get_accessible_clients_list(current_user)
+
+
+@router.get("/organizations")
+async def list_client_organizations(current_user: dict = Depends(get_current_active_user)):
+    """Groups accessible client GSTINs by legal organization (10-digit PAN).
+
+    Returns PAN-level company groups with:
+    - Multi-state GSTIN registration breakdown
+    - Legal entity categorization (Company, LLP, Proprietorship)
+    - CGST Rule 26 DSC compliance requirements
+    - Combined portal connection status
+    """
+    raw_clients = await _get_accessible_clients_list(current_user)
+
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for c in raw_clients:
+        gstin = str(c.get("gstin") or "").strip().upper()
+        pan = extract_pan_from_gstin(gstin)
+        if not pan:
+            pan = gstin[2:12] if len(gstin) >= 12 else (gstin or "UNKNOWN")
+        groups.setdefault(pan, []).append(c)
+
+    orgs: list[dict[str, Any]] = []
+    for pan, clients in groups.items():
+        legal_names = [c.get("legal_name") for c in clients if c.get("legal_name")]
+        trade_names = [c.get("trade_name") for c in clients if c.get("trade_name")]
+        best_legal_name = legal_names[0] if legal_names else None
+        best_trade_name = trade_names[0] if trade_names else None
+        company_name = best_trade_name or best_legal_name or f"Organization ({pan})"
+
+        entity_type = get_entity_type_from_pan(pan)
+        requires_dsc = requires_dsc_for_pan(pan)
+
+        states_dict: dict[str, str] = {}
+        enriched_gstins: list[dict[str, Any]] = []
+        for c in clients:
+            sc = serialize_client(c) or c
+            gstin = str(sc.get("gstin") or "").strip().upper()
+            st_code = str(sc.get("state_code") or (gstin[:2] if len(gstin) >= 2 else "")).strip()
+            st_name = GSTIN_STATE_NAMES.get(st_code, f"State {st_code}" if st_code else "Unknown")
+            if st_code:
+                states_dict[st_code] = st_name
+            cg = dict(sc)
+            cg["state_name"] = st_name
+            enriched_gstins.append(cg)
+
+        enriched_gstins.sort(key=lambda x: str(x.get("state_code") or x.get("gstin") or ""))
+
+        state_list = [
+            {"code": code, "name": name}
+            for code, name in sorted(states_dict.items(), key=lambda x: x[0])
+        ]
+
+        total_gstins = len(enriched_gstins)
+        connected_count = sum(1 for c in enriched_gstins if c.get("is_gstn_connected"))
+        has_active = any(c.get("is_active", True) for c in enriched_gstins)
+        primary_client_id = enriched_gstins[0].get("id") if enriched_gstins else None
+
+        orgs.append({
+            "pan": pan,
+            "company_name": company_name,
+            "legal_name": best_legal_name,
+            "trade_name": best_trade_name,
+            "entity_type": entity_type,
+            "requires_dsc": requires_dsc,
+            "total_gstins": total_gstins,
+            "connected_count": connected_count,
+            "all_connected": (connected_count == total_gstins and total_gstins > 0),
+            "is_active": has_active,
+            "states": state_list,
+            "primary_client_id": str(primary_client_id) if primary_client_id else None,
+            "gstins": enriched_gstins,
+        })
+
+    orgs.sort(key=lambda o: (o["company_name"] or "").lower())
+    return orgs
 
 
 @router.post("")

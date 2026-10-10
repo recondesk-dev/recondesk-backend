@@ -417,6 +417,7 @@ function Gstr1FilingPageContent() {
       <EvcAndFilePanel
         token={token}
         period={period}
+        gstin={gstin}
         sessionId={sessionId}
         saveState={saveState}
         onSaveState={setSaveState}

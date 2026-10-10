@@ -368,9 +368,33 @@ export interface ClientCreatePayload {
   filing_frequency?: FilingFrequency | null;
 }
 
+export interface OrganizationStateInfo {
+  code: string;
+  name: string;
+}
+
+export interface ClientOrganization {
+  pan: string;
+  company_name: string;
+  legal_name?: string | null;
+  trade_name?: string | null;
+  entity_type: string;
+  requires_dsc: boolean;
+  total_gstins: number;
+  connected_count: number;
+  all_connected: boolean;
+  is_active: boolean;
+  states: OrganizationStateInfo[];
+  primary_client_id: string | null;
+  gstins: (ClientGstin & { state_name?: string })[];
+}
+
 export const clientsApi = {
   list: (token: string) =>
     apiFetch<ClientGstin[]>(clientsApiPath(), { token }),
+
+  organizations: (token: string) =>
+    apiFetch<ClientOrganization[]>(clientsApiPath("organizations"), { token }),
 
   get: (token: string, id: string) =>
     apiFetch<ClientGstin>(clientsApiPath(id), { token }),
