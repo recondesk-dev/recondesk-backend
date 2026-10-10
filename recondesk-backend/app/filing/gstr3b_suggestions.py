@@ -389,3 +389,203 @@ def load_table4_suggestion(
             },
         }
 
+
+def _load_pr_record_datas(sb, run_id: str) -> list[dict[str, Any]]:
+    """Fetch purchase register records for the reconciliation run."""
+    offset = 0
+    chunk = 1000
+    out: list[dict[str, Any]] = []
+    while True:
+        try:
+            res = (
+                sb.table("pr_records")
+                .select("record_data")
+                .eq("run_id", run_id)
+                .range(offset, offset + chunk - 1)
+                .execute()
+            )
+            rows = res.data or []
+        except Exception as exc:
+            _log.warning("pr_records fetch failed for run %s: %s", run_id, exc)
+            break
+        if not rows:
+            break
+        for row in rows:
+            rd = row.get("record_data") if isinstance(row, dict) else None
+            if isinstance(rd, dict):
+                out.append(rd)
+        if len(rows) < chunk:
+            break
+        offset += chunk
+    return out
+
+
+def load_rcm_suggestion(
+    sb,
+    *,
+    client_gstin_id: str,
+    period: str,
+) -> dict[str, Any]:
+    """Draft GSTR-3B Table 3.1(d) inward RCM liability from detected supplies.
+
+    Reuses detect_rcm_inward_supplies from rcm_detector.py on the latest
+    purchase reconcile run records. Never silently overwrites manual figures.
+    """
+    from app.reconciliation.rcm_detector import detect_rcm_inward_supplies
+
+    clean_period = normalize_period_yyyy_mm(period) or period
+    run = _latest_gstr2b_run(sb, client_gstin_id=client_gstin_id, period=clean_period)
+    if not run:
+        return {
+            "available": False,
+            "status": "unavailable",
+            "reason": REASON_NO_GSTR2B_RUN,
+            "period": clean_period,
+        }
+
+    run_id = str(run.get("id") or "")
+    pr_records = _load_pr_record_datas(sb, run_id)
+    if not pr_records:
+        # Fallback to gstr_records if PR records table is sparse for this run
+        pr_records = _load_gstr2b_record_datas(sb, run_id)
+
+    if not pr_records:
+        return {
+            "available": False,
+            "status": "unavailable",
+            "reason": "no_records_for_rcm_detection",
+            "period": clean_period,
+            "run_id": run_id,
+        }
+
+    # Resolve recipient GSTIN state for accurate tax-head allocation
+    recipient_gstin = ""
+    if sb is not None:
+        try:
+            cg_res = sb.table("client_gstins").select("gstin").eq("id", client_gstin_id).limit(1).execute()
+            if (
+                cg_res
+                and isinstance(getattr(cg_res, "data", None), list)
+                and len(cg_res.data) > 0
+                and isinstance(cg_res.data[0], dict)
+                and isinstance(cg_res.data[0].get("gstin"), str)
+            ):
+                recipient_gstin = str(cg_res.data[0].get("gstin") or "").strip().upper()
+        except Exception:
+            pass
+    if not recipient_gstin:
+        recipient_gstin = str(run.get("client_gstin") or "").strip().upper()
+    recipient_state = recipient_gstin[:2] if len(recipient_gstin) >= 2 else ""
+
+    detected_rows = detect_rcm_inward_supplies(pr_records)
+    if not detected_rows:
+        return {
+            "available": True,
+            "status": "available",
+            "source": f"RCM Detection (run {run_id[:8]})",
+            "period": clean_period,
+            "run_id": run_id,
+            "record_count": 0,
+            "isup_rev": {
+                "txval": 0.0,
+                "iamt": 0.0,
+                "camt": 0.0,
+                "samt": 0.0,
+                "csamt": 0.0,
+            },
+            "flagged_rows": [],
+            "cash_ledger_note": (
+                "Section 49(4) CGST Act: Tax on inward supplies under reverse charge must be discharged "
+                "strictly in cash through Electronic Cash Ledger and cannot be offset against ITC."
+            ),
+        }
+
+    # Deduplicate detected rows to prevent duplicate counting of multiline/re-imported entries
+    seen_fingerprints: set[tuple[Any, ...]] = set()
+    unique_detected_rows: list[dict[str, Any]] = []
+
+    tot_txval_p = 0
+    tot_iamt_p = 0
+    tot_camt_p = 0
+    tot_samt_p = 0
+    tot_csamt_p = 0
+
+    for r in detected_rows:
+        raw = r.get("raw_record") if isinstance(r.get("raw_record"), dict) else {}
+        inv_num = str(r.get("invoice_number") or raw.get("invoice_number") or "").strip().upper()
+        sup_gstin = str(r.get("supplier_gstin") or raw.get("supplier_gstin") or "").strip().upper()
+        inv_dt = str(r.get("invoice_date") or raw.get("invoice_date") or "").strip()
+        hsn = str(r.get("hsn_sac") or raw.get("hsn_sac") or "").strip()
+        txval_raw = int(r.get("taxable_value_paise") or 0)
+
+        fp = (inv_num, sup_gstin, inv_dt, hsn, txval_raw)
+        if fp in seen_fingerprints and inv_num:
+            continue
+        seen_fingerprints.add(fp)
+        unique_detected_rows.append(r)
+
+        # Handle credit notes & reversals
+        doc_type = str(raw.get("doc_type") or raw.get("document_type") or r.get("doc_type") or "").strip().upper()
+        remarks = str(raw.get("remarks") or "").upper()
+        is_credit_note = (
+            doc_type in ("CR", "C", "CN", "CREDIT_NOTE", "CREDIT NOTE", "CDN", "CDNR")
+            or "CREDIT" in remarks
+            or txval_raw < 0
+        )
+        sign = -1 if is_credit_note else 1
+
+        txval_p = abs(txval_raw) * sign
+        iamt_p = abs(int(r.get("igst_paise") or 0)) * sign
+        camt_p = abs(int(r.get("cgst_paise") or 0)) * sign
+        samt_p = abs(int(r.get("sgst_paise") or 0)) * sign
+        csamt_p = abs(int(r.get("cess_paise") or 0)) * sign
+        tot_tax_p = abs(int(r.get("total_tax_paise") or 0)) * sign
+
+        # Tax-head allocation: When supplier billed 0 tax under RCM but estimated RCM tax is non-zero
+        if (iamt_p == 0 and camt_p == 0 and samt_p == 0) and tot_tax_p != 0:
+            sup_state = sup_gstin[:2] if len(sup_gstin) >= 2 else ""
+            cat = str(r.get("category") or "").upper()
+            is_import = "IMPORT" in cat or not sup_state
+            is_interstate = is_import or (bool(recipient_state and sup_state) and sup_state != recipient_state)
+
+            if is_interstate:
+                iamt_p = tot_tax_p
+            else:
+                half = tot_tax_p // 2
+                camt_p = half
+                samt_p = tot_tax_p - half  # Handles any odd paise exactly
+
+        tot_txval_p += txval_p
+        tot_iamt_p += iamt_p
+        tot_camt_p += camt_p
+        tot_samt_p += samt_p
+        tot_csamt_p += csamt_p
+
+    # Floor net totals at 0 (cannot report negative outward RCM liability on Table 3.1d)
+    tot_txval_p = max(0, tot_txval_p)
+    tot_iamt_p = max(0, tot_iamt_p)
+    tot_camt_p = max(0, tot_camt_p)
+    tot_samt_p = max(0, tot_samt_p)
+    tot_csamt_p = max(0, tot_csamt_p)
+
+    return {
+        "available": True,
+        "status": "available",
+        "source": f"RCM Inward Detection (run {run_id[:8]})",
+        "period": clean_period,
+        "run_id": run_id,
+        "record_count": len(unique_detected_rows),
+        "isup_rev": {
+            "txval": paise_to_rupees(tot_txval_p),
+            "iamt": paise_to_rupees(tot_iamt_p),
+            "camt": paise_to_rupees(tot_camt_p),
+            "samt": paise_to_rupees(tot_samt_p),
+            "csamt": paise_to_rupees(tot_csamt_p),
+        },
+        "flagged_rows": unique_detected_rows[:50],  # preview top 50
+        "cash_ledger_note": (
+            "Section 49(4) CGST Act: Tax on inward supplies under reverse charge must be discharged "
+            "strictly in cash through Electronic Cash Ledger and cannot be offset against ITC."
+        ),
+    }
+

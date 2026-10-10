@@ -138,7 +138,7 @@ def compute_drc01c_threshold(
     triggers = bool(pct_exceeded and amount_exceeded)
 
     epct = excess_pct if excess_pct is not None else (100.0 if excess_amount > 0 else 0.0)
-    if epct > 20 and excess_amount > 2500000:
+    if triggers:
         status = "STATUTORY_BREACH"
     elif epct > 10 or excess_amount > 100000:
         status = "INTERNAL_WARNING"
@@ -155,6 +155,7 @@ def compute_drc01c_threshold(
         "pct_threshold": pct_threshold,
         "amount_threshold": amount_threshold,
         "triggers_drc01c": triggers,
+        "is_statutory_breach": triggers,
     }
 
 

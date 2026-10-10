@@ -6,6 +6,7 @@ import { DraftSuggestionBanner } from "@/components/filing/gstr3b/DraftSuggestio
 import {
   type Gstr3bFiguresState,
   type OutwardSuggestion,
+  type RcmSuggestion,
   type SuggestionLoadResult,
   type Gstr3bTaxHeadFields,
 } from "@/components/filing/gstr3b/figuresModel";
@@ -19,6 +20,7 @@ type Props = {
   onChange: (next: Gstr3bFiguresState["sup_details"]) => void;
   /** Explicit load only — never auto-runs on mount. */
   onLoadOutwardSuggestion: () => Promise<SuggestionLoadResult<OutwardSuggestion>>;
+  onLoadRcmSuggestion?: () => Promise<SuggestionLoadResult<RcmSuggestion>>;
 };
 
 const UNAVAILABLE_HINTS: Record<string, string> = {
@@ -26,17 +28,25 @@ const UNAVAILABLE_HINTS: Record<string, string> = {
     "No GSTR-1 reconcile run for this period — suggestions unavailable. This does not mean the figure is zero; enter the amount from the books.",
   no_gstr1_aggregate:
     "GSTR-1 reconcile has no 3.1(a) aggregate for this period — suggestions unavailable. This does not mean the figure is zero; enter the amount from the books.",
+  no_rcm_inward_supplies:
+    "No reverse charge inward supplies detected in the Purchase Register for this period.",
 };
 
 export function SupplyOutwardSection({
   value,
   onChange,
   onLoadOutwardSuggestion,
+  onLoadRcmSuggestion,
 }: Props) {
   const [suggestion, setSuggestion] = useState<OutwardSuggestion | null>(null);
   const [busy, setBusy] = useState(false);
   const [applied, setApplied] = useState(false);
   const [emptyHint, setEmptyHint] = useState<string | null>(null);
+
+  const [rcmSuggestion, setRcmSuggestion] = useState<RcmSuggestion | null>(null);
+  const [rcmBusy, setRcmBusy] = useState(false);
+  const [rcmApplied, setRcmApplied] = useState(false);
+  const [rcmEmptyHint, setRcmEmptyHint] = useState<string | null>(null);
 
   const patchRow = useCallback(
     (rowKey: string, field: keyof Gstr3bTaxHeadFields, raw: string) => {
@@ -75,6 +85,33 @@ export function SupplyOutwardSection({
     }
   }, [onLoadOutwardSuggestion]);
 
+  const loadRcm = useCallback(async () => {
+    if (!onLoadRcmSuggestion) return;
+    setRcmBusy(true);
+    setRcmEmptyHint(null);
+    setRcmApplied(false);
+    try {
+      const result = await onLoadRcmSuggestion();
+      if (result.status === "unavailable") {
+        setRcmSuggestion(null);
+        setRcmEmptyHint(
+          UNAVAILABLE_HINTS[result.reason] ||
+            "No RCM inward supply suggestions available for this period."
+        );
+        return;
+      }
+      setRcmSuggestion(result.suggestion);
+      setRcmEmptyHint(null);
+    } catch {
+      setRcmSuggestion(null);
+      setRcmEmptyHint(
+        "Could not load Purchase Register RCM suggestions. Try again, or enter the amount from the books."
+      );
+    } finally {
+      setRcmBusy(false);
+    }
+  }, [onLoadRcmSuggestion]);
+
   const det = value.osup_det;
   const sug = suggestion?.osup_det || {};
   const differs =
@@ -85,6 +122,16 @@ export function SupplyOutwardSection({
       return Number(det[k] === "" ? NaN : det[k]) !== Number(sv);
     });
 
+  const revDet = value.isup_rev;
+  const rcmSug = rcmSuggestion?.isup_rev || {};
+  const rcmDiffers =
+    !!rcmSuggestion &&
+    (["txval", "iamt", "camt", "samt", "csamt"] as const).some((k) => {
+      const sv = rcmSug[k];
+      if (sv == null) return false;
+      return Number(revDet[k] === "" ? NaN : revDet[k]) !== Number(sv);
+    });
+
   return (
     <div className="space-y-4">
       <div>
@@ -92,7 +139,7 @@ export function SupplyOutwardSection({
           Table 3.1 — Outward & reverse charge
         </h3>
         <p className="mt-0.5 text-[12px] text-gray-500">
-          Enter what you will declare. Suggestions from GSTR-1 are optional and
+          Enter what you will declare. Suggestions from GSTR-1 and Purchase Register RCM are optional and
           never auto-applied.
         </p>
       </div>
@@ -158,6 +205,55 @@ export function SupplyOutwardSection({
           setEmptyHint(null);
         }}
       />
+
+      {onLoadRcmSuggestion && (
+        <DraftSuggestionBanner
+          sourceLabel={
+            rcmSuggestion
+              ? `${rcmSuggestion.source}${rcmSuggestion.inward_rcm_count ? ` (${rcmSuggestion.inward_rcm_count} invoices)` : ""} — Note: Sec 49(4) Cash ledger discharge required`
+              : "Purchase Register Table 3.1(d) (RCM Inward Supplies)"
+          }
+          values={{
+            txval: typeof rcmSug.txval === "number" ? rcmSug.txval : undefined,
+            iamt: typeof rcmSug.iamt === "number" ? rcmSug.iamt : undefined,
+            camt: typeof rcmSug.camt === "number" ? rcmSug.camt : undefined,
+            samt: typeof rcmSug.samt === "number" ? rcmSug.samt : undefined,
+            csamt: typeof rcmSug.csamt === "number" ? rcmSug.csamt : undefined,
+          }}
+          fieldLabels={{
+            txval: "Taxable",
+            iamt: "IGST",
+            camt: "CGST",
+            samt: "SGST",
+            csamt: "Cess",
+          }}
+          applied={rcmApplied}
+          differsFromInput={rcmDiffers && !rcmApplied}
+          busy={rcmBusy}
+          emptyHint={rcmEmptyHint}
+          onLoad={() => void loadRcm()}
+          loadLabel="Load suggestions (Table 3.1(d) RCM)"
+          onUse={() => {
+            if (!rcmSuggestion) return;
+            onChange({
+              ...value,
+              isup_rev: {
+                txval: rcmSug.txval ?? "",
+                iamt: rcmSug.iamt ?? "",
+                camt: rcmSug.camt ?? "",
+                samt: rcmSug.samt ?? "",
+                csamt: rcmSug.csamt ?? "",
+              },
+            });
+            setRcmApplied(true);
+          }}
+          onDismiss={() => {
+            setRcmSuggestion(null);
+            setRcmApplied(false);
+            setRcmEmptyHint(null);
+          }}
+        />
+      )}
     </div>
   );
 }

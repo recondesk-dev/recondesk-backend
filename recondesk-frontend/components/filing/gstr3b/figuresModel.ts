@@ -189,6 +189,13 @@ export type ItcOthSuggestion = {
   csamt?: number;
 };
 
+export type RcmSuggestion = {
+  source: string;
+  isup_rev: Partial<Gstr3bTaxHeadFields>;
+  inward_rcm_count?: number;
+  note?: string;
+};
+
 /** Result of an explicit Load suggestions click (never auto-fetched). */
 export type SuggestionLoadResult<T> =
   | { status: "available"; suggestion: T }

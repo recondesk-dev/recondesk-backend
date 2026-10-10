@@ -2765,6 +2765,24 @@ export const filingApi = {
       token,
     }),
 
+  preFilingValidation: (
+    token: string,
+    period: string,
+    body: {
+      client_gstin_id: string;
+      records: Record<string, unknown>[];
+      patches?: Array<Record<string, unknown>>;
+    }
+  ) =>
+    apiFetch<PreFilingValidationResponse>(
+      `${filingPeriodPath(period)}/pre-filing-validation`,
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+        token,
+      }
+    ),
+
   saveUpload: (
     token: string,
     period: string,
@@ -3110,6 +3128,128 @@ export type ClientFilingHistoryResponse = {
   }>;
 };
 
+export type Gstr3bRcmSuggestionResponse = {
+  available: boolean;
+  status?: "available" | "unavailable";
+  reason?: string;
+  source?: string;
+  period?: string;
+  inward_rcm_count?: number;
+  isup_rev?: {
+    txval?: number;
+    iamt?: number;
+    camt?: number;
+    samt?: number;
+    csamt?: number;
+  };
+  note?: string;
+  cash_ledger_discharge_required?: boolean;
+};
+
+export type ValidationViolationItem = {
+  code: string;
+  message: string;
+  category: "STATUTORY_BREACH" | "RISK_WARNING" | "RECONCILIATION_GAP" | "DATA_INTEGRITY";
+  severity: "CRITICAL_ERROR" | "WARNING" | "INFO";
+  table_reference?: string;
+  details?: Record<string, unknown>;
+};
+
+export type PreFilingValidationResponse = {
+  return_type: string;
+  gstin: string;
+  period: string;
+  is_valid: boolean;
+  overall_severity: "CLEAN" | "WARNING" | "CRITICAL_ERROR";
+  figures_digest: string;
+  validation_digest?: string;
+  has_critical_violations: boolean;
+  has_statutory_breaches: boolean;
+  violations_count: number;
+  violations: ValidationViolationItem[];
+  statutory_checks: Record<string, unknown>;
+  reconciliation_summary: Record<string, unknown>;
+  policy_mode?: "ADVISORY" | "PARTNER_OVERRIDE" | "STRICT_BLOCK";
+};
+
+export type FilingGovernancePolicy = {
+  firm_id: string;
+  mode: "ADVISORY" | "PARTNER_OVERRIDE" | "STRICT_BLOCK";
+  rule_88c_amount_threshold: number;
+  rule_88c_pct_threshold: number;
+  rule_88d_amount_threshold: number;
+  rule_88d_pct_threshold: number;
+  require_final_reconciliation: boolean;
+  updated_at: string;
+  updated_by?: string | null;
+};
+
+export type FilingOverrideResponse = {
+  id: string;
+  firm_id: string;
+  client_gstin_id: string;
+  gstin: string;
+  period: string;
+  return_type: string;
+  figures_digest: string;
+  validation_digest?: string;
+  justification: string;
+  approved_by: string;
+  approver_name: string;
+  approver_role: string;
+  violations_acknowledged: string[];
+  created_at: string;
+  expires_at: string;
+  is_consumed: boolean;
+};
+
+export type CumulativeFyPeriodRow = {
+  period: string;
+  month_name: string;
+  has_run: boolean;
+  run_id?: string | null;
+  gstr1_turnover: number;
+  gstr3b_turnover: number;
+  turnover_diff: number;
+  turnover_diff_pct: number;
+  gstr2b_itc: number;
+  gstr3b_itc: number;
+  itc_diff: number;
+  itc_diff_pct: number;
+  amendment_inward_tax: number;
+  amendment_outward_tax: number;
+  timing_turnover_diff: number;
+  timing_itc_diff: number;
+  drc01b_risk: boolean;
+  drc01c_risk: boolean;
+};
+
+export type CumulativeFyResponse = {
+  client_gstin_id: string;
+  gstin: string;
+  fy: string;
+  periods: CumulativeFyPeriodRow[];
+  annual_totals: {
+    gstr1_turnover: number;
+    gstr3b_turnover: number;
+    turnover_diff: number;
+    gstr2b_itc: number;
+    gstr3b_itc: number;
+    itc_diff: number;
+    amendment_inward_tax: number;
+    amendment_outward_tax: number;
+    timing_turnover_diff: number;
+    timing_itc_diff: number;
+  };
+  reconciliation_audit: {
+    finalized_runs_count: number;
+    unreconciled_periods_count: number;
+    annual_drc01b_triggers: number;
+    annual_drc01c_triggers: number;
+    audit_notes: string[];
+  };
+};
+
 export type Gstr3bSaveResponse = {
   run_id: string;
   reference_id: string | null;
@@ -3306,6 +3446,19 @@ export const gstr3bFilingApi = {
     );
   },
 
+  suggestRcm: (
+    token: string,
+    period: string,
+    params: { client_gstin_id: string }
+  ) => {
+    const sp = new URLSearchParams();
+    sp.set("client_gstin_id", params.client_gstin_id);
+    return apiFetch<Gstr3bRcmSuggestionResponse>(
+      `${gstr3bPeriodPath(period)}/suggestions/rcm?${sp.toString()}`,
+      { token, cache: "no-store" }
+    );
+  },
+
   exportJson: (
     token: string,
     period: string,
@@ -3316,6 +3469,23 @@ export const gstr3bFilingApi = {
   ) =>
     apiFetch<Gstr3bExportJsonResponse>(
       `${gstr3bPeriodPath(period)}/export-json`,
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+        token,
+      }
+    ),
+
+  preFilingValidation: (
+    token: string,
+    period: string,
+    body: {
+      client_gstin_id: string;
+      save_body: Record<string, unknown>;
+    }
+  ) =>
+    apiFetch<PreFilingValidationResponse>(
+      `${gstr3bPeriodPath(period)}/pre-filing-validation`,
       {
         method: "POST",
         body: JSON.stringify(body),
@@ -3410,6 +3580,48 @@ export const gstr3bFilingApi = {
       body: JSON.stringify(body),
       token,
     }),
+};
+
+export const governanceApi = {
+  getPolicy: (token: string) =>
+    apiFetch<FilingGovernancePolicy>("/api/filing/governance/policy", {
+      token,
+      cache: "no-store",
+    }),
+
+  updatePolicy: (token: string, body: Partial<FilingGovernancePolicy>) =>
+    apiFetch<FilingGovernancePolicy>("/api/filing/governance/policy", {
+      method: "PUT",
+      body: JSON.stringify(body),
+      token,
+    }),
+
+  createOverride: (
+    token: string,
+    body: {
+      client_gstin_id: string;
+      period: string;
+      return_type: string;
+      figures_digest: string;
+      validation_digest?: string;
+      justification: string;
+      violations_acknowledged?: string[];
+    }
+  ) =>
+    apiFetch<FilingOverrideResponse>("/api/filing/governance/overrides", {
+      method: "POST",
+      body: JSON.stringify(body),
+      token,
+    }),
+
+  getCumulativeFy: (token: string, clientGstinId: string, fy: string) => {
+    const sp = new URLSearchParams();
+    sp.set("fy", fy);
+    return apiFetch<CumulativeFyResponse>(
+      `/api/filing/cumulative-fy/${clientGstinId}?${sp.toString()}`,
+      { token, cache: "no-store" }
+    );
+  },
 };
 
 // ─── Manage Data (admin raw file storage) ─────────────────────────────────────

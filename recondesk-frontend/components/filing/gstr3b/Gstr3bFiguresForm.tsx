@@ -10,6 +10,7 @@ import {
   type Gstr3bFiguresState,
   type ItcOthSuggestion,
   type OutwardSuggestion,
+  type RcmSuggestion,
   type SuggestionLoadResult,
 } from "@/components/filing/gstr3b/figuresModel";
 import { parseAmountInput } from "@/components/filing/gstr3b/TaxHeadTable";
@@ -26,6 +27,7 @@ type Props = {
   value: Gstr3bFiguresState;
   onChange: (next: Gstr3bFiguresState) => void;
   onLoadOutwardSuggestion: () => Promise<SuggestionLoadResult<OutwardSuggestion>>;
+  onLoadRcmSuggestion?: () => Promise<SuggestionLoadResult<RcmSuggestion>>;
   onLoadOthSuggestion: () => Promise<SuggestionLoadResult<ItcOthSuggestion>>;
   onLoadTable4Suggestion?: () => Promise<Gstr3bTable4SuggestionResponse>;
   readOnly?: boolean;
@@ -37,6 +39,7 @@ export function Gstr3bFiguresForm({
   value,
   onChange,
   onLoadOutwardSuggestion,
+  onLoadRcmSuggestion,
   onLoadOthSuggestion,
   onLoadTable4Suggestion,
   readOnly,
@@ -63,6 +66,7 @@ export function Gstr3bFiguresForm({
           value={value.sup_details}
           onChange={(sup_details) => onChange({ ...value, sup_details })}
           onLoadOutwardSuggestion={onLoadOutwardSuggestion}
+          onLoadRcmSuggestion={onLoadRcmSuggestion}
         />
         <ItcEligibilitySection
           value={value.itc_elg}

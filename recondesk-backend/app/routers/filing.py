@@ -6,7 +6,7 @@ import json
 import logging
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.auth import get_current_active_user, require_admin_user
@@ -30,7 +30,27 @@ from app.filing.gstr3b_offset import (
 from app.filing.gstr3b_suggestions import (
     load_itc_oth_suggestion,
     load_osup_det_suggestion,
+    load_rcm_suggestion,
     load_table4_suggestion,
+)
+from app.services.cumulative_fy_reconciliation import (
+    assemble_cumulative_fy_reconciliation,
+)
+from app.services.filing_override_service import (
+    FilingPolicy,
+    FilingPolicyMode,
+    FilingPolicyUpdate,
+    consume_override_on_file,
+    consume_override_on_file_sync,
+    create_partner_override,
+    get_firm_filing_policy,
+    update_firm_filing_policy,
+    verify_filing_governance_gate,
+)
+from app.services.pre_filing_validator import (
+    compute_figures_digest,
+    validate_gstr1_pre_filing,
+    validate_gstr3b_pre_filing,
 )
 from app.filing.sandbox_filing_client import (
     FilingApiError,
@@ -352,6 +372,50 @@ class FileGstr3bBody(_StripModel):
         if self.signing_method == "dsc" and not self.signature:
             raise ValueError("signature is required when signing_method is 'dsc'")
         return self
+
+class PreFilingValidationGstr3bBody(_StripModel):
+    client_gstin_id: str
+    save_body: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("client_gstin_id")
+    @classmethod
+    def _cid(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("must not be empty")
+        return v
+
+
+class PreFilingValidationGstr1Body(_StripModel):
+    client_gstin_id: str
+    records: list[dict[str, Any]] = Field(default_factory=list)
+    patches: Optional[list[dict[str, Any]]] = None
+
+    @field_validator("client_gstin_id")
+    @classmethod
+    def _cid(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("must not be empty")
+        return v
+
+
+class CreateOverrideBody(_StripModel):
+    client_gstin_id: str
+    period: str
+    return_type: str = "gstr-3b"
+    figures_digest: str
+    validation_digest: Optional[str] = None
+    justification: str
+    violations_acknowledged: list[str] = Field(default_factory=list)
+
+    @field_validator("client_gstin_id", "period", "figures_digest", "justification")
+    @classmethod
+    def _req(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("must not be empty")
+        return v
 
 
 class CreateBatchBody(_StripModel):
@@ -830,6 +894,7 @@ def _execute_save(
     records: list[dict[str, Any]],
     gt: float,
     cur_gt: float,
+    user: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     token, session_row = _resolve_token(
         sb, firm_id, session_id=session_id, gstin=gstin,
@@ -846,6 +911,29 @@ def _execute_save(
         gt=gt,
         cur_gt=cur_gt,
     )
+
+    # Phase 2 Pre-filing validation & governance gate
+    readiness_data = serialize_gstr1_readiness(mapped)
+    val_result = validate_gstr1_pre_filing(
+        sb,
+        client_gstin_id=client_gstin_id,
+        gstin=gstin,
+        period=period,
+        mapped_readiness=readiness_data,
+        save_payload=save_body,
+    )
+    effective_user = user or {"id": firm_id, "role": "admin"}
+    verify_filing_governance_gate(
+        sb,
+        firm_id=firm_id,
+        client_gstin_id=client_gstin_id,
+        gstin=gstin,
+        period=period,
+        return_type="gstr-1",
+        validation_result=val_result,
+        user=effective_user,
+    )
+
     run = filing_store.create_run(
         sb,
         firm_id=firm_id,
@@ -952,6 +1040,48 @@ async def gstr1_readiness_upload(
     return payload
 
 
+@router.post("/gstr-1/{period}/pre-filing-validation")
+def gstr1_pre_filing_validation(
+    period: str,
+    body: PreFilingValidationGstr1Body,
+    current_user: dict = Depends(get_current_active_user),
+):
+    """Server-side pre-filing validation for GSTR-1 (readiness, mandatory sections, HSN/Doc gaps)."""
+    period = _assert_period_yyyy_mm(period)
+    sb = get_supabase()
+    firm_id = _firm_id(sb, current_user)
+    client_row = _assert_client_access(sb, current_user, body.client_gstin_id.strip())
+    gstin = str(client_row["gstin"]).strip().upper()
+
+    payload, mapped, _ = _readiness_payload_for_client(
+        sb=sb,
+        current_user=current_user,
+        client_gstin_id=body.client_gstin_id.strip(),
+        period=period,
+        records=body.records,
+        patches=body.patches,
+    )
+    save_body = build_save_body(
+        mapped.save_payload,
+        gstin=gstin,
+        period=period,
+        gt=0.0,
+        cur_gt=0.0,
+    )
+    result = validate_gstr1_pre_filing(
+        sb,
+        client_gstin_id=body.client_gstin_id.strip(),
+        gstin=gstin,
+        period=period,
+        mapped_readiness=payload,
+        save_payload=save_body,
+    )
+    policy = get_firm_filing_policy(sb, firm_id)
+    res_dict = result.to_dict()
+    res_dict["policy_mode"] = policy.mode.value
+    return res_dict
+
+
 @router.post("/gstr-1/{period}/save")
 def save_gstr1(
     period: str,
@@ -979,6 +1109,7 @@ def save_gstr1(
         records=effective_records,
         gt=body.gt,
         cur_gt=body.cur_gt,
+        user=current_user,
     )
 
 
@@ -1014,6 +1145,7 @@ async def save_gstr1_upload(
         records=effective_records,
         gt=gt,
         cur_gt=cur_gt,
+        user=current_user,
     )
 
 
@@ -1312,6 +1444,32 @@ def file_gstr1(
     )
     token, _ = _resolve_token(sb, firm_id, session_id=body.session_id)
 
+    governance_override: Optional[Any] = None
+    # Enforce Pre-Filing Governance Gate before final Filing
+    if body.run_id:
+        run_data = _load_run_for_firm(sb, firm_id, body.run_id)
+        client_gid = str(run_data.get("client_gstin_id") or "")
+        run_gstin = str(run_data.get("gstin") or "").strip().upper()
+        pol = get_firm_filing_policy(sb, firm_id)
+        if pol.mode != FilingPolicyMode.ADVISORY and isinstance(run_data.get("save_payload"), dict):
+            val_res = validate_gstr1_pre_filing(
+                sb,
+                client_gstin_id=client_gid,
+                gstin=run_gstin,
+                period=period,
+                save_body=run_data["save_payload"],
+            )
+            governance_override = verify_filing_governance_gate(
+                sb,
+                firm_id=firm_id,
+                client_gstin_id=client_gid,
+                gstin=run_gstin,
+                period=period,
+                return_type="gstr-1",
+                validation_result=val_res,
+                user=current_user,
+            )
+
     file_body = body.file_body
     if file_body is None:
         # Pull summary for sec_sum / chksum required by File.
@@ -1353,14 +1511,32 @@ def file_gstr1(
         raise _map_client_error(exc) from exc
 
     if body.run_id:
-        filing_store.update_run(
-            sb,
-            body.run_id,
-            status="filed",
-            ack_number=result.ack_number,
-            raw_response=result.envelope,
-            clear_error=True,
-        )
+        try:
+            filing_store.update_run(
+                sb,
+                body.run_id,
+                status="filed",
+                ack_number=result.ack_number,
+                raw_response=result.envelope,
+                clear_error=True,
+            )
+        except Exception as db_err:
+            _log.error("Failed to update run status to filed in database after GSTN submission: %s", db_err, exc_info=True)
+        try:
+            run_data = _load_run_for_firm(sb, firm_id, body.run_id)
+            client_gid = str(run_data.get("client_gstin_id") or "")
+            consume_override_on_file_sync(
+                sb,
+                firm_id=firm_id,
+                client_gstin_id=client_gid,
+                period=period,
+                return_type="gstr-1",
+                run_id=body.run_id,
+                user=current_user,
+                override_id=governance_override.id if governance_override else None,
+            )
+        except Exception:
+            _log.warning("Failed to consume override on GSTR-1 file", exc_info=True)
     info = result.return_status
     return {
         "period": period,
@@ -1519,6 +1695,53 @@ def gstr3b_suggest_table4(
     )
 
 
+@gstr3b_router.get("/gstr-3b/{period}/suggestions/rcm")
+def gstr3b_suggest_rcm(
+    period: str,
+    client_gstin_id: str,
+    current_user: dict = Depends(get_current_active_user),
+):
+    """Auto-detect reverse charge inward supplies from Purchase Register for Table 3.1(d)."""
+    period = _assert_period_yyyy_mm(period)
+    sb = get_supabase()
+    _firm_id(sb, current_user)
+    _assert_client_access(sb, current_user, client_gstin_id.strip())
+    return load_rcm_suggestion(
+        sb, client_gstin_id=client_gstin_id.strip(), period=period,
+    )
+
+
+@gstr3b_router.post("/gstr-3b/{period}/pre-filing-validation")
+def gstr3b_pre_filing_validation(
+    period: str,
+    body: PreFilingValidationGstr3bBody,
+    current_user: dict = Depends(get_current_active_user),
+):
+    """Server-side pre-filing validation for GSTR-3B (Rules 88C/88D, reconciliation status, RCM)."""
+    period = _assert_period_yyyy_mm(period)
+    sb = get_supabase()
+    firm_id = _firm_id(sb, current_user)
+    client_row = _assert_client_access(sb, current_user, body.client_gstin_id.strip())
+    gstin = str(client_row["gstin"]).strip().upper()
+
+    policy = get_firm_filing_policy(sb, firm_id)
+    result = validate_gstr3b_pre_filing(
+        sb,
+        client_gstin_id=body.client_gstin_id.strip(),
+        gstin=gstin,
+        period=period,
+        save_body=body.save_body,
+        require_final_reconciliation=policy.require_final_reconciliation,
+        rule_88c_pct_threshold=policy.rule_88c_pct_threshold,
+        rule_88c_amount_threshold=policy.rule_88c_amount_threshold,
+        rule_88d_pct_threshold=policy.rule_88d_pct_threshold,
+        rule_88d_amount_threshold=policy.rule_88d_amount_threshold,
+    )
+    res_dict = result.to_dict()
+    res_dict["policy_mode"] = policy.mode.value
+    return res_dict
+
+
 @gstr3b_router.post("/gstr-3b/{period}/export-json")
 def gstr3b_export_json(
     period: str,
@@ -1632,6 +1855,31 @@ def save_gstr3b(
     save_body = dict(body.save_body)
     save_body.setdefault("gstin", gstin)
     save_body.setdefault("ret_period", period_to_fp(period))
+
+    # Phase 2: Pre-filing statutory validation & governance gate
+    policy = get_firm_filing_policy(sb, firm_id)
+    val_result = validate_gstr3b_pre_filing(
+        sb,
+        client_gstin_id=body.client_gstin_id,
+        gstin=gstin,
+        period=period,
+        save_body=save_body,
+        require_final_reconciliation=policy.require_final_reconciliation,
+        rule_88c_pct_threshold=policy.rule_88c_pct_threshold,
+        rule_88c_amount_threshold=policy.rule_88c_amount_threshold,
+        rule_88d_pct_threshold=policy.rule_88d_pct_threshold,
+        rule_88d_amount_threshold=policy.rule_88d_amount_threshold,
+    )
+    verify_filing_governance_gate(
+        sb,
+        firm_id=firm_id,
+        client_gstin_id=body.client_gstin_id,
+        gstin=gstin,
+        period=period,
+        return_type="gstr-3b",
+        validation_result=val_result,
+        user=current_user,
+    )
 
     run = None
     if body.run_id:
@@ -1828,6 +2076,34 @@ def offset_gstr3b(
     except filing_store.Gstr3bPeriodLockedError as exc:
         _raise_gstr3b_locked(exc)
 
+    # Enforce Pre-Filing Governance Gate on Offset (server-side protection against direct API calls)
+    run_obj = filing_store.get_run(sb, body.run_id)
+    if run_obj and isinstance(run_obj.get("save_payload"), dict):
+        pol = get_firm_filing_policy(sb, firm_id)
+        if pol.mode != FilingPolicyMode.ADVISORY:
+            val_res = validate_gstr3b_pre_filing(
+                sb,
+                client_gstin_id=body.client_gstin_id,
+                gstin=gstin,
+                period=period,
+                save_body=run_obj["save_payload"],
+                require_final_reconciliation=pol.require_final_reconciliation,
+                rule_88c_pct_threshold=pol.rule_88c_pct_threshold,
+                rule_88c_amount_threshold=pol.rule_88c_amount_threshold,
+                rule_88d_pct_threshold=pol.rule_88d_pct_threshold,
+                rule_88d_amount_threshold=pol.rule_88d_amount_threshold,
+            )
+            verify_filing_governance_gate(
+                sb,
+                firm_id=firm_id,
+                client_gstin_id=body.client_gstin_id,
+                gstin=gstin,
+                period=period,
+                return_type="gstr-3b",
+                validation_result=val_res,
+                user=current_user,
+            )
+
     posted = extract_offset_pair({"pdcash": body.pdcash, "pditc": body.pditc})
     token, _ = _resolve_token(
         sb, firm_id, session_id=body.session_id, gstin=gstin,
@@ -1945,6 +2221,37 @@ def file_gstr3b(
     )
     token, _ = _resolve_token(sb, firm_id, session_id=body.session_id)
 
+    governance_override: Optional[Any] = None
+    # Enforce Pre-Filing Governance Gate before final Filing
+    if body.run_id:
+        run_data = _load_run_for_firm(sb, firm_id, body.run_id)
+        client_gid = str(run_data.get("client_gstin_id") or "")
+        run_gstin = str(run_data.get("gstin") or "").strip().upper()
+        pol = get_firm_filing_policy(sb, firm_id)
+        if pol.mode != FilingPolicyMode.ADVISORY and isinstance(run_data.get("save_payload"), dict):
+            val_res = validate_gstr3b_pre_filing(
+                sb,
+                client_gstin_id=client_gid,
+                gstin=run_gstin,
+                period=period,
+                save_body=run_data["save_payload"],
+                require_final_reconciliation=pol.require_final_reconciliation,
+                rule_88c_pct_threshold=pol.rule_88c_pct_threshold,
+                rule_88c_amount_threshold=pol.rule_88c_amount_threshold,
+                rule_88d_pct_threshold=pol.rule_88d_pct_threshold,
+                rule_88d_amount_threshold=pol.rule_88d_amount_threshold,
+            )
+            governance_override = verify_filing_governance_gate(
+                sb,
+                firm_id=firm_id,
+                client_gstin_id=client_gid,
+                gstin=run_gstin,
+                period=period,
+                return_type="gstr-3b",
+                validation_result=val_res,
+                user=current_user,
+            )
+
     file_body = body.file_body
     if file_body is None:
         try:
@@ -1978,14 +2285,32 @@ def file_gstr3b(
         raise _map_client_error(exc) from exc
 
     if body.run_id:
-        filing_store.update_run(
-            sb,
-            body.run_id,
-            status="filed",
-            ack_number=result.ack_number,
-            raw_response=result.envelope,
-            clear_error=True,
-        )
+        try:
+            filing_store.update_run(
+                sb,
+                body.run_id,
+                status="filed",
+                ack_number=result.ack_number,
+                raw_response=result.envelope,
+                clear_error=True,
+            )
+        except Exception as db_err:
+            _log.error("Failed to update run status to filed in database after GSTN submission: %s", db_err, exc_info=True)
+        try:
+            run_data = _load_run_for_firm(sb, firm_id, body.run_id)
+            client_gid = str(run_data.get("client_gstin_id") or "")
+            consume_override_on_file_sync(
+                sb,
+                firm_id=firm_id,
+                client_gstin_id=client_gid,
+                period=period,
+                return_type="gstr-3b",
+                run_id=body.run_id,
+                user=current_user,
+                override_id=governance_override.id if governance_override else None,
+            )
+        except Exception:
+            _log.warning("Failed to consume override on GSTR-3B file", exc_info=True)
     info = result.return_status
     return {
         "period": period,
@@ -2131,6 +2456,99 @@ def filing_history(
         "client_gstin_id": client_gstin_id.strip(),
         "filings": runs.data or [],
     }
+
+
+# ---------------------------------------------------------------------------
+# Pre-Filing Governance & Cumulative FY Reconciliation
+# ---------------------------------------------------------------------------
+
+
+@router.get("/governance/policy")
+def get_governance_policy(
+    current_user: dict = Depends(get_current_active_user),
+):
+    """Retrieve the current filing governance policy for the user's firm."""
+    sb = get_supabase()
+    firm_id = _firm_id(sb, current_user)
+    policy = get_firm_filing_policy(sb, firm_id)
+    return policy.model_dump()
+
+
+@router.put("/governance/policy")
+async def update_governance_policy(
+    update: FilingPolicyUpdate,
+    current_user: dict = Depends(require_admin_user),
+):
+    """Update firm-level filing policy (Advisory, Partner Override, or Strict Block).
+
+    Restricted to CA Partners / Admins. Immutable audit trail recorded.
+    """
+    sb = get_supabase()
+    firm_id = _firm_id(sb, current_user)
+    updated = await update_firm_filing_policy(
+        sb,
+        firm_id=firm_id,
+        update=update,
+        user=current_user,
+    )
+    return updated.model_dump()
+
+
+@router.post("/governance/overrides")
+async def create_governance_override(
+    body: CreateOverrideBody,
+    current_user: dict = Depends(require_admin_user),
+):
+    """Partner override authorizing filing despite critical statutory or reconciliation violations.
+
+    Strict Security:
+    - Partner role required (admin/owner). Staff cannot self-approve (HTTP 403).
+    - Cryptographically bound to the SHA-256 digest of the filing figures.
+    - Tenant isolation enforced against firm_id.
+    - Recorded in immutable audit log.
+    """
+    sb = get_supabase()
+    firm_id = _firm_id(sb, current_user)
+    client_row = _assert_client_access(sb, current_user, body.client_gstin_id.strip())
+    gstin = str(client_row["gstin"]).strip().upper()
+
+    override = await create_partner_override(
+        sb,
+        firm_id=firm_id,
+        client_gstin_id=body.client_gstin_id.strip(),
+        gstin=gstin,
+        period=body.period.strip(),
+        return_type=body.return_type.strip(),
+        figures_digest=body.figures_digest.strip(),
+        justification=body.justification.strip(),
+        violations_acknowledged=body.violations_acknowledged,
+        user=current_user,
+        validation_digest=body.validation_digest,
+    )
+    return override.to_dict()
+
+
+@router.get("/cumulative-fy/{client_gstin_id}")
+def get_cumulative_fy_reconciliation(
+    client_gstin_id: str,
+    fy: str = Query(..., description="Financial year e.g. 2024-25 or 2024-2025"),
+    current_user: dict = Depends(get_current_active_user),
+):
+    """12-month FY tie-out across GSTR-1 vs GSTR-3B vs GSTR-2B.
+
+    Reuses GSTR-9/9C rollup logic. Tracks monthly & YTD turnover, ITC deltas,
+    amendments, timing differences, and annual DRC-01B/DRC-01C risk with zero double-counting.
+    """
+    sb = get_supabase()
+    _firm_id(sb, current_user)
+    _assert_client_access(sb, current_user, client_gstin_id.strip())
+
+    recon = assemble_cumulative_fy_reconciliation(
+        sb,
+        client_gstin_id=client_gstin_id.strip(),
+        fy=fy.strip(),
+    )
+    return recon
 
 
 router.include_router(gstr3b_router)

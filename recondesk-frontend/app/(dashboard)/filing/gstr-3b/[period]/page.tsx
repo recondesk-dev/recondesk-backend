@@ -19,6 +19,7 @@ import {
   type Gstr3bFiguresState,
   type ItcOthSuggestion,
   type OutwardSuggestion,
+  type RcmSuggestion,
   type SuggestionLoadResult,
 } from "@/components/filing/gstr3b/figuresModel";
 import { GstnSessionPanel } from "@/components/filing/GstnSessionPanel";
@@ -154,6 +155,32 @@ function Gstr3bFilingPageContent() {
       suggestion: {
         source: res.source || "GSTR-1 Table 3.1(a)",
         osup_det: res.osup_det,
+      },
+    };
+  }, [token, clientGstinId, period]);
+
+  const loadRcmSuggestion = useCallback(async (): Promise<
+    SuggestionLoadResult<RcmSuggestion>
+  > => {
+    if (!token || !clientGstinId || !period) {
+      return { status: "unavailable", reason: "no_rcm_inward_supplies" };
+    }
+    const res = await gstr3bFilingApi.suggestRcm(token, period, {
+      client_gstin_id: clientGstinId,
+    });
+    if (!res.available || !res.isup_rev) {
+      return {
+        status: "unavailable",
+        reason: res.reason || "no_rcm_inward_supplies",
+      };
+    }
+    return {
+      status: "available",
+      suggestion: {
+        source: res.source || "Purchase Register Table 3.1(d)",
+        isup_rev: res.isup_rev,
+        inward_rcm_count: res.inward_rcm_count,
+        note: res.note,
       },
     };
   }, [token, clientGstinId, period]);
@@ -354,6 +381,7 @@ function Gstr3bFilingPageContent() {
           value={figures}
           onChange={setFigures}
           onLoadOutwardSuggestion={loadOutwardSuggestion}
+          onLoadRcmSuggestion={loadRcmSuggestion}
           onLoadOthSuggestion={loadOthSuggestion}
           onLoadTable4Suggestion={loadTable4Suggestion}
           readOnly={
