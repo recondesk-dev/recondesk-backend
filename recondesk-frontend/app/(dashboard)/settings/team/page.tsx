@@ -16,6 +16,7 @@ import {
 import {
   AUTH_PROFILE_SWR_OPTIONS,
   authProfileFetcher,
+  isRoleAdminOrPartner,
   normalizeAuthRole,
 } from "@/lib/auth-profile";
 import { useAccessToken } from "@/lib/hooks/useAccessToken";
@@ -86,11 +87,11 @@ function TeamSettingsPageContent() {
   } = useSWR(membersKey, ([, t]) => teamApi.list(t));
 
   const roleNorm = normalizeAuthRole(me?.role);
-  const isAdmin = roleNorm === "admin";
+  const isAdmin = isRoleAdminOrPartner(roleNorm);
 
   const [inviteOpen, setInviteOpen] = useState(false);
   const [inviteEmail, setInviteEmail] = useState("");
-  const [inviteRole, setInviteRole] = useState<"admin" | "staff">("staff");
+  const [inviteRole, setInviteRole] = useState<string>("preparer");
   const [inviteSubmitting, setInviteSubmitting] = useState(false);
   const [inviteError, setInviteError] = useState<string | null>(null);
 
@@ -139,7 +140,7 @@ function TeamSettingsPageContent() {
       toast("Invitation sent", "success");
       setInviteOpen(false);
       setInviteEmail("");
-      setInviteRole("staff");
+      setInviteRole("preparer");
       await mutateMembers();
     } catch (e: unknown) {
       const msg = isApiError(e) ? e.detail : "Could not send invitation.";
@@ -428,16 +429,16 @@ function TeamSettingsPageContent() {
                 <input
                   type="radio"
                   name="invite-role"
-                  checked={inviteRole === "admin"}
-                  onChange={() => setInviteRole("admin")}
+                  checked={inviteRole === "partner" || inviteRole === "admin"}
+                  onChange={() => setInviteRole("partner")}
                   className="mt-1"
                 />
                 <span>
                   <span className="font-semibold text-[var(--text-primary)]">
-                    Admin
+                    Partner / Admin
                   </span>
                   <span className="mt-1 block text-xs text-[var(--text-secondary)]">
-                    Full access including finalize runs and billing.
+                    Full authority: GSTR-1/3B filing, partner overrides, and practice governance.
                   </span>
                 </span>
               </label>
@@ -445,16 +446,50 @@ function TeamSettingsPageContent() {
                 <input
                   type="radio"
                   name="invite-role"
-                  checked={inviteRole === "staff"}
-                  onChange={() => setInviteRole("staff")}
+                  checked={inviteRole === "manager"}
+                  onChange={() => setInviteRole("manager")}
                   className="mt-1"
                 />
                 <span>
                   <span className="font-semibold text-[var(--text-primary)]">
-                    Staff
+                    Manager
                   </span>
                   <span className="mt-1 block text-xs text-[var(--text-secondary)]">
-                    Assigned clients only; cannot finalize reconciliations.
+                    Supervisory: client assignments, bulk filing batch creation, and reconciliation review.
+                  </span>
+                </span>
+              </label>
+              <label className="flex cursor-pointer gap-3 rounded-lg border border-[var(--border)] p-3 hover:bg-brand-dim/40">
+                <input
+                  type="radio"
+                  name="invite-role"
+                  checked={inviteRole === "preparer" || inviteRole === "staff"}
+                  onChange={() => setInviteRole("preparer")}
+                  className="mt-1"
+                />
+                <span>
+                  <span className="font-semibold text-[var(--text-primary)]">
+                    Preparer / Staff
+                  </span>
+                  <span className="mt-1 block text-xs text-[var(--text-secondary)]">
+                    Operational: data uploads, reconciliation runs, and return drafting for assigned clients.
+                  </span>
+                </span>
+              </label>
+              <label className="flex cursor-pointer gap-3 rounded-lg border border-[var(--border)] p-3 hover:bg-brand-dim/40">
+                <input
+                  type="radio"
+                  name="invite-role"
+                  checked={inviteRole === "viewer"}
+                  onChange={() => setInviteRole("viewer")}
+                  className="mt-1"
+                />
+                <span>
+                  <span className="font-semibold text-[var(--text-primary)]">
+                    Viewer
+                  </span>
+                  <span className="mt-1 block text-xs text-[var(--text-secondary)]">
+                    Read-only access: view reconciliations and return statuses without modification.
                   </span>
                 </span>
               </label>

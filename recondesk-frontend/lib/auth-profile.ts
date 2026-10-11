@@ -19,10 +19,44 @@ const CACHED_ROLE_KEYS = [
   "recondesk_user_role",
 ] as const;
 
-export function normalizeAuthRole(raw: string | null | undefined): "admin" | "staff" {
+export type UserRole =
+  | "owner"
+  | "partner"
+  | "manager"
+  | "preparer"
+  | "viewer"
+  | "admin"
+  | "staff";
+
+export function normalizeAuthRole(raw: string | null | undefined): UserRole {
   const role = (raw ?? "").trim().toLowerCase();
-  if (role === "staff") return "staff";
-  return "admin";
+  if (role === "admin" || role === "owner" || role === "partner") return role as UserRole;
+  if (role === "manager") return "manager";
+  if (role === "preparer" || role === "staff") return role as UserRole;
+  if (role === "viewer") return "viewer";
+  return "viewer"; // FAIL CLOSED: Unknown or missing role defaults strictly to viewer
+}
+
+export function isRoleAdminOrPartner(role: string | null | undefined): boolean {
+  const r = (role ?? "").trim().toLowerCase();
+  return r === "admin" || r === "owner" || r === "partner";
+}
+
+export function isRoleManagerOrAbove(role: string | null | undefined): boolean {
+  const r = (role ?? "").trim().toLowerCase();
+  return r === "admin" || r === "owner" || r === "partner" || r === "manager";
+}
+
+export function isRoleWriterOrAbove(role: string | null | undefined): boolean {
+  const r = (role ?? "").trim().toLowerCase();
+  return (
+    r === "admin" ||
+    r === "owner" ||
+    r === "partner" ||
+    r === "manager" ||
+    r === "preparer" ||
+    r === "staff"
+  );
 }
 
 export function clearCachedAuthRole(): void {

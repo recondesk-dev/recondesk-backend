@@ -220,7 +220,7 @@ def batch_with_three_items(sample_gstins):
     client_ids = []
     for gstin in sample_gstins:
         cid = f"client-id-{gstin}"
-        sb.table("client_gstins").insert({"id": cid, "gstin": gstin, "firm_owner_id": "test-user-id"}).execute()
+        sb.table("client_gstins").insert({"id": cid, "gstin": gstin, "firm_owner_id": "test-firm-id"}).execute()
         client_ids.append(cid)
 
     batch = create_batch(
@@ -231,6 +231,7 @@ def batch_with_three_items(sample_gstins):
         client_gstin_ids=client_ids,
         return_type="gstr-1",
     )
+
     batch_id = batch["id"]
     return batch_id, sample_gstins, sb
 

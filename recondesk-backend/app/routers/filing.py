@@ -9,7 +9,8 @@ from typing import Any, Optional
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from app.auth import get_current_active_user, require_admin_user
+from app.auth import get_current_active_user, require_admin_user, require_manager_user, require_writer_user
+from app.models.roles import is_admin_or_partner, is_manager_or_above, is_writer_or_above
 from app.config import get_settings
 from app.database import get_supabase
 from app.filing import filing_store
@@ -599,10 +600,32 @@ def generate_otp(
     body: GenerateOtpBody,
     current_user: dict = Depends(get_current_active_user),
 ):
+    role = str(current_user.get("role") or "").strip().lower()
+    if not is_writer_or_above(role):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Write access required to generate filing session OTP",
+        )
     sb = get_supabase()
-    _firm_id(sb, current_user)
+    firm_id = _firm_id(sb, current_user)
     if body.client_gstin_id:
         _assert_client_access(sb, current_user, body.client_gstin_id)
+    else:
+        cg_res = (
+            sb.table("client_gstins")
+            .select("id")
+            .eq("firm_owner_id", firm_id)
+            .eq("gstin", body.gstin.strip().upper())
+            .eq("is_active", True)
+            .limit(1)
+            .execute()
+        )
+        if not cg_res.data:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Client GSTIN not found or not accessible",
+            )
+        _assert_client_access(sb, current_user, str(cg_res.data[0]["id"]))
     try:
         with get_filing_client() as client:
             envelope = client.generate_otp(username=body.username, gstin=body.gstin)
@@ -620,11 +643,34 @@ def verify_otp(
     body: VerifyOtpBody,
     current_user: dict = Depends(get_current_active_user),
 ):
+    role = str(current_user.get("role") or "").strip().lower()
+    if not is_writer_or_above(role):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Write access required to verify filing session OTP",
+        )
     sb = get_supabase()
     firm_id = _firm_id(sb, current_user)
     client_row = None
     if body.client_gstin_id:
         client_row = _assert_client_access(sb, current_user, body.client_gstin_id)
+    else:
+        cg_res = (
+            sb.table("client_gstins")
+            .select("id, gstin")
+            .eq("firm_owner_id", firm_id)
+            .eq("gstin", body.gstin.strip().upper())
+            .eq("is_active", True)
+            .limit(1)
+            .execute()
+        )
+        if not cg_res.data:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Client GSTIN not found or not accessible",
+            )
+        client_row = _assert_client_access(sb, current_user, str(cg_res.data[0]["id"]))
+        body.client_gstin_id = str(client_row["id"])
     try:
         with get_filing_client() as client:
             session = client.verify_otp(
@@ -669,6 +715,12 @@ def refresh_session(
     body: SessionIdBody,
     current_user: dict = Depends(get_current_active_user),
 ):
+    role = str(current_user.get("role") or "").strip().lower()
+    if not is_writer_or_above(role):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Write access required to refresh filing session",
+        )
     sb = get_supabase()
     firm_id = _firm_id(sb, current_user)
     row = _load_session_for_firm(sb, firm_id, body.session_id)
@@ -691,6 +743,12 @@ def logout_session(
     current_user: dict = Depends(get_current_active_user),
 ):
     """Logout is best-effort; local row is always marked logged_out."""
+    role = str(current_user.get("role") or "").strip().lower()
+    if not is_writer_or_above(role):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Write access required to log out filing session",
+        )
     sb = get_supabase()
     firm_id = _firm_id(sb, current_user)
     row = filing_store.get_session_by_id(sb, body.session_id)
@@ -896,6 +954,13 @@ def _execute_save(
     cur_gt: float,
     user: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    if user is not None:
+        role = str(user.get("role") or "").strip().lower()
+        if not is_writer_or_above(role):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Write access required to save return",
+            )
     token, session_row = _resolve_token(
         sb, firm_id, session_id=session_id, gstin=gstin,
     )
@@ -1315,6 +1380,12 @@ def proceed_to_file(
     body: ProceedBody,
     current_user: dict = Depends(get_current_active_user),
 ):
+    role = str(current_user.get("role") or "").strip().lower()
+    if not is_writer_or_above(role):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Write access required to proceed with return filing",
+        )
     sb = get_supabase()
     firm_id = _firm_id(sb, current_user)
     _require_run_status(
@@ -1396,15 +1467,23 @@ def generate_evc_otp(
     body: EvcOtpBody,
     current_user: dict = Depends(get_current_active_user),
 ):
+    role = str(current_user.get("role") or "").strip().lower()
+    if not is_writer_or_above(role):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Write access required to generate EVC OTP",
+        )
     sb = get_supabase()
     firm_id = _firm_id(sb, current_user)
-    _require_run_status(
+    run = _require_run_status(
         sb,
         firm_id,
         body.run_id,
         allowed=_EVC_OR_FILE_STATUSES,
         action="EVC OTP",
     )
+    if run and run.get("client_gstin_id"):
+        _assert_client_access(sb, current_user, str(run["client_gstin_id"]))
     token, _ = _resolve_token(sb, firm_id, session_id=body.session_id)
     try:
         with get_filing_client() as client:
@@ -1833,6 +1912,12 @@ def save_gstr3b(
     body: SaveGstr3bBody,
     current_user: dict = Depends(get_current_active_user),
 ):
+    role = str(current_user.get("role") or "").strip().lower()
+    if not is_writer_or_above(role):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Write access required to save GSTR-3B return",
+        )
     period = _assert_period_yyyy_mm(period)
     if body.period != period:
         raise HTTPException(
@@ -2168,16 +2253,24 @@ def generate_evc_otp_gstr3b(
     body: EvcOtpGstr3bBody,
     current_user: dict = Depends(get_current_active_user),
 ):
+    role = str(current_user.get("role") or "").strip().lower()
+    if not is_writer_or_above(role):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Write access required to generate EVC OTP",
+        )
     period = _assert_period_yyyy_mm(period)
     sb = get_supabase()
     firm_id = _firm_id(sb, current_user)
-    _require_run_status(
+    run = _require_run_status(
         sb,
         firm_id,
         body.run_id,
         allowed=_GSTR3B_EVC_OR_FILE_STATUSES,
         action="EVC OTP",
     )
+    if run and run.get("client_gstin_id"):
+        _assert_client_access(sb, current_user, str(run["client_gstin_id"]))
     token, _ = _resolve_token(sb, firm_id, session_id=body.session_id)
     try:
         with get_filing_client() as client:
@@ -2332,6 +2425,12 @@ def create_filing_batch(
     current_user: dict = Depends(get_current_active_user),
 ):
     """Create and trigger a bulk return filing batch (GSTR-1 only)."""
+    role = str(current_user.get("role") or "").strip().lower()
+    if not is_manager_or_above(role):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Manager or Partner access required for bulk filing operations",
+        )
     if body.return_type != "gstr-1":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -2404,6 +2503,12 @@ def retry_filing_batch(
     current_user: dict = Depends(get_current_active_user),
 ):
     """Retry failed items in a bulk filing batch."""
+    role = str(current_user.get("role") or "").strip().lower()
+    if not is_manager_or_above(role):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Manager or Partner access required to retry filing batches",
+        )
     sb = get_supabase()
     firm_id = _firm_id(sb, current_user)
     batch = filing_store.get_batch(sb, batch_id)

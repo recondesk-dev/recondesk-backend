@@ -35,3 +35,25 @@ def clean_dependency_overrides():
     """Ensure FastAPI dependency overrides don't leak across tests."""
     yield
     app.dependency_overrides.clear()
+
+
+@pytest.fixture(autouse=True)
+def mock_default_admin_profile(monkeypatch):
+    """Ensure default test user 00000000-0000-0000-0000-000000000001 has an admin profile in tests."""
+    from app import database
+    original_get_user_profile = database.get_user_profile
+
+    def patched_get_user_profile(user_id: str):
+        if str(user_id) == "00000000-0000-0000-0000-000000000001":
+            return {
+                "id": "00000000-0000-0000-0000-000000000001",
+                "email": "test@example.com",
+                "role": "admin",
+                "is_active": True,
+            }
+        return original_get_user_profile(user_id)
+
+    monkeypatch.setattr(database, "get_user_profile", patched_get_user_profile)
+    from app import auth
+    monkeypatch.setattr(auth, "get_user_profile", patched_get_user_profile)
+

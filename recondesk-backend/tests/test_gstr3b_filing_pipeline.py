@@ -178,7 +178,7 @@ def test_e2e_gstr3b_filing_pipeline_evc():
     """Verifies complete lifecycle with EVC: Save -> Preview -> Offset -> EVC OTP -> File -> ACK."""
     fake_client = FakeFilingClient()
     with _mock_filing_pipeline(fake_client, initial_status="saved") as run_state:
-        user = {"id": "user-e2e"}
+        user = {"id": "user-e2e", "role": "admin"}
 
         # Step 1: Save GSTR-3B
         save_body = filing_router.SaveGstr3bBody(

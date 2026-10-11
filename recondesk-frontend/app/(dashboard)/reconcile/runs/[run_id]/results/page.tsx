@@ -133,6 +133,7 @@ import { apiFetch, isApiError, reconcileSettingsApi, tallyBridgeApi } from "@/li
 import {
   AUTH_PROFILE_SWR_OPTIONS,
   authProfileFetcher,
+  isRoleAdminOrPartner,
 } from "@/lib/auth-profile";
 import {
   fetchAllBucketPages,
@@ -2717,10 +2718,10 @@ export default function ReconcileResultsPage() {
   }, [localRule37ActionStatus, rule37Data?.data]);
 
   const finalizeBarVisible =
-    summary?.user_role === "admin" && !isRunFinalized;
+    isRoleAdminOrPartner(summary?.user_role) && !isRunFinalized;
   const staffFinalizeMessageVisible =
-    summary?.user_role === "staff" && !isRunFinalized;
-  const canDeleteRun = summary?.user_role === "admin";
+    !isRoleAdminOrPartner(summary?.user_role) && !isRunFinalized;
+  const canDeleteRun = isRoleAdminOrPartner(summary?.user_role);
 
   const authProfileKey = useMemo(
     () =>
@@ -2742,8 +2743,8 @@ export default function ReconcileResultsPage() {
   }, [authProfile?.auto_approve_confidence_threshold]);
 
   const canEditAutoApproveThreshold =
-    summary?.user_role === "admin" ||
-    (authProfile?.role || "").toLowerCase() === "admin";
+    isRoleAdminOrPartner(summary?.user_role) ||
+    isRoleAdminOrPartner(authProfile?.role);
 
   const saveAutoApproveThreshold = useCallback(async () => {
     if (!authToken || !canEditAutoApproveThreshold) return;

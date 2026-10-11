@@ -450,6 +450,39 @@ export const clientsApi = {
       token,
     }),
 
+  bulkAssign: (
+    token: string,
+    client_ids: string[],
+    assigned_to: string,
+    assignment_role = "preparer"
+  ) =>
+    apiFetch<{ success: boolean; reassigned_count: number; client_ids: string[] }>(
+      clientsApiPath("bulk-assign"),
+      {
+        method: "POST",
+        body: JSON.stringify({ client_ids, assigned_to, assignment_role }),
+        token,
+      }
+    ),
+
+  listAssignments: (token: string, id: string) =>
+    apiFetch<{ client_gstin_id: string; assignments: any[] }>(clientsApiPath(id, "assignments"), {
+      token,
+    }),
+
+  addAssignment: (token: string, id: string, user_id: string, assignment_role = "preparer") =>
+    apiFetch<any>(clientsApiPath(id, "assignments"), {
+      method: "POST",
+      body: JSON.stringify({ user_id, assignment_role }),
+      token,
+    }),
+
+  removeAssignment: (token: string, id: string, assignment_id: string) =>
+    apiFetch<void>(clientsApiPath(id, "assignments", assignment_id), {
+      method: "DELETE",
+      token,
+    }),
+
   delete: (token: string, id: string) =>
     apiFetch<void>(clientsApiPath(id), { method: "DELETE", token }),
 
@@ -1800,12 +1833,26 @@ export const teamApi = {
     return apiFetch<TeamMemberListItem[]>(`/api/team/members${qs}`, { token });
   },
 
-  invite: (token: string, email: string, role: "admin" | "staff") =>
+  invite: (
+    token: string,
+    email: string,
+    role: "partner" | "manager" | "preparer" | "viewer" | "admin" | "staff" | string
+  ) =>
     apiFetch<{ invited: boolean }>("/api/team/invite", {
       method: "POST",
       body: JSON.stringify({ email, role }),
       token,
     }),
+
+  updateRole: (token: string, memberId: string, role: string) =>
+    apiFetch<{ updated: boolean; id: string; role: string }>(
+      `/api/team/members/${memberId}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ role }),
+        token,
+      }
+    ),
 
   remove: (token: string, memberId: string) =>
     apiFetch<{ removed: boolean }>(`/api/team/members/${memberId}`, {

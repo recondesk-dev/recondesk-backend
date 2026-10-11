@@ -187,8 +187,7 @@ class AuroraMigrationRunner:
             return "public.aurora_schema_migrations"
         return "aurora_schema_migrations"
 
-    def ensure_tracking_table(self, conn: Connection) -> None:
-        """Create the aurora_schema_migrations tracking table if it does not already exist."""
+    def _create_tracking_table_ddl(self, conn: Connection) -> None:
         tbl = self._get_table_name(conn)
         timestamp_type = "TIMESTAMPTZ" if conn.dialect.name == "postgresql" else "TIMESTAMP"
         now_fn = "clock_timestamp()" if conn.dialect.name == "postgresql" else "CURRENT_TIMESTAMP"
@@ -203,6 +202,16 @@ class AuroraMigrationRunner:
         );
         """
         conn.exec_driver_sql(ddl)
+
+    def ensure_tracking_table(self, conn: Optional[Connection] = None) -> None:
+        """Create the aurora_schema_migrations tracking table if it does not already exist."""
+        if conn is not None:
+            self._create_tracking_table_ddl(conn)
+            return
+
+        engine = self.get_engine()
+        with engine.begin() as trans_conn:
+            self._create_tracking_table_ddl(trans_conn)
 
     def _acquire_advisory_lock(self, conn: Connection) -> None:
         """Acquire a transaction-scoped advisory lock if running against PostgreSQL."""
@@ -373,8 +382,14 @@ class AuroraMigrationRunner:
             raw_conn = conn.connection.dbapi_connection
             raw_conn.executescript(cleaned)
         else:
-            # psycopg2 (PostgreSQL) supports multi-statement execution in cursor.execute / exec_driver_sql
-            conn.exec_driver_sql(cleaned)
+            # psycopg2 (PostgreSQL) raw cursor execution without params prevents
+            # unintended pyformat (%) parameter interpolation on SQL scripts
+            raw_conn = conn.connection.dbapi_connection
+            cursor = raw_conn.cursor()
+            try:
+                cursor.execute(cleaned)
+            finally:
+                cursor.close()
 
     def apply_migration(
         self,
@@ -384,6 +399,7 @@ class AuroraMigrationRunner:
         dry_run: bool = False,
     ) -> MigrationRecord:
         """Apply a single migration within the caller's transaction."""
+        self.ensure_tracking_table(conn)
         tbl = self._get_table_name(conn)
 
         if dry_run:
@@ -461,6 +477,7 @@ class AuroraMigrationRunner:
         dry_run: bool = False,
     ) -> None:
         """Revert a single applied migration within the caller's transaction."""
+        self.ensure_tracking_table(conn)
         tbl = self._get_table_name(conn)
 
         if not migration_file.down_path or not migration_file.down_path.exists():
@@ -509,6 +526,7 @@ class AuroraMigrationRunner:
     def get_status(self) -> dict[str, Any]:
         """Retrieve migration status summary including applied records and pending files."""
         engine = self.get_engine()
+        self.ensure_tracking_table()
         with engine.connect() as conn:
             applied, pending = self.validate_and_get_pending(conn)
             discovered = self.discover_migrations()
@@ -536,6 +554,7 @@ class AuroraMigrationRunner:
         On failure, the failing migration's transaction rolls back completely and runner halts.
         """
         engine = self.get_engine()
+        self.ensure_tracking_table()
         applied_results: list[MigrationRecord] = []
 
         with engine.connect() as conn:
@@ -597,6 +616,7 @@ class AuroraMigrationRunner:
             raise ValueError(f"Steps must be >= 1, got {steps}")
 
         engine = self.get_engine()
+        self.ensure_tracking_table()
         reverted_versions: list[str] = []
 
         with engine.connect() as conn:

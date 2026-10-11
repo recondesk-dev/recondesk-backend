@@ -482,7 +482,7 @@ def test_save_gstr3b_applies_system_late_fee_from_get_details():
         },
     )
     with _patch_router_auth(fake_client=fake):
-        res = filing_router.save_gstr3b(PERIOD, body, current_user={"id": "u"})
+        res = filing_router.save_gstr3b(PERIOD, body, current_user={"id": "u", "role": "admin"})
 
     assert res["status"] == "save_pending"
     assert len(save_calls) == 1

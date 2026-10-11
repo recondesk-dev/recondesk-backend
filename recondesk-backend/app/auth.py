@@ -31,6 +31,14 @@ from app.cognito_verifier import (
 )
 from app.config import settings
 from app.database import get_user_profile, get_supabase, _is_invited_user
+from app.models.roles import (
+    DEFAULT_FAIL_CLOSED_ROLE,
+    Role,
+    is_admin_or_partner,
+    is_manager_or_above,
+    is_writer_or_above,
+    normalize_role,
+)
 from app.utils.errors import http_401, http_403
 
 AuthProvider = Literal["supabase", "cognito"]
@@ -649,22 +657,21 @@ async def get_current_user_id(
 
 
 async def get_user_role(user_id: str, sb: Optional[Client] = None) -> str:
-    store = get_identity_store()
-    profile = None
-    if hasattr(store, "get_user_profile_by_id"):
-        profile = store.get_user_profile_by_id(user_id)
-    if profile is None:
-        profile = get_user_profile(user_id)
-    if profile:
-        return str(profile.get("role") or "admin")
     try:
-        if sb is None:
-            sb = get_supabase()
-        if _is_invited_user(sb, user_id=user_id, email=None):
-            return "staff"
+        store = get_identity_store()
+        profile = None
+        if hasattr(store, "get_user_profile_by_id"):
+            profile = store.get_user_profile_by_id(user_id)
+        if profile is None:
+            profile = get_user_profile(user_id)
+        if profile:
+            raw_role = profile.get("role")
+            if raw_role:
+                return normalize_role(raw_role)
     except Exception:
         pass
-    return "admin"
+    # FAIL CLOSED: Unknown, missing profile or DB failure defaults strictly to viewer
+    return DEFAULT_FAIL_CLOSED_ROLE
 
 
 def require_role(*allowed: str):
@@ -687,7 +694,7 @@ def require_role(*allowed: str):
 
 async def require_admin(user_id: str = Depends(get_current_user_id)) -> str:
     role = (await get_user_role(user_id)).strip().lower()
-    if role not in ("admin", "owner"):
+    if not is_admin_or_partner(role):
         raise http_403()
     return user_id
 
@@ -763,6 +770,7 @@ async def get_current_active_user(
             {
                 "id": user_id,
                 "email": "",
+                "role": DEFAULT_FAIL_CLOSED_ROLE,
                 "is_active": True,
                 "auth_provider": user.auth_provider,
                 "provider_subject": user.provider_subject,
@@ -778,6 +786,7 @@ async def get_current_active_user(
             **profile,
             "id": user_id,
             "email": profile.get("email") or "",
+            "role": normalize_role(profile.get("role")),
             "auth_provider": user.auth_provider,
             "provider_subject": user.provider_subject,
         }
@@ -787,14 +796,44 @@ async def get_current_active_user(
 async def require_admin_user(
     current_user: dict = Depends(get_current_active_user),
 ) -> dict:
-    """Enforce that the authenticated user holds an admin or owner role.
+    """Enforce that the authenticated user holds an admin, owner, or partner role.
 
-    Used for legally binding or financial operations (filing, liability offset, IMS writeback).
+    Used for legally binding or financial operations (filing, liability offset, IMS writeback, governance policy).
     """
     role = (current_user.get("role") or "").strip().lower()
-    if role not in ("admin", "owner"):
+    if not is_admin_or_partner(role):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin access required for this operation",
+            detail="Admin access required for this operation (Admin or Partner required)",
+        )
+    return current_user
+
+
+
+async def require_manager_user(
+    current_user: dict = Depends(get_current_active_user),
+) -> dict:
+    """Enforce that the authenticated user holds Manager, Partner, Owner, or Admin role.
+
+    Used for operations like client assignment, batch creation, and supervisory review.
+    """
+    role = (current_user.get("role") or "").strip().lower()
+    if not is_manager_or_above(role):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Manager or Partner access required for this operation",
+        )
+    return current_user
+
+
+async def require_writer_user(
+    current_user: dict = Depends(get_current_active_user),
+) -> dict:
+    """Enforce that the user has mutative operational privileges (blocks read-only viewers)."""
+    role = (current_user.get("role") or "").strip().lower()
+    if not is_writer_or_above(role):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Write access required for this operation",
         )
     return current_user

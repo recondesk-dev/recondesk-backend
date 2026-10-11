@@ -122,7 +122,10 @@ class TeamMember(Base):
     __tablename__ = "team_members"
     __table_args__ = (
         UniqueConstraint("firm_owner_id", "member_user_id", name="uq_team_members_firm_member"),
-        CheckConstraint("role IN ('admin', 'staff')", name="ck_team_members_role"),
+        CheckConstraint(
+            "role IN ('admin', 'staff', 'owner', 'partner', 'manager', 'preparer', 'viewer')",
+            name="ck_team_members_role",
+        ),
         Index("idx_team_members_firm_owner_id", "firm_owner_id"),
         Index("idx_team_members_member_user_id", "member_user_id"),
         Index("idx_team_members_invited_email", "invited_email"),
@@ -244,6 +247,12 @@ class ClientGSTIN(Base):
         foreign_keys=[assigned_to],
         back_populates="assigned_clients",
     )
+    assignments = relationship(
+        "ClientAssignment",
+        foreign_keys="ClientAssignment.client_gstin_id",
+        back_populates="client",
+        cascade="all, delete-orphan",
+    )
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize client GSTIN record into dictionary compatible with Supabase PostgREST format."""
@@ -269,3 +278,78 @@ class ClientGSTIN(Base):
             "scheme_type": self.scheme_type,
             "filing_frequency": self.filing_frequency,
         }
+
+
+class ClientAssignment(Base):
+    """Multi-role staff and reviewer assignments for client GSTINs in AWS Aurora."""
+
+    __tablename__ = "client_assignments"
+    __table_args__ = (
+        UniqueConstraint(
+            "client_gstin_id", "user_id", "assignment_role",
+            name="uq_client_assignments_client_user_role",
+        ),
+        CheckConstraint(
+            "assignment_role IN ('preparer', 'reviewer', 'partner', 'manager', 'viewer')",
+            name="ck_client_assignments_role",
+        ),
+        Index("idx_client_assignments_client_id", "client_gstin_id"),
+        Index("idx_client_assignments_user_id", "user_id"),
+        Index("idx_client_assignments_firm_owner_id", "firm_owner_id"),
+    )
+
+    id = Column(GUID(), primary_key=True, default=lambda: str(uuid.uuid4()))
+    client_gstin_id = Column(
+        GUID(),
+        ForeignKey("client_gstins.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    firm_owner_id = Column(
+        GUID(),
+        ForeignKey("user_profiles.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    user_id = Column(
+        GUID(),
+        ForeignKey("user_profiles.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    assignment_role = Column(String(50), nullable=False, default="preparer")
+    assigned_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
+    assigned_by = Column(
+        GUID(),
+        ForeignKey("user_profiles.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
+    # Relationships
+    client = relationship(
+        "ClientGSTIN",
+        foreign_keys=[client_gstin_id],
+        back_populates="assignments",
+    )
+    user = relationship(
+        "UserProfile",
+        foreign_keys=[user_id],
+    )
+    assigner = relationship(
+        "UserProfile",
+        foreign_keys=[assigned_by],
+    )
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize assignment record to dict."""
+        return {
+            "id": str(self.id),
+            "client_gstin_id": str(self.client_gstin_id),
+            "firm_owner_id": str(self.firm_owner_id),
+            "user_id": str(self.user_id),
+            "assignment_role": self.assignment_role,
+            "assigned_at": self.assigned_at.isoformat() if self.assigned_at else None,
+            "assigned_by": str(self.assigned_by) if self.assigned_by else None,
+        }
+

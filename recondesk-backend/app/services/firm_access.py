@@ -36,9 +36,10 @@ def list_accessible_client_gstin_ids(sb: Client, current_user: dict) -> set[str]
         )
     # Role resolved synchronously in router when needed; here we branch via profile
     from app.database import get_user_profile  # local import to avoid cycle
+    from app.models.roles import is_manager_or_above, normalize_role
 
     profile = get_user_profile(uid) or {}
-    role = (current_user.get("role") or profile.get("role") or "").strip().lower()
+    role = normalize_role(current_user.get("role") or profile.get("role"))
 
     # 1. Dual-read: check Aurora tenancy repository
     try:
@@ -52,16 +53,24 @@ def list_accessible_client_gstin_ids(sb: Client, current_user: dict) -> set[str]
         _log.warning("Aurora accessible clients lookup failed: %s", type(exc).__name__)
 
     # 2. Supabase fallback
-    if role in ("admin", "owner") or not role:
+    if is_manager_or_above(role):
+        foid = uid
+        try:
+            from app.routers.clients import _resolve_firm_owner
+            foid = _resolve_firm_owner(sb, uid, role=role)
+        except Exception:
+            pass
         r = (
             sb.table("client_gstins")
             .select("id")
-            .eq("firm_owner_id", uid)
+            .eq("firm_owner_id", foid)
             .eq("is_active", True)
             .execute()
         )
         return {str(x["id"]).strip() for x in (r.data or []) if x.get("id")}
 
+    # Preparer / Staff / Viewer: only explicitly assigned clients
+    accessible: set[str] = set()
     r = (
         sb.table("client_gstins")
         .select("id")
@@ -69,7 +78,24 @@ def list_accessible_client_gstin_ids(sb: Client, current_user: dict) -> set[str]
         .eq("is_active", True)
         .execute()
     )
-    return {str(x["id"]).strip() for x in (r.data or []) if x.get("id")}
+    for x in (r.data or []):
+        if x.get("id"):
+            accessible.add(str(x["id"]).strip())
+
+    try:
+        r_as = (
+            sb.table("client_assignments")
+            .select("client_gstin_id")
+            .eq("user_id", uid)
+            .execute()
+        )
+        for x in (r_as.data or []):
+            if x.get("client_gstin_id"):
+                accessible.add(str(x["client_gstin_id"]).strip())
+    except Exception:
+        pass
+
+    return accessible
 
 
 def assert_client_gstin_in_firm(

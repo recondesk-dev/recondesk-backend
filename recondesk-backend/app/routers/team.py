@@ -12,6 +12,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
 from app.auth import get_current_active_user, require_admin
+from app.models.roles import INVITABLE_ROLES, normalize_role
 from app.database import get_supabase, get_user_profile
 from app.routers.clients import _resolve_firm_owner
 from app.routers.reconciliation_api import _parse_uuid
@@ -40,17 +41,23 @@ def _pg_unique_violation(exc: BaseException) -> bool:
     )
 
 
-def _apply_invited_staff_role(sb, profile_user_id: str) -> None:
-    """Team invite signups are firm members, not workspace owners."""
+def _apply_invited_role(sb, profile_user_id: str, role: str = "staff") -> None:
+    """Team invite signups inherit their assigned firm role, not workspace owner."""
+    norm = normalize_role(role)
     try:
-        sb.table("user_profiles").update({"role": "staff"}).eq(
+        sb.table("user_profiles").update({"role": norm}).eq(
             "id", profile_user_id
         ).execute()
-        mirror_user_profile_update_to_aurora(profile_user_id, {"role": "staff"})
+        mirror_user_profile_update_to_aurora(profile_user_id, {"role": norm})
     except Exception:
         _log.exception(
-            "failed to set staff role for invited user id=%s", profile_user_id
+            "failed to set role %s for invited user id=%s", norm, profile_user_id
         )
+
+
+def _apply_invited_staff_role(sb, profile_user_id: str) -> None:
+    """Backward-compatible helper."""
+    _apply_invited_role(sb, profile_user_id, "staff")
 
 
 def _firm_owner_id(sb, uid: str, role: str | None = None) -> str:
@@ -270,10 +277,10 @@ async def invite_team_member(
     admin_id: str = Depends(require_admin),
 ):
     role_norm = (body.role or "").strip().lower()
-    if role_norm not in ("admin", "staff"):
+    if role_norm not in INVITABLE_ROLES:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="role must be 'admin' or 'staff'",
+            detail=f"role must be one of: {sorted(INVITABLE_ROLES)}",
         )
 
     norm_email = _norm_email(body.email)
@@ -475,7 +482,7 @@ async def accept_team_invite(token: str):
         mirror_team_member_update_to_aurora(
             str(row_uuid), {"is_active": False, "accepted_at": now_iso}, firm_owner_id
         )
-        _apply_invited_staff_role(sb, profile_user_id)
+        _apply_invited_role(sb, profile_user_id, role)
         return {"status": "accepted", "redirect": "/dashboard"}
 
     update_payload = {
@@ -496,15 +503,67 @@ async def accept_team_invite(token: str):
             mirror_team_member_update_to_aurora(
                 str(row_uuid), {"is_active": False, "accepted_at": now_iso}, firm_owner_id
             )
-            _apply_invited_staff_role(sb, profile_user_id)
+            _apply_invited_role(sb, profile_user_id, role)
             return {"status": "accepted", "redirect": "/dashboard"}
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Could not accept invitation.",
         ) from exc
 
-    _apply_invited_staff_role(sb, profile_user_id)
+    _apply_invited_role(sb, profile_user_id, role)
     return {"status": "accepted", "redirect": "/dashboard"}
+
+
+class UpdateTeamMemberRoleBody(BaseModel):
+    role: str
+
+
+@router.patch("/members/{member_id}")
+async def update_team_member_role(
+    member_id: str,
+    body: UpdateTeamMemberRoleBody,
+    admin_id: str = Depends(require_admin),
+):
+    mid = _parse_uuid(member_id, "member_id")
+    new_role = (body.role or "").strip().lower()
+    if new_role not in INVITABLE_ROLES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"role must be one of: {sorted(INVITABLE_ROLES)}",
+        )
+
+    sb = get_supabase()
+    found = (
+        sb.table("team_members")
+        .select("*")
+        .eq("id", mid)
+        .eq("firm_owner_id", admin_id)
+        .limit(1)
+        .execute()
+    )
+    if not found.data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Team member not found",
+        )
+
+    row = found.data[0]
+    sb.table("team_members").update({"role": new_role}).eq("id", mid).execute()
+    mirror_team_member_update_to_aurora(mid, {"role": new_role}, admin_id)
+
+    member_uid = row.get("member_user_id")
+    if member_uid:
+        _apply_invited_role(sb, str(member_uid), new_role)
+
+    await log_action(
+        admin_id,
+        "TEAM_MEMBER_ROLE_UPDATED",
+        "team_member",
+        mid,
+        {"new_role": new_role},
+    )
+
+    return {"updated": True, "id": mid, "role": new_role}
 
 
 @router.delete("/members/{member_id}")

@@ -13,6 +13,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict
 
 from app.auth import AuthenticatedUser, get_current_active_user, get_current_user, require_admin
+from app.models.roles import ALL_ROLES, is_admin_or_partner, is_manager_or_above, is_writer_or_above, normalize_role
 from app.database import ensure_user_profile, get_supabase, get_user_profile
 from app.routers.reconciliation_api import _parse_uuid
 from app.services.normalizer import NormalizationError, normalize_gstin
@@ -211,6 +212,17 @@ class AssignClientBody(BaseModel):
     assigned_to: str
 
 
+class BulkAssignBody(BaseModel):
+    client_ids: list[str]
+    assigned_to: str
+    assignment_role: Optional[str] = "preparer"
+
+
+class CreateClientAssignmentBody(BaseModel):
+    user_id: str
+    assignment_role: Optional[str] = "preparer"
+
+
 def _resolve_firm_owner(sb, uid: str, role: str | None = None) -> str:
     # Phase 3C: Try Aurora tenancy repository first
     try:
@@ -232,17 +244,28 @@ def _resolve_firm_owner(sb, uid: str, role: str | None = None) -> str:
     if resolved_role in ("admin", "owner"):
         return uid
 
-    # 1. Primary: active team membership in firm
-    tm = (
-        sb.table("team_members")
-        .select("firm_owner_id")
-        .eq("member_user_id", uid)
-        .eq("is_active", True)
-        .limit(1)
-        .execute()
-    )
-    if tm.data and tm.data[0].get("firm_owner_id"):
-        return str(tm.data[0]["firm_owner_id"]).strip()
+    # 1. Primary: active team membership in firm (invited staff/partner/manager)
+    try:
+        tm = (
+            sb.table("team_members")
+            .select("firm_owner_id")
+            .eq("member_user_id", uid)
+            .eq("is_active", True)
+            .limit(1)
+            .execute()
+        )
+        if (
+            isinstance(getattr(tm, "data", None), list)
+            and len(tm.data) > 0
+            and isinstance(tm.data[0], dict)
+            and tm.data[0].get("firm_owner_id")
+        ):
+            return str(tm.data[0]["firm_owner_id"]).strip()
+    except Exception:
+        pass
+
+    if resolved_role == "partner":
+        return uid
 
     # 2. Fallback: match by invited email
     em = (prof.get("email") or "").strip().lower()
@@ -254,7 +277,12 @@ def _resolve_firm_owner(sb, uid: str, role: str | None = None) -> str:
             .limit(1)
             .execute()
         )
-        if tm_email.data and tm_email.data[0].get("firm_owner_id"):
+        if (
+            isinstance(getattr(tm_email, "data", None), list)
+            and len(tm_email.data) > 0
+            and isinstance(tm_email.data[0], dict)
+            and tm_email.data[0].get("firm_owner_id")
+        ):
             return str(tm_email.data[0]["firm_owner_id"]).strip()
 
     # 3. Fallback: client assignment
@@ -265,7 +293,12 @@ def _resolve_firm_owner(sb, uid: str, role: str | None = None) -> str:
         .limit(1)
         .execute()
     )
-    if r.data and r.data[0].get("firm_owner_id"):
+    if (
+        isinstance(getattr(r, "data", None), list)
+        and len(r.data) > 0
+        and isinstance(r.data[0], dict)
+        and r.data[0].get("firm_owner_id")
+    ):
         return str(r.data[0].get("firm_owner_id", "")).strip()
 
     if resolved_role == "staff":
@@ -432,6 +465,12 @@ async def create_client(
     body: ClientCreate,
     current_user: dict = Depends(get_current_active_user),
 ):
+    role = (current_user.get("role") or "").strip().lower()
+    if not is_manager_or_above(role):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only manager or partner can add clients",
+        )
     g = (body.gstin or "").strip().upper()
     if not GSTIN_RE.match(g):
         raise HTTPException(
@@ -665,11 +704,16 @@ async def get_client(
                 detail="Access denied",
             )
 
-        if role in ("admin", "owner") or not role:
+        if repo is not None:
+            owner = repo.get_firm_owner_id_for_user(uid) or uid
+        else:
+            sb = get_supabase()
+            owner = _resolve_firm_owner(sb, uid, role=role)
+        if is_manager_or_above(role):
             ownership_ok = (
-                repo.verify_firm_ownership(cid, uid)
+                repo.verify_firm_ownership(cid, owner)
                 if repo is not None
-                else (str(aurora_client.get("firm_owner_id", "")).strip() == uid)
+                else (str(aurora_client.get("firm_owner_id", "")).strip() == owner)
             )
             if ownership_ok is not True:
                 raise HTTPException(
@@ -711,21 +755,37 @@ async def get_client(
             detail="Access denied",
         )
     fo = str(row.get("firm_owner_id", ""))
-    if role in ("admin", "owner") or not role:
-        if fo != uid:
+    owner = _resolve_firm_owner(sb, uid, role=role)
+    if is_manager_or_above(role):
+        if fo != owner:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="not allowed",
             )
-    elif str(row.get("assigned_to", "")) != uid:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="not allowed",
-        )
-    # Do not embed reconciliation_history here — rebuilding per-run outcomes from
-    # full payloads makes this endpoint seconds-to-minutes for chatty clients.
-    # History belongs on GET /api/reconcile/runs?client_gstin_id=… (and the
-    # dedicated /history/{gstin} route). Frontend never consumed the embedded list.
+    else:
+        is_assigned = str(row.get("assigned_to", "")) == uid
+        if not is_assigned:
+            try:
+                ca_check = (
+                    sb.table("client_assignments")
+                    .select("id")
+                    .eq("client_gstin_id", cid)
+                    .eq("user_id", uid)
+                    .limit(1)
+                    .execute()
+                )
+                if not ca_check.data:
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail="not allowed",
+                    )
+            except HTTPException:
+                raise
+            except Exception:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="not allowed",
+                )
     return serialize_client(row)
 
 
@@ -740,6 +800,11 @@ async def update_client(
     uid = str(current_user.get("id", ""))
     prof = get_user_profile(uid) or {}
     role = (current_user.get("role") or prof.get("role") or "").strip().lower()
+    if not is_writer_or_above(role):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Write access required to update client details",
+        )
     res = (
         sb.table("client_gstins")
         .select("*")
@@ -754,11 +819,29 @@ async def update_client(
         )
     row = res.data[0]
     fo = str(row.get("firm_owner_id", ""))
-    if role in ("admin", "owner") or not role:
-        if fo != uid:
+    owner = _resolve_firm_owner(sb, uid, role=role)
+    if is_manager_or_above(role):
+        if fo != owner:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="not allowed")
-    elif str(row.get("assigned_to", "")) != uid:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="not allowed")
+    else:
+        is_assigned = str(row.get("assigned_to", "")) == uid
+        if not is_assigned:
+            try:
+                ca_check = (
+                    sb.table("client_assignments")
+                    .select("id")
+                    .eq("client_gstin_id", cid)
+                    .eq("user_id", uid)
+                    .limit(1)
+                    .execute()
+                )
+                if not ca_check.data:
+                    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="not allowed")
+            except HTTPException:
+                raise
+            except Exception:
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="not allowed")
+
     updates: dict[str, Any] = {}
     for k in (
         "trade_name",
@@ -784,11 +867,12 @@ async def update_client(
                     detail=f"invalid filing_frequency. Must be one of: {sorted(VALID_FILING_FREQUENCIES)}",
                 )
             updates[k] = str(v).lower().strip() if k in ("scheme_type", "filing_frequency") else v
+
     if body.assigned_to is not None:
-        if role not in ("admin", "owner") and role:
+        if not is_manager_or_above(role):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Only admin can change assigned_to",
+                detail="Only manager or above can change assigned_to",
             )
         assigned_to_clean = str(body.assigned_to).strip()
         if assigned_to_clean:
@@ -802,9 +886,19 @@ async def update_client(
             updates["assigned_to"] = assigned_to_clean
         else:
             updates["assigned_to"] = None
+
     if updates:
         sb.table("client_gstins").update(updates).eq("id", cid).execute()
         mirror_client_update_to_aurora(cid, updates, fo, current_user_id=uid)
+        if updates.get("assigned_to"):
+            try:
+                from app.repositories.tenancy import get_tenancy_repository
+                repo = get_tenancy_repository()
+                if repo is not None:
+                    repo.assign_client_multi_role(cid, updates["assigned_to"], fo, assignment_role="preparer", assigned_by=uid)
+            except Exception:
+                pass
+
     out = (
         sb.table("client_gstins")
         .select("*")
@@ -819,9 +913,21 @@ async def update_client(
 async def assign_client(
     client_id: str,
     body: AssignClientBody,
-    admin_id: str = Depends(require_admin),
+    current_user: Optional[dict] = Depends(get_current_active_user),
+    admin_id: Optional[str] = None,
 ):
     cid = _parse_uuid(client_id, "client_id")
+    if admin_id and (not current_user or not isinstance(current_user, dict)):
+        current_user = {"id": admin_id, "role": "admin"}
+    elif not current_user:
+        current_user = {}
+    role = (current_user.get("role") or "").strip().lower()
+    if not is_manager_or_above(role):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only manager or partner can assign clients",
+        )
+
     assignee_id = (body.assigned_to or "").strip()
     try:
         UUID(assignee_id)
@@ -832,6 +938,9 @@ async def assign_client(
         ) from exc
 
     sb = get_supabase()
+    uid = str(current_user.get("id", "")).strip()
+    owner = _resolve_firm_owner(sb, uid, role=role)
+
     res = (
         sb.table("client_gstins")
         .select("*")
@@ -846,7 +955,7 @@ async def assign_client(
         )
     row = res.data[0]
     fo = str(row.get("firm_owner_id", ""))
-    if fo != admin_id:
+    if fo != owner:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="not allowed")
     if not row.get("is_active", True):
         raise HTTPException(
@@ -854,11 +963,11 @@ async def assign_client(
             detail="Access denied",
         )
 
-    if assignee_id != fo:
+    if assignee_id != owner:
         tm = (
             sb.table("team_members")
             .select("id")
-            .eq("firm_owner_id", fo)
+            .eq("firm_owner_id", owner)
             .eq("member_user_id", assignee_id)
             .eq("is_active", True)
             .limit(1)
@@ -871,7 +980,15 @@ async def assign_client(
             )
 
     sb.table("client_gstins").update({"assigned_to": assignee_id}).eq("id", cid).execute()
-    mirror_client_update_to_aurora(cid, {"assigned_to": assignee_id}, fo, current_user_id=admin_id)
+    mirror_client_update_to_aurora(cid, {"assigned_to": assignee_id}, owner, current_user_id=uid)
+    try:
+        from app.repositories.tenancy import get_tenancy_repository
+        repo = get_tenancy_repository()
+        if repo is not None:
+            repo.assign_client_multi_role(cid, assignee_id, owner, assignment_role="preparer", assigned_by=uid)
+    except Exception as exc:
+        _log.warning("Aurora assign_client_multi_role failed: %s", exc)
+
     out = (
         sb.table("client_gstins")
         .select("*")
@@ -880,6 +997,265 @@ async def assign_client(
         .execute()
     )
     return serialize_client(out.data)
+
+
+@router.post("/bulk-assign")
+async def bulk_assign_clients_endpoint(
+    body: BulkAssignBody,
+    current_user: dict = Depends(get_current_active_user),
+):
+    role = (current_user.get("role") or "").strip().lower()
+    if not is_manager_or_above(role):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only manager or partner can perform bulk client assignments",
+        )
+    if not body.client_ids:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="client_ids cannot be empty",
+        )
+    uid = str(current_user.get("id", "")).strip()
+    sb = get_supabase()
+    owner = _resolve_firm_owner(sb, uid, role=role)
+
+    assignee_id = body.assigned_to.strip()
+    try:
+        UUID(assignee_id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="invalid assigned_to user id",
+        ) from exc
+
+    if assignee_id != owner:
+        tm = (
+            sb.table("team_members")
+            .select("id")
+            .eq("firm_owner_id", owner)
+            .eq("member_user_id", assignee_id)
+            .eq("is_active", True)
+            .limit(1)
+            .execute()
+        )
+        if not tm.data:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="assigned_to is not an active member of this firm",
+            )
+
+    clean_cids = [_parse_uuid(c, "client_id") for c in body.client_ids]
+    res = (
+        sb.table("client_gstins")
+        .select("id, firm_owner_id")
+        .in_("id", clean_cids)
+        .eq("firm_owner_id", owner)
+        .eq("is_active", True)
+        .execute()
+    )
+    found_ids = {str(r["id"]) for r in (res.data or [])}
+    forbidden_ids = [c for c in clean_cids if c not in found_ids]
+    if forbidden_ids:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Access denied or client not found in firm: {forbidden_ids[0]}",
+        )
+
+    as_role = (body.assignment_role or "preparer").strip().lower()
+    valid_roles = ALL_ROLES.union({"preparer", "reviewer", "manager", "partner", "viewer"})
+    if as_role not in valid_roles:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"invalid assignment_role: {as_role}",
+        )
+
+    reassigned = []
+    try:
+        from app.repositories.tenancy import get_tenancy_repository
+        repo = get_tenancy_repository()
+        if repo is not None:
+            reassigned = repo.bulk_reassign_clients(
+                clean_cids,
+                user_id=assignee_id,
+                firm_owner_id=owner,
+                assignment_role=as_role,
+                assigned_by=uid,
+            )
+    except Exception as exc:
+        _log.warning("Aurora bulk_reassign_clients failed: %s", exc)
+
+    if as_role == "preparer":
+        sb.table("client_gstins").update({"assigned_to": assignee_id}).in_("id", clean_cids).eq("firm_owner_id", owner).execute()
+
+    for cid in clean_cids:
+        now_iso = datetime.now(timezone.utc).isoformat()
+        try:
+            sb.table("client_assignments").upsert(
+                {
+                    "client_gstin_id": cid,
+                    "firm_owner_id": owner,
+                    "user_id": assignee_id,
+                    "assignment_role": as_role,
+                    "assigned_at": now_iso,
+                    "assigned_by": uid,
+                },
+                on_conflict="client_gstin_id,user_id,assignment_role",
+            ).execute()
+        except Exception as exc:
+            _log.debug("Supabase client_assignments upsert: %s", exc)
+
+    await log_audit(
+        sb,
+        current_user,
+        "CLIENTS_BULK_REASSIGNED",
+        "client_gstins",
+        owner,
+        f"{len(clean_cids)} clients reassigned",
+        {"count": len(clean_cids), "assigned_to": assignee_id, "role": as_role},
+    )
+
+    return {
+        "success": True,
+        "reassigned_count": len(clean_cids),
+        "client_ids": clean_cids,
+        "assigned_to": assignee_id,
+        "assignment_role": as_role,
+    }
+
+
+@router.get("/{client_id}/assignments")
+async def list_client_assignments_endpoint(
+    client_id: str,
+    current_user: dict = Depends(get_current_active_user),
+):
+    cid = _parse_uuid(client_id, "client_id")
+    sb = get_supabase()
+    allowed = list_accessible_client_gstin_ids(sb, current_user)
+    if cid not in allowed:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied for this client",
+        )
+    try:
+        from app.repositories.tenancy import get_tenancy_repository
+        repo = get_tenancy_repository()
+        if repo is not None:
+            assignments = repo.list_client_assignments(cid)
+            return {"client_gstin_id": cid, "assignments": assignments}
+    except Exception:
+        pass
+    try:
+        res = (
+            sb.table("client_assignments")
+            .select("*, user_profiles(full_name, email, role)")
+            .eq("client_gstin_id", cid)
+            .execute()
+        )
+        return {"client_gstin_id": cid, "assignments": res.data or []}
+    except Exception:
+        return {"client_gstin_id": cid, "assignments": []}
+
+
+@router.post("/{client_id}/assignments")
+async def create_client_assignment_endpoint(
+    client_id: str,
+    body: CreateClientAssignmentBody,
+    current_user: dict = Depends(get_current_active_user),
+):
+    cid = _parse_uuid(client_id, "client_id")
+    role = (current_user.get("role") or "").strip().lower()
+    if not is_manager_or_above(role):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only manager or partner can add client assignments",
+        )
+    uid = str(current_user.get("id", "")).strip()
+    sb = get_supabase()
+    owner = _resolve_firm_owner(sb, uid, role=role)
+
+    res = (
+        sb.table("client_gstins")
+        .select("*")
+        .eq("id", cid)
+        .eq("firm_owner_id", owner)
+        .eq("is_active", True)
+        .limit(1)
+        .execute()
+    )
+    if not res.data:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Client not found in firm")
+
+    target_user_id = body.user_id.strip()
+    try:
+        UUID(target_user_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid user_id") from exc
+
+    as_role = (body.assignment_role or "preparer").strip().lower()
+    assignment_res = None
+    try:
+        from app.repositories.tenancy import get_tenancy_repository
+        repo = get_tenancy_repository()
+        if repo is not None:
+            assignment_res = repo.assign_client_multi_role(
+                cid, target_user_id, owner, assignment_role=as_role, assigned_by=uid
+            )
+    except Exception as exc:
+        _log.warning("Aurora assign_client_multi_role failed: %s", exc)
+
+    if as_role == "preparer":
+        sb.table("client_gstins").update({"assigned_to": target_user_id}).eq("id", cid).execute()
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    try:
+        sb.table("client_assignments").upsert(
+            {
+                "client_gstin_id": cid,
+                "firm_owner_id": owner,
+                "user_id": target_user_id,
+                "assignment_role": as_role,
+                "assigned_at": now_iso,
+                "assigned_by": uid,
+            },
+            on_conflict="client_gstin_id,user_id,assignment_role",
+        ).execute()
+    except Exception:
+        pass
+
+    return assignment_res or {"client_gstin_id": cid, "user_id": target_user_id, "assignment_role": as_role}
+
+
+@router.delete("/{client_id}/assignments/{assignment_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_client_assignment_endpoint(
+    client_id: str,
+    assignment_id: str,
+    current_user: dict = Depends(get_current_active_user),
+):
+    cid = _parse_uuid(client_id, "client_id")
+    aid = _parse_uuid(assignment_id, "assignment_id")
+    role = (current_user.get("role") or "").strip().lower()
+    if not is_manager_or_above(role):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only manager or partner can remove client assignments",
+        )
+    uid = str(current_user.get("id", "")).strip()
+    sb = get_supabase()
+    owner = _resolve_firm_owner(sb, uid, role=role)
+
+    try:
+        from app.repositories.tenancy import get_tenancy_repository
+        repo = get_tenancy_repository()
+        if repo is not None:
+            repo.remove_client_assignment(cid, aid, owner)
+    except Exception:
+        pass
+
+    try:
+        sb.table("client_assignments").delete().eq("id", aid).eq("client_gstin_id", cid).eq("firm_owner_id", owner).execute()
+    except Exception:
+        pass
+    return None
 
 
 @router.delete("/{client_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -892,16 +1268,17 @@ async def delete_client(
     uid = str(current_user.get("id", ""))
     prof = get_user_profile(uid) or {}
     role = (current_user.get("role") or prof.get("role") or "").strip().lower()
-    if role not in ("admin", "owner") and role:
+    if not is_admin_or_partner(role):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only admin can remove clients",
+            detail="Only partner or admin can remove clients",
         )
+    owner = _resolve_firm_owner(sb, uid, role=role)
     ex = (
         sb.table("client_gstins")
         .update({"is_active": False})
         .eq("id", cid)
-        .eq("firm_owner_id", uid)
+        .eq("firm_owner_id", owner)
         .execute()
     )
     if not ex.data:
@@ -909,7 +1286,7 @@ async def delete_client(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied",
         )
-    mirror_client_delete_to_aurora(cid, uid, current_user_id=uid)
+    mirror_client_delete_to_aurora(cid, owner, current_user_id=uid)
     row = ex.data[0]
     client_label = (
         str(row.get("trade_name") or "").strip()
@@ -926,6 +1303,7 @@ async def delete_client(
         client_label,
     )
     invalidate_user_dashboard(uid)
+    invalidate_user_dashboard(owner)
     return None
 
 

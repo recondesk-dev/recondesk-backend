@@ -18,6 +18,7 @@ import { teamApi, billingApi, filingApi, type TeamMemberListItem } from "@/lib/a
 import {
   AUTH_PROFILE_SWR_OPTIONS,
   authProfileFetcher,
+  isRoleAdminOrPartner,
   normalizeAuthRole,
 } from "@/lib/auth-profile";
 import { useAccessToken } from "@/lib/hooks/useAccessToken";
@@ -103,7 +104,7 @@ export default function SettingsHubPage() {
     : 0;
 
   const roleNorm = normalizeAuthRole(me?.role);
-  const isAdmin = !!me && roleNorm === "admin";
+  const isAdmin = !!me && isRoleAdminOrPartner(roleNorm);
 
   const cards = [
     {

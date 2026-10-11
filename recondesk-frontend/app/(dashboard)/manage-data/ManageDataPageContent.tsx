@@ -18,6 +18,7 @@ import {
 import {
   AUTH_PROFILE_SWR_OPTIONS,
   authProfileFetcher,
+  isRoleAdminOrPartner,
   normalizeAuthRole,
 } from "@/lib/auth-profile";
 import { useAccessToken } from "@/lib/hooks/useAccessToken";
@@ -160,7 +161,7 @@ export function ManageDataPageContent() {
   );
 
   const roleNorm = normalizeAuthRole(me?.role);
-  const isAdmin = roleNorm === "admin";
+  const isAdmin = isRoleAdminOrPartner(roleNorm);
 
   const listKey = authToken && isAdmin ? ([MANAGE_DATA_KEY, authToken] as const) : null;
   const {

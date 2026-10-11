@@ -6,6 +6,8 @@ import logging
 import time
 from typing import Any
 
+from fastapi import HTTPException
+
 from app.config import get_settings
 from app.database import get_supabase
 from app.filing import filing_store
@@ -86,8 +88,10 @@ def process_filing_batch(self, batch_id: str) -> dict[str, Any]:
         return batch
 
     firm_id = str(batch["firm_id"])
+    created_by = str(batch.get("created_by") or "")
     period = str(batch["period"])
     items = batch.get("items") or []
+
 
     # Update overall batch status to in_progress
     sb.table(filing_store.BATCHES).update({
@@ -96,9 +100,9 @@ def process_filing_batch(self, batch_id: str) -> dict[str, Any]:
     }).eq("id", batch_id).execute()
 
     for item in items:
-        item_id = str(item["id"])
-        client_gstin_id = str(item["client_gstin_id"])
-        gstin = str(item["gstin"]).strip().upper()
+        item_id = str(item.get("id") or "")
+        client_gstin_id = str(item.get("client_gstin_id") or "")
+        gstin = str(item.get("gstin") or "").strip().upper()
         current_status = str(item.get("status") or "")
 
         # Skip items that are already completed or past evc_pending/filed
@@ -110,6 +114,21 @@ def process_filing_batch(self, batch_id: str) -> dict[str, Any]:
         filing_store.update_batch_item(sb, item_id, status="in_progress")
 
         try:
+            # Tenant Scoping Verification: Guarantee client belongs to firm
+            from app.services.firm_access import assert_client_gstin_in_firm
+            try:
+                assert_client_gstin_in_firm(sb, client_gstin_id, firm_id)
+            except Exception as exc:
+                _log.warning("[BATCH_WORKER] Unauthorized client %s for firm %s: %s", client_gstin_id, firm_id, exc)
+                filing_store.update_batch_item(
+                    sb,
+                    item_id,
+                    status="failed",
+                    error_code="UNAUTHORIZED_TENANT",
+                    error_detail="Client GSTIN does not belong to the authorized firm.",
+                )
+                continue
+
             # 1. Resolve Session Token
             try:
                 session_token, session_row = filing_store.get_active_session(sb, firm_id=firm_id, gstin=gstin), None
@@ -168,12 +187,57 @@ def process_filing_batch(self, batch_id: str) -> dict[str, Any]:
                 )
                 continue
 
+            # 3b. Pre-Filing Validation and Governance Gate (Phase 2 & 3.1)
+            from app.services.pre_filing_validator import validate_gstr1_pre_filing
+            from app.services.filing_override_service import (
+                verify_filing_governance_gate,
+                consume_override_on_file_sync,
+            )
+
+            save_payload = getattr(mapped, "save_payload", mapped if isinstance(mapped, dict) else {})
+            val_result = validate_gstr1_pre_filing(
+                sb,
+                client_gstin_id=client_gstin_id,
+                gstin=gstin,
+                period=period,
+                mapped_readiness=readiness,
+                save_payload=save_payload,
+            )
+
+
+            active_override = None
+            try:
+                active_override = verify_filing_governance_gate(
+                    sb,
+                    firm_id=firm_id,
+                    client_gstin_id=client_gstin_id,
+                    gstin=gstin,
+                    period=period,
+                    return_type="GSTR1",
+                    validation_result=val_result,
+                    user={"id": created_by, "role": "admin"},
+                )
+
+            except HTTPException as exc:
+                detail_msg = exc.detail.get("message") if isinstance(exc.detail, dict) else str(exc.detail)
+                _log.warning("[BATCH_WORKER] Pre-filing governance blocked for %s: %s", gstin, detail_msg)
+                filing_store.update_batch_item(
+                    sb,
+                    item_id,
+                    status="blocked",
+                    error_code="GOVERNANCE_BLOCKED",
+                    error_detail=detail_msg or "Blocked by firm filing governance policy",
+                )
+                continue
+
+            active_override_id = getattr(active_override, "id", None) if active_override else None
+
             # Rate limit delay before GSTN API call
             time.sleep(RATE_LIMIT_DELAY_SEC)
 
             # 4. Save GSTR-1 to Sandbox
             save_body = build_save_body(
-                mapped.save_payload,
+                save_payload,
                 gstin=gstin,
                 period=period,
                 gt=0.0,
@@ -268,6 +332,14 @@ def process_filing_batch(self, batch_id: str) -> dict[str, Any]:
                 raw_response=proceed_res.envelope,
                 clear_error=True,
             )
+
+            # If an active partner override was utilized, consume it atomically
+            if active_override_id:
+                try:
+                    consume_override_on_file_sync(sb, active_override_id, run_id=run_id)
+                    _log.info("[BATCH_WORKER] Successfully consumed override %s for run %s", active_override_id, run_id)
+                except Exception as cov_exc:
+                    _log.warning("[BATCH_WORKER] Failed to consume override %s: %s", active_override_id, cov_exc)
 
             # Item reaches evc_pending (ready for EVC OTP submission by CA)
             filing_store.update_batch_item(

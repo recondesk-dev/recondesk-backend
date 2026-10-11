@@ -94,8 +94,9 @@ class AuroraTenancyRepository:
     def get_user_role(self, user_id: str) -> Optional[str]:
         """Retrieve user's canonical role from Aurora user profile.
 
-        Returns role string ('admin', 'staff', 'owner') or None if not found in Aurora.
+        Returns normalized role string or None if not found in Aurora.
         """
+        from app.models.roles import normalize_role
         uid = str(user_id or "").strip()
         if not uid:
             return None
@@ -105,17 +106,18 @@ class AuroraTenancyRepository:
             res = session.execute(stmt).first()
             if res is None:
                 return None
-            return str(res[0] or "admin").strip().lower()
+            return normalize_role(res[0])
 
     def _ensure_user_profile_exists(
         self,
         session: Session,
         user_id: str,
         *,
-        role: str = "admin",
+        role: str = "viewer",
         email: Optional[str] = None,
     ) -> None:
         """Auto-seed a minimal placeholder UserProfile to satisfy foreign key constraints."""
+        from app.models.roles import normalize_role
         uid = str(user_id or "").strip()
         if not uid:
             return
@@ -124,7 +126,7 @@ class AuroraTenancyRepository:
             prof = UserProfile(
                 id=uid,
                 email=email or f"{uid}@local.placeholder",
-                role=role,
+                role=normalize_role(role),
                 is_active=True,
             )
             session.add(prof)
@@ -229,13 +231,7 @@ class AuroraTenancyRepository:
             return None
 
         with self._get_session() as session:
-            # Check user role first
-            role_stmt = select(UserProfile.role).where(UserProfile.id == uid)
-            role_res = session.execute(role_stmt).first()
-            if role_res and str(role_res[0]).strip().lower() in ("admin", "owner"):
-                return uid
-
-            # Check team_members where member_user_id == uid
+            # 1. Check active team membership in a firm first
             tm_stmt = select(TeamMember.firm_owner_id).where(
                 TeamMember.member_user_id == uid,
                 TeamMember.is_active.is_(True),
@@ -244,7 +240,22 @@ class AuroraTenancyRepository:
             if tm_res and tm_res[0]:
                 return str(tm_res[0])
 
-            # Check assigned client_gstins where assigned_to == uid
+            # 2. Check user role (admin/owner)
+            role_stmt = select(UserProfile.role).where(UserProfile.id == uid)
+            role_res = session.execute(role_stmt).first()
+            if role_res and str(role_res[0]).strip().lower() in ("admin", "owner"):
+                return uid
+
+            # 3. Check client_assignments
+            from app.models.tenancy import ClientAssignment
+            ca_stmt = select(ClientAssignment.firm_owner_id).where(
+                ClientAssignment.user_id == uid,
+            ).limit(1)
+            ca_res = session.execute(ca_stmt).first()
+            if ca_res and ca_res[0]:
+                return str(ca_res[0])
+
+            # 4. Check legacy assigned client_gstins where assigned_to == uid
             cg_stmt = select(ClientGSTIN.firm_owner_id).where(
                 ClientGSTIN.assigned_to == uid,
                 ClientGSTIN.is_active.is_(True),
@@ -252,6 +263,9 @@ class AuroraTenancyRepository:
             cg_res = session.execute(cg_stmt).first()
             if cg_res and cg_res[0]:
                 return str(cg_res[0])
+
+            if role_res and str(role_res[0]).strip().lower() == "partner":
+                return uid
 
         return None
 
@@ -421,18 +435,22 @@ class AuroraTenancyRepository:
             if user_row is None:
                 return None  # User absent from Aurora: permit Supabase fallback
 
-            resolved_role = (role or user_row[1] or "admin").strip().lower()
+            from app.models.roles import is_manager_or_above, normalize_role
+            from app.models.tenancy import ClientAssignment
+            resolved_role = normalize_role(role or user_row[1])
 
             # 2. Query accessible clients in Aurora
-            if resolved_role in ("admin", "owner") or not resolved_role:
+            if is_manager_or_above(resolved_role):
+                owner_id = self.get_firm_owner_id_for_user(uid) or uid
                 stmt = select(ClientGSTIN.id).where(
-                    ClientGSTIN.firm_owner_id == uid,
+                    ClientGSTIN.firm_owner_id == owner_id,
                     ClientGSTIN.is_active.is_(True),
                 )
             else:
+                assigned_subquery = select(ClientAssignment.client_gstin_id).where(ClientAssignment.user_id == uid)
                 stmt = select(ClientGSTIN.id).where(
-                    ClientGSTIN.assigned_to == uid,
                     ClientGSTIN.is_active.is_(True),
+                    (ClientGSTIN.assigned_to == uid) | (ClientGSTIN.id.in_(assigned_subquery)),
                 )
 
             rows = session.execute(stmt).fetchall()
@@ -451,8 +469,8 @@ class AuroraTenancyRepository:
             []: user exists in Aurora but has zero accessible active clients (DO NOT fall back).
             [dict, ...]: user exists in Aurora and has accessible active clients (DO NOT fall back).
 
-        - Admin/Owner: All active clients where firm_owner_id == user_id, ordered by added_at DESC.
-        - Staff: Only active clients where assigned_to == user_id, ordered by added_at DESC.
+        - Admin/Owner/Partner/Manager: All active clients where firm_owner_id == owner_id.
+        - Staff/Preparer/Viewer: Only active clients directly assigned or in ClientAssignment.
         Enforces a bounded limit of maximum 500 records.
         """
         uid = str(user_id or "").strip()
@@ -487,25 +505,29 @@ class AuroraTenancyRepository:
             if user_row is None:
                 return None  # User absent from Aurora: permit Supabase fallback
 
-            resolved_role = (role or user_row[1] or "admin").strip().lower()
+            from app.models.roles import is_manager_or_above, normalize_role
+            from app.models.tenancy import ClientAssignment
+            resolved_role = normalize_role(role or user_row[1])
 
             # 2. Query accessible clients in Aurora
-            if resolved_role in ("admin", "owner") or not resolved_role:
+            if is_manager_or_above(resolved_role):
+                owner_id = self.get_firm_owner_id_for_user(uid) or uid
                 stmt = (
                     select(ClientGSTIN)
                     .where(
-                        ClientGSTIN.firm_owner_id == uid,
+                        ClientGSTIN.firm_owner_id == owner_id,
                         ClientGSTIN.is_active.is_(True),
                     )
                     .order_by(ClientGSTIN.added_at.desc())
                     .limit(safe_limit)
                 )
             else:
+                assigned_subquery = select(ClientAssignment.client_gstin_id).where(ClientAssignment.user_id == uid)
                 stmt = (
                     select(ClientGSTIN)
                     .where(
-                        ClientGSTIN.assigned_to == uid,
                         ClientGSTIN.is_active.is_(True),
+                        (ClientGSTIN.assigned_to == uid) | (ClientGSTIN.id.in_(assigned_subquery)),
                     )
                     .order_by(ClientGSTIN.added_at.desc())
                     .limit(safe_limit)
@@ -683,7 +705,15 @@ class AuroraTenancyRepository:
             assigned_to, is_active = res
             if not is_active:
                 return False
-            return str(assigned_to or "").strip() == uid
+            if str(assigned_to or "").strip() == uid:
+                return True
+
+            from app.models.tenancy import ClientAssignment
+            ca_stmt = select(ClientAssignment.id).where(
+                ClientAssignment.client_gstin_id == cid,
+                ClientAssignment.user_id == uid,
+            ).limit(1)
+            return session.execute(ca_stmt).first() is not None
 
     def get_firm_owner_for_client(self, client_gstin_id: str) -> Optional[str]:
         """Return firm_owner_id for a client GSTIN in Aurora, or None if client not in Aurora."""
@@ -769,7 +799,170 @@ class AuroraTenancyRepository:
                 return False
             if uid == foid:
                 return True
-            return str(assigned_to or "").strip() == uid
+            if str(assigned_to or "").strip() == uid:
+                return True
+
+            from app.models.tenancy import ClientAssignment
+            as_stmt = select(ClientAssignment.id).where(
+                ClientAssignment.client_gstin_id == cid,
+                ClientAssignment.user_id == uid,
+            ).limit(1)
+            return session.execute(as_stmt).first() is not None
+
+    def assign_client_multi_role(
+        self,
+        client_id: str,
+        user_id: str,
+        firm_owner_id: str,
+        assignment_role: str = "preparer",
+        assigned_by: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """Create or update client assignment with granular role."""
+        from datetime import timezone
+        from app.models.tenancy import ClientAssignment
+        cid = str(client_id).strip()
+        uid = str(user_id).strip()
+        foid = str(firm_owner_id).strip()
+        as_role = str(assignment_role).strip().lower()
+        assigner = str(assigned_by).strip() if assigned_by else None
+
+        with self._get_session() as session:
+            stmt = select(ClientAssignment).where(
+                ClientAssignment.client_gstin_id == cid,
+                ClientAssignment.user_id == uid,
+                ClientAssignment.assignment_role == as_role,
+            ).limit(1)
+            assignment = session.scalar(stmt)
+            if assignment is not None:
+                assignment.assigned_at = datetime.now(timezone.utc)
+                assignment.assigned_by = assigner
+                session.commit()
+                return assignment.to_dict()
+            else:
+                new_assignment = ClientAssignment(
+                    id=str(uuid.uuid4()),
+                    client_gstin_id=cid,
+                    firm_owner_id=foid,
+                    user_id=uid,
+                    assignment_role=as_role,
+                    assigned_at=datetime.now(timezone.utc),
+                    assigned_by=assigner,
+                )
+                session.add(new_assignment)
+
+                if as_role == "preparer":
+                    cg = session.scalar(select(ClientGSTIN).where(ClientGSTIN.id == cid))
+                    if cg is not None:
+                        cg.assigned_to = uid
+
+                session.commit()
+                return new_assignment.to_dict()
+
+    def bulk_reassign_clients(
+        self,
+        client_ids: list[str],
+        user_id: str,
+        firm_owner_id: str,
+        assignment_role: str = "preparer",
+        assigned_by: Optional[str] = None,
+    ) -> list[str]:
+        """Atomically reassign multiple client GSTINs in a single transaction."""
+        from datetime import timezone
+        from app.models.tenancy import ClientAssignment
+        uid = str(user_id).strip()
+        foid = str(firm_owner_id).strip()
+        as_role = str(assignment_role).strip().lower()
+        assigner = str(assigned_by).strip() if assigned_by else None
+
+        successful_ids = []
+        with self._get_session() as session:
+            for raw_cid in client_ids:
+                cid = str(raw_cid).strip()
+                cg = session.scalar(
+                    select(ClientGSTIN).where(
+                        ClientGSTIN.id == cid,
+                        ClientGSTIN.firm_owner_id == foid,
+                        ClientGSTIN.is_active.is_(True),
+                    )
+                )
+                if cg is None:
+                    continue
+
+                if as_role == "preparer":
+                    cg.assigned_to = uid
+
+                stmt = select(ClientAssignment).where(
+                    ClientAssignment.client_gstin_id == cid,
+                    ClientAssignment.user_id == uid,
+                    ClientAssignment.assignment_role == as_role,
+                ).limit(1)
+                existing = session.scalar(stmt)
+                if existing is not None:
+                    existing.assigned_at = datetime.now(timezone.utc)
+                    existing.assigned_by = assigner
+                else:
+                    new_as = ClientAssignment(
+                        id=str(uuid.uuid4()),
+                        client_gstin_id=cid,
+                        firm_owner_id=foid,
+                        user_id=uid,
+                        assignment_role=as_role,
+                        assigned_at=datetime.now(timezone.utc),
+                        assigned_by=assigner,
+                    )
+                    session.add(new_as)
+                successful_ids.append(cid)
+
+            session.commit()
+        return successful_ids
+
+    def list_client_assignments(self, client_id: str) -> list[dict[str, Any]]:
+        """List all active staff/reviewer assignments for a client GSTIN."""
+        from app.models.tenancy import ClientAssignment
+        cid = str(client_id).strip()
+        with self._get_session() as session:
+            stmt = (
+                select(ClientAssignment, UserProfile)
+                .join(UserProfile, UserProfile.id == ClientAssignment.user_id)
+                .where(ClientAssignment.client_gstin_id == cid)
+                .order_by(ClientAssignment.assigned_at.desc())
+            )
+            rows = session.execute(stmt).fetchall()
+            out = []
+            for assignment, profile in rows:
+                d = assignment.to_dict()
+                d["user_name"] = profile.full_name or ""
+                d["email"] = profile.email or ""
+                d["role"] = profile.role or "staff"
+                out.append(d)
+            return out
+
+    def remove_client_assignment(
+        self, client_id: str, assignment_id: str, firm_owner_id: str
+    ) -> bool:
+        """Remove a specific client assignment record."""
+        from app.models.tenancy import ClientAssignment
+        cid = str(client_id).strip()
+        aid = str(assignment_id).strip()
+        foid = str(firm_owner_id).strip()
+        with self._get_session() as session:
+            stmt = select(ClientAssignment).where(
+                ClientAssignment.id == aid,
+                ClientAssignment.client_gstin_id == cid,
+                ClientAssignment.firm_owner_id == foid,
+            ).limit(1)
+            assignment = session.scalar(stmt)
+            if assignment is None:
+                return False
+
+            if assignment.assignment_role == "preparer":
+                cg = session.scalar(select(ClientGSTIN).where(ClientGSTIN.id == cid))
+                if cg is not None and str(cg.assigned_to) == str(assignment.user_id):
+                    cg.assigned_to = None
+
+            session.delete(assignment)
+            session.commit()
+            return True
 
 
 # ── Global Tenancy Repository Management ─────────────────────────────────────

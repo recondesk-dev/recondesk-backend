@@ -122,14 +122,15 @@ def resolve_user_role(
     email: str | None = None,
     client: Client | None = None,
 ) -> str:
-    """Return canonical role: staff if invited, otherwise admin (workspace owner)."""
-    target_uid = str(
-        user_id
-        or (raw_role if isinstance(raw_role, str) and raw_role not in ("admin", "owner", "staff") else "")
-        or ""
-    ).strip()
+    """Return canonical role with fail-closed security guarantees."""
+    from app.models.roles import ALL_ROLES, DEFAULT_FAIL_CLOSED_ROLE, normalize_role
 
-    # 1. Phase 3C: Try Aurora tenancy repository first
+    if raw_role and isinstance(raw_role, str) and raw_role.strip().lower() in ALL_ROLES:
+        return normalize_role(raw_role)
+
+    target_uid = str(user_id or "").strip()
+
+    # 1. Try Aurora tenancy repository
     if target_uid:
         try:
             from app.repositories.tenancy import get_tenancy_repository
@@ -137,16 +138,48 @@ def resolve_user_role(
             if repo is not None:
                 aurora_role = repo.get_user_role(target_uid)
                 if aurora_role is not None:
-                    return aurora_role
+                    return normalize_role(aurora_role)
         except Exception:
             pass
 
-    # 2. Existing Supabase resolution
-    del raw_role  # stored value may be wrong; always derive from invite status
+    # 2. Supabase team membership resolution
     sb = client or get_supabase()
+    if target_uid:
+        try:
+            tm = (
+                sb.table("team_members")
+                .select("role")
+                .eq("member_user_id", target_uid)
+                .eq("is_active", True)
+                .limit(1)
+                .execute()
+            )
+            if tm.data and tm.data[0].get("role"):
+                return normalize_role(tm.data[0]["role"])
+        except Exception:
+            pass
+
     if _is_invited_user(sb, user_id=target_uid, email=email):
         return "staff"
-    return "admin"
+
+
+    # Check if user owns active clients (firm owner anchor)
+    if target_uid:
+        try:
+            c = (
+                sb.table("client_gstins")
+                .select("id")
+                .eq("firm_owner_id", target_uid)
+                .limit(1)
+                .execute()
+            )
+            if c.data:
+                return "owner"
+        except Exception:
+            pass
+
+    # FAIL CLOSED: Default strictly to viewer for unassigned / unknown accounts
+    return DEFAULT_FAIL_CLOSED_ROLE
 
 
 def get_user_profile(user_id: str) -> Optional[dict]:
