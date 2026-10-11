@@ -263,6 +263,33 @@ def process_filing_batch(self, batch_id: str) -> dict[str, Any]:
                 )
                 continue
 
+            # 3d. Pre-Filing Client Authorization Gate (Phase 3.3)
+            from app.services.client_authorization_service import (
+                assert_client_authorization_gate,
+            )
+            try:
+                assert_client_authorization_gate(
+                    sb,
+                    firm_id=firm_id,
+                    client_gstin_id=client_gstin_id,
+                    gstin=gstin,
+                    period=period,
+                    return_type="GSTR-1",
+                    current_figures_payload=save_payload,
+                )
+            except HTTPException as exc:
+                detail_msg = exc.detail.get("message") if isinstance(exc.detail, dict) else str(exc.detail)
+                err_code = exc.detail.get("code") if isinstance(exc.detail, dict) else "CLIENT_AUTHORIZATION_REQUIRED"
+                _log.warning("[BATCH_WORKER] Client authorization blocked for %s: %s", gstin, detail_msg)
+                filing_store.update_batch_item(
+                    sb,
+                    item_id,
+                    status="blocked",
+                    error_code=err_code,
+                    error_detail=detail_msg or "Blocked: Client authorization required or figures altered.",
+                )
+                continue
+
             # Rate limit delay before GSTN API call
             time.sleep(RATE_LIMIT_DELAY_SEC)
 

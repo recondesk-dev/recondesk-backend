@@ -6,7 +6,7 @@ import json
 import logging
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.auth import get_current_active_user, require_admin_user, require_manager_user, require_writer_user
@@ -67,6 +67,19 @@ from app.services.maker_checker_service import (
     submit_for_review,
     transition_approval_status,
 )
+from app.services.client_authorization_service import (
+    ClientAuthAction,
+    ClientAuthorizationData,
+    ClientAuthStatus,
+    assert_client_authorization_gate,
+    create_authorization_request,
+    get_authorization_by_token,
+    get_client_authorization_history,
+    get_latest_client_authorization,
+    reject_client_authorization,
+    revoke_authorization_request,
+    submit_client_authorization,
+)
 from app.filing.sandbox_filing_client import (
     FilingApiError,
     FilingAuthError,
@@ -88,9 +101,17 @@ _GSTR3B_OFFSET_STATUS_ACTIONS = frozenset({"RETOFFSET", "OFFSET", "OFFLIAB"})
 from app.services.firm_access import list_accessible_client_gstin_ids
 from app.utils.audit import resolve_firm_id
 from app.utils.crypto import decrypt_secret, encrypt_secret
+from app.utils.rate_limit import limiter
 
 router = APIRouter(redirect_slashes=False)
 _log = logging.getLogger(__name__)
+
+
+def _extract_client_ip(request: Request) -> str:
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else ""
 
 
 def require_gstr3b_filing_enabled() -> None:
@@ -1662,6 +1683,17 @@ def file_gstr1(
             run_created_at=run_data.get("created_at"),
         )
 
+        # Phase 3.3 Client Authorization Gate
+        assert_client_authorization_gate(
+            sb,
+            firm_id=firm_id,
+            client_gstin_id=client_gid,
+            gstin=run_gstin,
+            period=period,
+            return_type="GSTR-1",
+            current_figures_payload=run_data.get("save_payload"),
+        )
+
     file_body = body.file_body
     if file_body is None:
         # Pull summary for sec_sum / chksum required by File.
@@ -2547,6 +2579,17 @@ def file_gstr3b(
             run_created_at=run_data.get("created_at"),
         )
 
+        # Phase 3.3 Client Authorization Gate
+        assert_client_authorization_gate(
+            sb,
+            firm_id=firm_id,
+            client_gstin_id=client_gid,
+            gstin=run_gstin,
+            period=period,
+            return_type="GSTR-3B",
+            current_figures_payload=run_data.get("save_payload"),
+        )
+
     file_body = body.file_body
     if file_body is None:
         try:
@@ -3034,6 +3077,182 @@ def get_filing_approval_history(
         client_gstin_id=client_gstin_id.strip(),
         period=period,
         return_type=return_type,
+    )
+    return {"history": history}
+
+
+# ---------------------------------------------------------------------------
+# Phase 3.3 Client Review, Consent and Filing Authorization Endpoints
+# ---------------------------------------------------------------------------
+
+
+class CreateClientAuthRequest(BaseModel):
+    client_gstin_id: str = Field(..., description="Client GSTIN UUID")
+    gstin: str = Field(..., min_length=15, max_length=15, description="15-character GSTIN")
+    period: str = Field(..., description="Return period MMYYYY or YYYY-MM")
+    return_type: str = Field(..., description="Return type (GSTR-1, GSTR-3B)")
+    figures_payload: dict[str, Any] = Field(default_factory=dict, description="Return figures payload")
+    expires_in_hours: int = Field(default=48, ge=1, le=168, description="Expiry duration in hours (1-168)")
+
+
+class RevokeClientAuthRequest(BaseModel):
+    revocation_reason: str = Field(..., min_length=3, description="Detailed revocation reason")
+
+
+class SubmitClientAuthRequest(BaseModel):
+    signatory_name: str = Field(..., min_length=2, description="Authorized signatory legal name")
+    signatory_designation: str = Field(..., min_length=2, description="Signatory designation/role")
+    signatory_contact: str = Field(..., min_length=5, description="Signatory phone or email")
+    consent_text_version: str = Field(default="v1.0", description="Version of consent declaration")
+    consent_declaration: Optional[str] = Field(None, description="Explicit consent text affirmed")
+    expected_figures_digest: Optional[str] = Field(None, description="SHA-256 fingerprint verified by client")
+
+
+class RejectClientAuthRequest(BaseModel):
+    rejection_reason: str = Field(..., min_length=5, description="Detailed mandatory rejection reason")
+    signatory_name: Optional[str] = Field(None, description="Client signatory name")
+
+
+# --- Public Client Review Portal Endpoints (Unauthenticated, Token-Secured, Rate-Limited) ---
+
+@router.get("/client-auth/review/{token}")
+@limiter.limit("30/minute")
+def get_client_review(token: str, request: Request):
+    """Public portal: retrieve return figures summary for client review (marks VIEWED on first access)."""
+    sb = get_supabase()
+    client_ip = _extract_client_ip(request)
+    user_agent = request.headers.get("user-agent") or ""
+    auth = get_authorization_by_token(sb, token, client_ip=client_ip, user_agent=user_agent)
+    return auth.to_client_view_dict()
+
+
+@router.post("/client-auth/review/{token}/authorize")
+@limiter.limit("10/minute")
+def submit_client_review_authorization(token: str, body: SubmitClientAuthRequest, request: Request):
+    """Public portal: client explicitly submits legal authorization and consent for return filing."""
+    sb = get_supabase()
+    client_ip = _extract_client_ip(request)
+    user_agent = request.headers.get("user-agent") or ""
+    auth = submit_client_authorization(
+        sb,
+        raw_token=token,
+        signatory_name=body.signatory_name,
+        signatory_designation=body.signatory_designation,
+        signatory_contact=body.signatory_contact,
+        consent_text_version=body.consent_text_version,
+        consent_declaration=body.consent_declaration,
+        expected_figures_digest=body.expected_figures_digest,
+        client_ip=client_ip,
+        user_agent=user_agent,
+    )
+    return auth.to_client_view_dict()
+
+
+@router.post("/client-auth/review/{token}/reject")
+@limiter.limit("10/minute")
+def reject_client_review_authorization(token: str, body: RejectClientAuthRequest, request: Request):
+    """Public portal: client explicitly rejects return figures with mandatory reason."""
+    sb = get_supabase()
+    client_ip = _extract_client_ip(request)
+    user_agent = request.headers.get("user-agent") or ""
+    auth = reject_client_authorization(
+        sb,
+        raw_token=token,
+        rejection_reason=body.rejection_reason,
+        signatory_name=body.signatory_name,
+        client_ip=client_ip,
+        user_agent=user_agent,
+    )
+    return auth.to_client_view_dict()
+
+
+# --- CA Firm Authenticated Endpoints ---
+
+@router.post("/client-auth/request")
+def create_client_review_request(
+    body: CreateClientAuthRequest,
+    current_user: dict = Depends(get_current_active_user),
+):
+    """CA Firm: create time-limited, cryptographically hashed client review authorization request."""
+    period = _assert_period_yyyy_mm(body.period)
+    sb = get_supabase()
+    firm_id = _firm_id(sb, current_user)
+    _assert_client_access(sb, current_user, body.client_gstin_id.strip())
+
+    auth, raw_token = create_authorization_request(
+        sb,
+        firm_id=firm_id,
+        client_gstin_id=body.client_gstin_id.strip(),
+        gstin=body.gstin.strip().upper(),
+        period=period,
+        return_type=body.return_type,
+        figures_payload=body.figures_payload,
+        actor=current_user,
+        expires_in_hours=body.expires_in_hours,
+    )
+    return {
+        "authorization": auth.to_dict(),
+        "token": raw_token,
+        "review_path": f"/filing/authorize/{raw_token}",
+    }
+
+
+@router.get("/client-auth/status")
+def get_client_review_status(
+    client_gstin_id: str = Query(..., description="Client GSTIN UUID"),
+    period: str = Query(..., description="Return period MMYYYY or YYYY-MM"),
+    return_type: str = Query(..., description="Return type (GSTR-1, GSTR-3B)"),
+    current_user: dict = Depends(get_current_active_user),
+):
+    """CA Firm: retrieve status of client authorization for return filing."""
+    period = _assert_period_yyyy_mm(period)
+    sb = get_supabase()
+    firm_id = _firm_id(sb, current_user)
+    _assert_client_access(sb, current_user, client_gstin_id.strip())
+
+    auth = get_latest_client_authorization(
+        sb,
+        firm_id=firm_id,
+        client_gstin_id=client_gstin_id.strip(),
+        period=period,
+        return_type=return_type,
+    )
+    return {"authorization": auth.to_dict() if auth else None}
+
+
+@router.post("/client-auth/{authorization_id}/revoke")
+def revoke_client_review_authorization(
+    authorization_id: str,
+    body: RevokeClientAuthRequest,
+    current_user: dict = Depends(get_current_active_user),
+):
+    """CA Firm: revoke an active client review authorization."""
+    sb = get_supabase()
+    firm_id = _firm_id(sb, current_user)
+
+    auth = revoke_authorization_request(
+        sb,
+        authorization_id=authorization_id.strip(),
+        firm_id=firm_id,
+        revocation_reason=body.revocation_reason,
+        actor=current_user,
+    )
+    return {"authorization": auth.to_dict()}
+
+
+@router.get("/client-auth/{authorization_id}/history")
+def get_client_review_history(
+    authorization_id: str,
+    current_user: dict = Depends(get_current_active_user),
+):
+    """CA Firm: retrieve tenant-scoped immutable audit trail for client authorization."""
+    sb = get_supabase()
+    firm_id = _firm_id(sb, current_user)
+
+    history = get_client_authorization_history(
+        sb,
+        authorization_id=authorization_id.strip(),
+        firm_id=firm_id,
     )
     return {"history": history}
 

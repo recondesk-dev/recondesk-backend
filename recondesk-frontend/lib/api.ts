@@ -3867,6 +3867,181 @@ export const filingApprovalsApi = {
     ),
 };
 
+// ─── Phase 3.3 Client Review & Filing Authorization ───────────────────────────
+
+export type ClientAuthStatus =
+  | "PENDING"
+  | "VIEWED"
+  | "AUTHORIZED"
+  | "REJECTED"
+  | "REVOKED"
+  | "EXPIRED";
+
+export type ClientFilingAuthorization = {
+  id: string;
+  firm_id: string;
+  client_gstin_id: string;
+  gstin: string;
+  period: string;
+  return_type: string;
+  status: ClientAuthStatus;
+  figures_digest: string;
+  figures_summary: Record<string, unknown>;
+  signatory_name: string | null;
+  signatory_designation: string | null;
+  signatory_contact: string | null;
+  consent_text_version: string;
+  consent_declaration: string | null;
+  client_ip: string | null;
+  user_agent: string | null;
+  authorized_at: string | null;
+  rejected_at: string | null;
+  rejection_reason: string | null;
+  revoked_at: string | null;
+  revocation_reason: string | null;
+  revoked_by: string | null;
+  created_by: string | null;
+  created_at: string;
+  expires_at: string;
+  updated_at: string;
+};
+
+export type ClientAuthAuditEntry = {
+  id: string;
+  authorization_id: string;
+  firm_id: string;
+  client_gstin_id: string | null;
+  gstin: string;
+  period: string;
+  return_type: string;
+  action: string;
+  from_status: string | null;
+  to_status: string;
+  actor_type: string;
+  actor_id: string | null;
+  actor_name: string;
+  figures_digest: string;
+  client_ip: string | null;
+  user_agent: string | null;
+  notes: string;
+  metadata: Record<string, unknown>;
+  created_at: string;
+};
+
+export type ClientPublicReviewData = {
+  id: string;
+  gstin: string;
+  period: string;
+  return_type: string;
+  status: ClientAuthStatus;
+  figures_digest: string;
+  figures_summary: Record<string, unknown>;
+  signatory_name: string | null;
+  signatory_designation: string | null;
+  consent_text_version: string;
+  consent_declaration: string;
+  authorized_at: string | null;
+  rejected_at: string | null;
+  rejection_reason: string | null;
+  expires_at: string;
+};
+
+export const clientAuthorizationsApi = {
+  createRequest: (
+    token: string,
+    body: {
+      client_gstin_id: string;
+      gstin: string;
+      period: string;
+      return_type: string;
+      figures_payload: Record<string, unknown>;
+      expires_in_hours?: number;
+    }
+  ) =>
+    apiFetch<{
+      authorization: ClientFilingAuthorization;
+      token: string;
+      review_path: string;
+    }>("/api/filing/client-auth/request", {
+      method: "POST",
+      body: JSON.stringify(body),
+      token,
+    }),
+
+  getStatus: (
+    token: string,
+    clientGstinId: string,
+    period: string,
+    returnType: string
+  ) =>
+    apiFetch<{ authorization: ClientFilingAuthorization | null }>(
+      `/api/filing/client-auth/status?client_gstin_id=${encodeURIComponent(clientGstinId)}&period=${encodeURIComponent(period)}&return_type=${encodeURIComponent(returnType)}`,
+      { token, cache: "no-store" }
+    ),
+
+  revoke: (
+    token: string,
+    authorizationId: string,
+    revocationReason: string
+  ) =>
+    apiFetch<{ authorization: ClientFilingAuthorization }>(
+      `/api/filing/client-auth/${encodeURIComponent(authorizationId)}/revoke`,
+      {
+        method: "POST",
+        body: JSON.stringify({ revocation_reason: revocationReason }),
+        token,
+      }
+    ),
+
+  getHistory: (token: string, authorizationId: string) =>
+    apiFetch<{ history: ClientAuthAuditEntry[] }>(
+      `/api/filing/client-auth/${encodeURIComponent(authorizationId)}/history`,
+      { token, cache: "no-store" }
+    ),
+};
+
+export const publicClientReviewApi = {
+  getReview: (rawToken: string) =>
+    apiFetch<ClientPublicReviewData>(
+      `/api/filing/client-auth/review/${encodeURIComponent(rawToken)}`,
+      { cache: "no-store" }
+    ),
+
+  authorize: (
+    rawToken: string,
+    body: {
+      signatory_name: string;
+      signatory_designation: string;
+      signatory_contact: string;
+      consent_text_version?: string;
+      consent_declaration?: string;
+      expected_figures_digest?: string;
+    }
+  ) =>
+    apiFetch<ClientPublicReviewData>(
+      `/api/filing/client-auth/review/${encodeURIComponent(rawToken)}/authorize`,
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+      }
+    ),
+
+  reject: (
+    rawToken: string,
+    body: {
+      rejection_reason: string;
+      signatory_name?: string;
+    }
+  ) =>
+    apiFetch<ClientPublicReviewData>(
+      `/api/filing/client-auth/review/${encodeURIComponent(rawToken)}/reject`,
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+      }
+    ),
+};
+
 // ─── Manage Data (admin raw file storage) ─────────────────────────────────────
 
 export interface ManageDataFileInfo {

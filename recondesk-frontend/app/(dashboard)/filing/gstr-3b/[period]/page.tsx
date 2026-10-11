@@ -10,6 +10,7 @@ import { Gstr3bEvcAndFilePanel } from "@/components/filing/gstr3b/Gstr3bEvcAndFi
 import { Gstr3bFiguresForm } from "@/components/filing/gstr3b/Gstr3bFiguresForm";
 import { Gstr3bSaveAction } from "@/components/filing/gstr3b/Gstr3bSaveAction";
 import { MakerCheckerApprovalCard } from "@/components/filing/MakerCheckerApprovalCard";
+import { ClientAuthorizationCard } from "@/components/filing/ClientAuthorizationCard";
 import {
   OffsetLiabilityGate,
   type Gstr3bRunState,
@@ -395,6 +396,17 @@ function Gstr3bFilingPageContent() {
 
       {gstin && clientGstinId ? (
         <MakerCheckerApprovalCard
+          token={token}
+          clientGstinId={clientGstinId}
+          gstin={gstin}
+          period={period}
+          returnType="GSTR-3B"
+          preparedFigures={figuresToSaveBody(figures)}
+        />
+      ) : null}
+
+      {gstin && clientGstinId ? (
+        <ClientAuthorizationCard
           token={token}
           clientGstinId={clientGstinId}
           gstin={gstin}
