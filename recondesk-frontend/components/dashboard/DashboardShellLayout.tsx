@@ -20,6 +20,7 @@ import {
   fetchFreshAuthProfile,
   normalizeAuthRole,
   resolveDisplayName,
+  isRoleAdminOrPartner,
 } from "@/lib/auth-profile";
 import { DW, formatPeriodLabel } from "@/lib/dashboard-portfolio";
 import { clearOnboardingDoneCookie } from "@/lib/onboarding-cookie";
@@ -386,11 +387,11 @@ export default function DashboardShellLayout({
         if (cancelled) return;
         console.warn("[DashboardShellLayout] fetchFreshAuthProfile failed, using fallback:", err);
         
-        const name = "Admin";
+        const name = "User";
         setCurrentUser({
           name,
-          email: "admin@recondesk.in",
-          role: "ADMIN",
+          email: "",
+          role: "VIEWER",
           initials: initialsFromDisplayName(name),
         });
       }
@@ -486,7 +487,7 @@ export default function DashboardShellLayout({
     { href: "/reconciliations", label: tNav("reconciliations"), Icon: NavIconRefresh },
     { href: "/einvoicing", label: tNav("einvoicing"), Icon: NavIconFileText },
     { href: "/einvoicing/ewaybill", label: tNav("ewaybill"), Icon: NavIconTruck },
-    ...(currentUser.role === "ADMIN"
+    ...(isRoleAdminOrPartner(currentUser.role)
       ? [{ href: "/manage-data", label: tNav("manageData"), Icon: NavIconDatabase }]
       : []),
     { href: "/billing", label: tNav("billing"), Icon: NavIconCredit },
@@ -809,8 +810,8 @@ export default function DashboardShellLayout({
                     </span>
                   </div>
 
-                  {/* ── Admin-only: Invite team member ── */}
-                  {currentUser.role === "ADMIN" && (
+                  {/* ── Admin/Partner: Invite team member ── */}
+                  {isRoleAdminOrPartner(currentUser.role) && (
                     <button
                       type="button"
                       role="menuitem"

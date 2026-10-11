@@ -8,6 +8,7 @@ import {
   AUTH_PROFILE_SWR_OPTIONS,
   authProfileFetcher,
   normalizeAuthRole,
+  isRoleAdminOrPartner,
 } from "@/lib/auth-profile";
 import { useAccessToken } from "@/lib/hooks/useAccessToken";
 
@@ -24,7 +25,7 @@ export default function ActivityLogSettingsPage() {
   );
 
   const roleNorm = normalizeAuthRole(me?.role);
-  const isAdmin = roleNorm === "admin";
+  const canViewActivity = isRoleAdminOrPartner(roleNorm);
   const resolving = token === null || (!!authToken && meKey !== null && meLoading);
 
   return (
@@ -48,9 +49,9 @@ export default function ActivityLogSettingsPage() {
         <div className="dashboard-card animate-pulse p-8">
           <div className="h-5 w-1/3 rounded bg-gray-100" />
         </div>
-      ) : !isAdmin ? (
+      ) : !canViewActivity ? (
         <div className="rounded-[1.25rem] bg-amber-50 px-5 py-4 text-sm text-amber-900">
-          Only workspace admins can view the activity log.
+          Only workspace admins and partners can view the activity log.
         </div>
       ) : authToken ? (
         <div className="dashboard-card p-2 sm:p-4">

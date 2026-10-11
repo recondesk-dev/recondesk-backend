@@ -389,6 +389,30 @@ export interface ClientOrganization {
   gstins: (ClientGstin & { state_name?: string })[];
 }
 
+export interface ClientAssignmentItem {
+  id: string;
+  client_gstin_id: string;
+  firm_owner_id?: string;
+  user_id: string;
+  assignment_role: "preparer" | "reviewer" | "manager" | "partner" | "viewer" | string;
+  assigned_at?: string;
+  assigned_by?: string;
+  user_name?: string;
+  email?: string;
+  role?: string;
+  user_profiles?: {
+    id?: string;
+    full_name?: string;
+    email?: string;
+    role?: string;
+  } | null;
+}
+
+export interface ClientAssignmentsResponse {
+  client_gstin_id: string;
+  assignments: ClientAssignmentItem[];
+}
+
 export const clientsApi = {
   list: (token: string) =>
     apiFetch<ClientGstin[]>(clientsApiPath(), { token }),
@@ -466,16 +490,24 @@ export const clientsApi = {
     ),
 
   listAssignments: (token: string, id: string) =>
-    apiFetch<{ client_gstin_id: string; assignments: any[] }>(clientsApiPath(id, "assignments"), {
+    apiFetch<ClientAssignmentsResponse>(clientsApiPath(id, "assignments"), {
       token,
     }),
 
-  addAssignment: (token: string, id: string, user_id: string, assignment_role = "preparer") =>
-    apiFetch<any>(clientsApiPath(id, "assignments"), {
-      method: "POST",
-      body: JSON.stringify({ user_id, assignment_role }),
-      token,
-    }),
+  addAssignment: (
+    token: string,
+    id: string,
+    user_id: string,
+    assignment_role: "preparer" | "reviewer" | "manager" | "partner" | "viewer" | string = "preparer"
+  ) =>
+    apiFetch<ClientAssignmentItem | { client_gstin_id: string; user_id: string; assignment_role: string }>(
+      clientsApiPath(id, "assignments"),
+      {
+        method: "POST",
+        body: JSON.stringify({ user_id, assignment_role }),
+        token,
+      }
+    ),
 
   removeAssignment: (token: string, id: string, assignment_id: string) =>
     apiFetch<void>(clientsApiPath(id, "assignments", assignment_id), {

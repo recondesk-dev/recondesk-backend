@@ -10,6 +10,7 @@ import { useAccessToken } from "@/lib/hooks/useAccessToken";
 import {
   AUTH_PROFILE_SWR_OPTIONS,
   authProfileFetcher,
+  isRoleAdminOrPartner,
 } from "@/lib/auth-profile";
 import { isApiError, reconcileSettingsApi } from "@/lib/api";
 
@@ -57,7 +58,7 @@ export default function ReconciliationSettingsPage() {
   }, [authToken, threshold, toast, meKey]);
 
   const loading = resolvingToken || (!!authToken && meLoading);
-  const isAdmin = (me?.role || "").toLowerCase() === "admin";
+  const isAdmin = isRoleAdminOrPartner(me?.role);
 
   return (
     <div className="max-w-3xl space-y-6">
@@ -150,7 +151,7 @@ export default function ReconciliationSettingsPage() {
 
             {!isAdmin ? (
               <p className="text-sm text-amber-800">
-                Only firm admins can change this setting.
+                Only firm admins and partners can change this setting.
               </p>
             ) : (
               <button

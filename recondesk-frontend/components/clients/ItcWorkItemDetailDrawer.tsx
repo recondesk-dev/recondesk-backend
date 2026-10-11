@@ -37,6 +37,7 @@ import {
   formatTaxDiffAfter,
   RevalUxStatus,
 } from "@/components/clients/revalidationUxLogic";
+import { isRoleAdminOrPartner } from "@/lib/auth-profile";
 
 interface ItcWorkItemDetailDrawerProps {
   workItem: ItcWorkItem | null;
@@ -52,7 +53,7 @@ export function ItcWorkItemDetailDrawer({
   workItem,
   authToken,
   clientId,
-  currentUserRole = "admin",
+  currentUserRole = "viewer",
   currentUserId,
   onClose,
   onUpdated,
@@ -169,7 +170,7 @@ export function ItcWorkItemDetailDrawer({
 
   if (!item) return null;
 
-  const isCA = currentUserRole === "admin" || currentUserRole === "owner";
+  const isCA = isRoleAdminOrPartner(currentUserRole);
   const events = itemData?.events || [];
   const followups = followupHistoryData?.logs || [];
 

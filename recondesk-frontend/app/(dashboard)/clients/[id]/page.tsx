@@ -9,6 +9,7 @@ import {
   ConnectGstnModal,
   isGstnConnected,
 } from "@/components/clients/ConnectGstnModal";
+import { ClientAssignmentsCard } from "@/components/clients/ClientAssignmentsCard";
 
 import { ItcTrendChart } from "@/components/dashboard/ItcTrendChart";
 import { StatusBadge } from "@/components/dashboard/StatusBadge";
@@ -479,6 +480,18 @@ function ClientDetailContent() {
         >
           GSTR-1 results ready. Review and finalize →
         </Link>
+      )}
+
+      {authToken && id && (
+        <ClientAssignmentsCard
+          clientId={id}
+          authToken={authToken}
+          currentUserRole={me?.role}
+          teamMembers={teamMembers}
+          onAssignmentChanged={() => {
+            void mutateClient();
+          }}
+        />
       )}
 
       <section className="dashboard-card p-6">

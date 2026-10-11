@@ -24,6 +24,8 @@ import {
   AUTH_PROFILE_SWR_OPTIONS,
   authProfileFetcher,
   normalizeAuthRole,
+  isRoleAdminOrPartner,
+  isRoleManagerOrAbove,
 } from "@/lib/auth-profile";
 import { useAccessToken } from "@/lib/hooks/useAccessToken";
 
@@ -141,7 +143,9 @@ export function ClientsPageContent() {
   };
 
   const roleNorm = normalizeAuthRole(me?.role);
-  const isAdmin = roleNorm === "admin";
+  const canManageAssignments = isRoleManagerOrAbove(roleNorm);
+  const canDeleteClient = isRoleAdminOrPartner(roleNorm);
+  const isFirmLead = isRoleAdminOrPartner(roleNorm);
 
   const assigneeNames = useMemo(() => {
     const m = new Map<string, string>();
@@ -168,7 +172,7 @@ export function ClientsPageContent() {
 
       const isOwner =
         (tm.role || "").toLowerCase() === "owner" ||
-        (tm.member_user_id === me?.id && isAdmin);
+        (tm.member_user_id === me?.id && isFirmLead);
       const isSelf = tm.member_user_id === me?.id;
       const base = tm.full_name?.trim() || tm.email || "Member";
       const tag = isOwner ? " (Owner)" : isSelf ? " (You)" : "";
@@ -180,7 +184,7 @@ export function ClientsPageContent() {
 
     if (me?.id && !seen.has(me.id)) {
       seen.add(me.id);
-      const tag = isAdmin ? " (Owner)" : " (You)";
+      const tag = isFirmLead ? " (Owner)" : " (You)";
       const base = me.full_name?.trim() || me.email || "Current User";
       opts.push({
         userId: me.id,
@@ -189,7 +193,7 @@ export function ClientsPageContent() {
     }
 
     return opts;
-  }, [me, teamMembers, isAdmin]);
+  }, [me, teamMembers, isFirmLead]);
 
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebounced(search, 200);
@@ -403,7 +407,7 @@ export function ClientsPageContent() {
   };
 
   const handleDelete = async (row: ClientGstin) => {
-    if (!authToken || !isAdmin) return;
+    if (!authToken || !canDeleteClient) return;
     if (
       typeof window !== "undefined" &&
       !window.confirm(`Remove client ${row.trade_name ?? row.gstin}?`)
@@ -714,7 +718,7 @@ export function ClientsPageContent() {
                       <th className="px-5 py-4">{tClients("tableTradeName")}</th>
                       <th className="px-4 py-4">{tClients("tableGstin")}</th>
                       <th className="px-4 py-4">{tClients("tableAssignTo")}</th>
-                      {isAdmin && (
+                      {canDeleteClient && (
                         <th className="px-5 py-4 text-right">{tClients("tableActions")}</th>
                       )}
                     </tr>
@@ -737,7 +741,7 @@ export function ClientsPageContent() {
                           {row.gstin}
                         </td>
                         <td className="px-4 py-3.5">
-                          {isAdmin ? (
+                          {canManageAssignments ? (
                             <select
                               className="min-h-[40px] w-full max-w-[260px] rounded-full border-0 bg-[#F5F5F6] px-4 text-sm font-medium text-gray-700 outline-none focus:ring-2 focus:ring-black/10"
                               value={
@@ -762,7 +766,7 @@ export function ClientsPageContent() {
                             </span>
                           )}
                         </td>
-                        {isAdmin && (
+                        {canDeleteClient && (
                           <td className="px-5 py-3.5 text-right">
                             <button
                               type="button"
@@ -969,7 +973,7 @@ export function ClientsPageContent() {
             >
               {assignOptions.length === 0 && (
                 <option value={me?.id ?? ""}>
-                  {me?.full_name ? `${me.full_name} (${isAdmin ? "Owner" : "You"})` : "Assign to me"}
+                  {me?.full_name ? `${me.full_name} (${isFirmLead ? "Owner" : "You"})` : "Assign to me"}
                 </option>
               )}
               {assignOptions.map((o) => (
