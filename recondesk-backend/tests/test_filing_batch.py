@@ -218,10 +218,24 @@ def batch_with_three_items(sample_gstins):
     """
     sb = FakeSupabase()
     client_ids = []
+    from app.services.maker_checker_service import _mc_store, ReturnApproval, ApprovalStatus
     for gstin in sample_gstins:
         cid = f"client-id-{gstin}"
         sb.table("client_gstins").insert({"id": cid, "gstin": gstin, "firm_owner_id": "test-firm-id"}).execute()
         client_ids.append(cid)
+        # Seed Phase 3.2 maker-checker approval for batch worker execution
+        _mc_store.put_approval(
+            ReturnApproval(
+                id=f"appr-{gstin}",
+                firm_id="test-firm-id",
+                client_gstin_id=cid,
+                gstin=gstin,
+                period="2026-07",
+                return_type="GSTR-1",
+                status=ApprovalStatus.APPROVED,
+                approver_id="test-approver-id",
+            )
+        )
 
     batch = create_batch(
         sb,

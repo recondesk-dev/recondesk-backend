@@ -53,6 +53,20 @@ from app.services.pre_filing_validator import (
     validate_gstr1_pre_filing,
     validate_gstr3b_pre_filing,
 )
+from app.services.maker_checker_service import (
+    ApprovalAction,
+    ApprovalStatus,
+    ReturnApproval,
+    approve_return,
+    assert_maker_checker_gate,
+    get_approval_history,
+    get_return_approval,
+    normalize_return_type,
+    prepare_return,
+    reject_return,
+    submit_for_review,
+    transition_approval_status,
+)
 from app.filing.sandbox_filing_client import (
     FilingApiError,
     FilingAuthError,
@@ -431,6 +445,62 @@ class CreateBatchBody(_StripModel):
         if not v:
             raise ValueError("must not be empty")
         return v
+
+
+class PrepareApprovalBody(_StripModel):
+    client_gstin_id: str
+    figures_payload: dict[str, Any]
+    validation_digest: Optional[str] = ""
+    notes: Optional[str] = ""
+    submit_for_review: bool = False
+
+    @field_validator("client_gstin_id")
+    @classmethod
+    def _cid(cls, v: str) -> str:
+        s = v.strip()
+        if not s:
+            raise ValueError("client_gstin_id required")
+        return s
+
+
+class SubmitApprovalBody(_StripModel):
+    client_gstin_id: str
+    notes: Optional[str] = ""
+
+    @field_validator("client_gstin_id")
+    @classmethod
+    def _cid(cls, v: str) -> str:
+        s = v.strip()
+        if not s:
+            raise ValueError("client_gstin_id required")
+        return s
+
+
+class ApproveApprovalBody(_StripModel):
+    client_gstin_id: str
+    expected_figures_digest: Optional[str] = None
+    notes: Optional[str] = ""
+
+    @field_validator("client_gstin_id")
+    @classmethod
+    def _cid(cls, v: str) -> str:
+        s = v.strip()
+        if not s:
+            raise ValueError("client_gstin_id required")
+        return s
+
+
+class RejectApprovalBody(_StripModel):
+    client_gstin_id: str
+    rejection_reason: str
+
+    @field_validator("client_gstin_id", "rejection_reason")
+    @classmethod
+    def _req(cls, v: str) -> str:
+        s = v.strip()
+        if not s:
+            raise ValueError("Field required and cannot be empty")
+        return s
 
 
 # ---------------------------------------------------------------------------
@@ -999,6 +1069,18 @@ def _execute_save(
         user=effective_user,
     )
 
+    # Phase 3.2 Maker-Checker Return Filing Approval Gate
+    assert_maker_checker_gate(
+        sb,
+        firm_id=firm_id,
+        client_gstin_id=client_gstin_id,
+        gstin=gstin,
+        period=period,
+        return_type="GSTR-1",
+        current_figures_payload=save_body,
+        operation="SAVE",
+    )
+
     run = filing_store.create_run(
         sb,
         firm_id=firm_id,
@@ -1033,6 +1115,23 @@ def _execute_save(
         raw_response=result.envelope,
         clear_error=True,
     )
+
+    try:
+        transition_approval_status(
+            sb,
+            firm_id=firm_id,
+            client_gstin_id=client_gstin_id,
+            period=period,
+            return_type="GSTR-1",
+            to_status=ApprovalStatus.SAVED,
+            action=ApprovalAction.SAVED.value,
+            actor=effective_user,
+            filing_run_id=run["id"],
+            notes=f"GSTR-1 Save initiated with reference_id {result.reference_id}",
+        )
+    except Exception as exc:
+        _log.warning("Failed to transition approval status to SAVED: %s", exc)
+
     readiness = serialize_gstr1_readiness(mapped)
     return {
         "run_id": run["id"],
@@ -1549,6 +1648,20 @@ def file_gstr1(
                 user=current_user,
             )
 
+        # Phase 3.2 Maker-Checker Gate
+        assert_maker_checker_gate(
+            sb,
+            firm_id=firm_id,
+            client_gstin_id=client_gid,
+            gstin=run_gstin,
+            period=period,
+            return_type="GSTR-1",
+            current_figures_payload=run_data.get("save_payload"),
+            operation="FILE",
+            run_status=str(run_data.get("status") or ""),
+            run_created_at=run_data.get("created_at"),
+        )
+
     file_body = body.file_body
     if file_body is None:
         # Pull summary for sec_sum / chksum required by File.
@@ -1616,6 +1729,23 @@ def file_gstr1(
             )
         except Exception:
             _log.warning("Failed to consume override on GSTR-1 file", exc_info=True)
+        try:
+            run_data = _load_run_for_firm(sb, firm_id, body.run_id)
+            client_gid = str(run_data.get("client_gstin_id") or "")
+            transition_approval_status(
+                sb,
+                firm_id=firm_id,
+                client_gstin_id=client_gid,
+                period=period,
+                return_type="GSTR-1",
+                to_status=ApprovalStatus.FILED,
+                action=ApprovalAction.FILED.value,
+                actor=current_user,
+                filing_run_id=body.run_id,
+                notes=f"GSTR-1 return filed with GSTN ack_number {result.ack_number}",
+            )
+        except Exception as exc:
+            _log.warning("Failed to transition approval status to FILED: %s", exc)
     info = result.return_status
     return {
         "period": period,
@@ -1966,6 +2096,18 @@ def save_gstr3b(
         user=current_user,
     )
 
+    # Phase 3.2 Maker-Checker Return Filing Approval Gate
+    assert_maker_checker_gate(
+        sb,
+        firm_id=firm_id,
+        client_gstin_id=body.client_gstin_id,
+        gstin=gstin,
+        period=period,
+        return_type="GSTR-3B",
+        current_figures_payload=save_body,
+        operation="SAVE",
+    )
+
     run = None
     if body.run_id:
         run = _load_run_for_firm(sb, firm_id, body.run_id)
@@ -2033,6 +2175,22 @@ def save_gstr3b(
         raw_response=result.envelope,
         clear_error=True,
     )
+
+    try:
+        transition_approval_status(
+            sb,
+            firm_id=firm_id,
+            client_gstin_id=body.client_gstin_id,
+            period=period,
+            return_type="GSTR-3B",
+            to_status=ApprovalStatus.SAVED,
+            action=ApprovalAction.SAVED.value,
+            actor=current_user,
+            filing_run_id=run_id,
+            notes=f"GSTR-3B Save completed with reference_id {result.reference_id}",
+        )
+    except Exception as exc:
+        _log.warning("Failed to transition approval status to SAVED: %s", exc)
     info = result.return_status
     return {
         "run_id": run_id,
@@ -2189,6 +2347,20 @@ def offset_gstr3b(
                 user=current_user,
             )
 
+    # Phase 3.2 Maker-Checker Return Filing Approval Gate
+    assert_maker_checker_gate(
+        sb,
+        firm_id=firm_id,
+        client_gstin_id=body.client_gstin_id,
+        gstin=gstin,
+        period=period,
+        return_type="GSTR-3B",
+        current_figures_payload=run_obj.get("save_payload") if run_obj else None,
+        operation="OFFSET",
+        run_status=str(run_obj.get("status") or "") if run_obj else None,
+        run_created_at=run_obj.get("created_at") if run_obj else None,
+    )
+
     posted = extract_offset_pair({"pdcash": body.pdcash, "pditc": body.pditc})
     token, _ = _resolve_token(
         sb, firm_id, session_id=body.session_id, gstin=gstin,
@@ -2233,6 +2405,22 @@ def offset_gstr3b(
         offset_payload=posted,
         clear_error=True,
     )
+
+    try:
+        transition_approval_status(
+            sb,
+            firm_id=firm_id,
+            client_gstin_id=body.client_gstin_id,
+            period=period,
+            return_type="GSTR-3B",
+            to_status=ApprovalStatus.OFFSET_COMPLETE,
+            action=ApprovalAction.OFFSET_COMPLETED.value,
+            actor=current_user,
+            filing_run_id=body.run_id,
+            notes=f"GSTR-3B liability offset initiated with reference_id {result.reference_id}",
+        )
+    except Exception as exc:
+        _log.warning("Failed to transition approval status to OFFSET_COMPLETE: %s", exc)
     info = result.return_status
     return {
         "period": period,
@@ -2345,6 +2533,20 @@ def file_gstr3b(
                 user=current_user,
             )
 
+        # Phase 3.2 Maker-Checker Gate
+        assert_maker_checker_gate(
+            sb,
+            firm_id=firm_id,
+            client_gstin_id=client_gid,
+            gstin=run_gstin,
+            period=period,
+            return_type="GSTR-3B",
+            current_figures_payload=run_data.get("save_payload"),
+            operation="FILE",
+            run_status=str(run_data.get("status") or ""),
+            run_created_at=run_data.get("created_at"),
+        )
+
     file_body = body.file_body
     if file_body is None:
         try:
@@ -2404,6 +2606,23 @@ def file_gstr3b(
             )
         except Exception:
             _log.warning("Failed to consume override on GSTR-3B file", exc_info=True)
+        try:
+            run_data = _load_run_for_firm(sb, firm_id, body.run_id)
+            client_gid = str(run_data.get("client_gstin_id") or "")
+            transition_approval_status(
+                sb,
+                firm_id=firm_id,
+                client_gstin_id=client_gid,
+                period=period,
+                return_type="GSTR-3B",
+                to_status=ApprovalStatus.FILED,
+                action=ApprovalAction.FILED.value,
+                actor=current_user,
+                filing_run_id=body.run_id,
+                notes=f"GSTR-3B return filed with GSTN ack_number {result.ack_number}",
+            )
+        except Exception as exc:
+            _log.warning("Failed to transition approval status to FILED: %s", exc)
     info = result.return_status
     return {
         "period": period,
@@ -2654,6 +2873,169 @@ def get_cumulative_fy_reconciliation(
         fy=fy.strip(),
     )
     return recon
+
+
+# ---------------------------------------------------------------------------
+# Phase 3.2 Maker-Checker Return Filing Approvals Endpoints
+# ---------------------------------------------------------------------------
+
+
+@router.get("/approvals/{return_type}/{period}")
+def get_filing_approval(
+    return_type: str,
+    period: str,
+    client_gstin_id: str = Query(..., description="Client GSTIN UUID"),
+    current_user: dict = Depends(get_current_active_user),
+):
+    """Retrieve durable return approval status, digest, and preparer/approver details."""
+    period = _assert_period_yyyy_mm(period)
+    sb = get_supabase()
+    firm_id = _firm_id(sb, current_user)
+    _assert_client_access(sb, current_user, client_gstin_id.strip())
+
+    approval = get_return_approval(
+        sb,
+        firm_id=firm_id,
+        client_gstin_id=client_gstin_id.strip(),
+        period=period,
+        return_type=return_type,
+    )
+    return approval.to_dict()
+
+
+@router.post("/approvals/{return_type}/{period}/prepare")
+def prepare_filing_approval(
+    return_type: str,
+    period: str,
+    body: PrepareApprovalBody,
+    current_user: dict = Depends(get_current_active_user),
+):
+    """Authorized preparer prepares figures and computes cryptographic SHA-256 digest."""
+    period = _assert_period_yyyy_mm(period)
+    sb = get_supabase()
+    firm_id = _firm_id(sb, current_user)
+    client_row = _assert_client_access(sb, current_user, body.client_gstin_id.strip())
+    gstin = str(client_row["gstin"]).strip().upper()
+
+    approval = prepare_return(
+        sb,
+        firm_id=firm_id,
+        client_gstin_id=body.client_gstin_id.strip(),
+        gstin=gstin,
+        period=period,
+        return_type=return_type,
+        figures_payload=body.figures_payload,
+        validation_digest=body.validation_digest or "",
+        notes=body.notes or "",
+        actor=current_user,
+        submit_for_review=body.submit_for_review,
+    )
+    return approval.to_dict()
+
+
+@router.post("/approvals/{return_type}/{period}/submit")
+def submit_filing_approval(
+    return_type: str,
+    period: str,
+    body: SubmitApprovalBody,
+    current_user: dict = Depends(get_current_active_user),
+):
+    """Submit prepared return for Maker-Checker review."""
+    period = _assert_period_yyyy_mm(period)
+    sb = get_supabase()
+    firm_id = _firm_id(sb, current_user)
+    client_row = _assert_client_access(sb, current_user, body.client_gstin_id.strip())
+    gstin = str(client_row["gstin"]).strip().upper()
+
+    approval = submit_for_review(
+        sb,
+        firm_id=firm_id,
+        client_gstin_id=body.client_gstin_id.strip(),
+        gstin=gstin,
+        period=period,
+        return_type=return_type,
+        notes=body.notes or "",
+        actor=current_user,
+    )
+    return approval.to_dict()
+
+
+@router.post("/approvals/{return_type}/{period}/approve")
+def approve_filing_approval(
+    return_type: str,
+    period: str,
+    body: ApproveApprovalBody,
+    current_user: dict = Depends(get_current_active_user),
+):
+    """Authorized Manager/Partner approves return. Enforces separation of duties (preparer != approver)."""
+    period = _assert_period_yyyy_mm(period)
+    sb = get_supabase()
+    firm_id = _firm_id(sb, current_user)
+    client_row = _assert_client_access(sb, current_user, body.client_gstin_id.strip())
+    gstin = str(client_row["gstin"]).strip().upper()
+
+    approval = approve_return(
+        sb,
+        firm_id=firm_id,
+        client_gstin_id=body.client_gstin_id.strip(),
+        gstin=gstin,
+        period=period,
+        return_type=return_type,
+        expected_figures_digest=body.expected_figures_digest,
+        notes=body.notes or "",
+        actor=current_user,
+    )
+    return approval.to_dict()
+
+
+@router.post("/approvals/{return_type}/{period}/reject")
+def reject_filing_approval(
+    return_type: str,
+    period: str,
+    body: RejectApprovalBody,
+    current_user: dict = Depends(get_current_active_user),
+):
+    """Authorized Manager/Partner rejects return with mandatory reason."""
+    period = _assert_period_yyyy_mm(period)
+    sb = get_supabase()
+    firm_id = _firm_id(sb, current_user)
+    client_row = _assert_client_access(sb, current_user, body.client_gstin_id.strip())
+    gstin = str(client_row["gstin"]).strip().upper()
+
+    approval = reject_return(
+        sb,
+        firm_id=firm_id,
+        client_gstin_id=body.client_gstin_id.strip(),
+        gstin=gstin,
+        period=period,
+        return_type=return_type,
+        rejection_reason=body.rejection_reason,
+        actor=current_user,
+    )
+    return approval.to_dict()
+
+
+@router.get("/approvals/{return_type}/{period}/history")
+def get_filing_approval_history(
+    return_type: str,
+    period: str,
+    client_gstin_id: str = Query(..., description="Client GSTIN UUID"),
+    current_user: dict = Depends(get_current_active_user),
+):
+    """Retrieve tenant-scoped immutable audit trail for return approval."""
+    period = _assert_period_yyyy_mm(period)
+    sb = get_supabase()
+    firm_id = _firm_id(sb, current_user)
+    _assert_client_access(sb, current_user, client_gstin_id.strip())
+
+    history = get_approval_history(
+        sb,
+        firm_id=firm_id,
+        client_gstin_id=client_gstin_id.strip(),
+        period=period,
+        return_type=return_type,
+    )
+    return {"history": history}
 
 
 router.include_router(gstr3b_router)

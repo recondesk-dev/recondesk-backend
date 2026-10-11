@@ -3703,6 +3703,170 @@ export const governanceApi = {
   },
 };
 
+// ─── Maker-Checker Return Filing Approvals (Phase 3.2) ────────────────────────
+
+export type ReturnApprovalStatus =
+  | "DRAFT"
+  | "PREPARED"
+  | "UNDER_REVIEW"
+  | "APPROVED"
+  | "REJECTED"
+  | "SAVED"
+  | "OFFSET_COMPLETE"
+  | "FILED";
+
+export type ReturnApproval = {
+  id: string;
+  firm_id: string;
+  client_gstin_id: string;
+  gstin: string;
+  period: string;
+  return_type: string;
+  status: ReturnApprovalStatus;
+  figures_digest: string;
+  validation_digest: string;
+  figures_summary: Record<string, unknown>;
+  preparer_id: string | null;
+  preparer_name: string;
+  preparer_role: string;
+  prepared_at: string | null;
+  submission_notes: string;
+  approver_id: string | null;
+  approver_name: string;
+  approver_role: string;
+  approved_at: string | null;
+  approval_notes: string;
+  rejected_by: string | null;
+  rejected_by_name: string;
+  rejected_by_role: string;
+  rejected_at: string | null;
+  rejection_reason: string;
+  filing_run_id: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ReturnApprovalAuditEntry = {
+  id: string;
+  approval_id: string;
+  firm_id: string;
+  client_gstin_id: string | null;
+  gstin: string;
+  period: string;
+  return_type: string;
+  action: string;
+  from_status: string | null;
+  to_status: string;
+  actor_id: string | null;
+  actor_name: string;
+  actor_role: string;
+  figures_digest: string;
+  notes: string;
+  rejection_reason: string;
+  metadata: Record<string, unknown>;
+  created_at: string;
+};
+
+export const filingApprovalsApi = {
+  getApproval: (
+    token: string,
+    returnType: string,
+    period: string,
+    clientGstinId: string
+  ) =>
+    apiFetch<ReturnApproval>(
+      `/api/filing/approvals/${encodeURIComponent(returnType)}/${encodeURIComponent(period)}?client_gstin_id=${encodeURIComponent(clientGstinId)}`,
+      { token, cache: "no-store" }
+    ),
+
+  prepare: (
+    token: string,
+    returnType: string,
+    period: string,
+    body: {
+      client_gstin_id: string;
+      figures_payload: Record<string, unknown>;
+      validation_digest?: string;
+      notes?: string;
+      submit_for_review?: boolean;
+    }
+  ) =>
+    apiFetch<ReturnApproval>(
+      `/api/filing/approvals/${encodeURIComponent(returnType)}/${encodeURIComponent(period)}/prepare`,
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+        token,
+      }
+    ),
+
+  submit: (
+    token: string,
+    returnType: string,
+    period: string,
+    body: {
+      client_gstin_id: string;
+      notes?: string;
+    }
+  ) =>
+    apiFetch<ReturnApproval>(
+      `/api/filing/approvals/${encodeURIComponent(returnType)}/${encodeURIComponent(period)}/submit`,
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+        token,
+      }
+    ),
+
+  approve: (
+    token: string,
+    returnType: string,
+    period: string,
+    body: {
+      client_gstin_id: string;
+      expected_figures_digest?: string;
+      notes?: string;
+    }
+  ) =>
+    apiFetch<ReturnApproval>(
+      `/api/filing/approvals/${encodeURIComponent(returnType)}/${encodeURIComponent(period)}/approve`,
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+        token,
+      }
+    ),
+
+  reject: (
+    token: string,
+    returnType: string,
+    period: string,
+    body: {
+      client_gstin_id: string;
+      rejection_reason: string;
+    }
+  ) =>
+    apiFetch<ReturnApproval>(
+      `/api/filing/approvals/${encodeURIComponent(returnType)}/${encodeURIComponent(period)}/reject`,
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+        token,
+      }
+    ),
+
+  getHistory: (
+    token: string,
+    returnType: string,
+    period: string,
+    clientGstinId: string
+  ) =>
+    apiFetch<{ history: ReturnApprovalAuditEntry[] }>(
+      `/api/filing/approvals/${encodeURIComponent(returnType)}/${encodeURIComponent(period)}/history?client_gstin_id=${encodeURIComponent(clientGstinId)}`,
+      { token, cache: "no-store" }
+    ),
+};
+
 // ─── Manage Data (admin raw file storage) ─────────────────────────────────────
 
 export interface ManageDataFileInfo {

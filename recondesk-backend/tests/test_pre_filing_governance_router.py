@@ -217,6 +217,7 @@ def test_gstr1_filing_idempotency_gstn_success_with_db_failure_preserves_ack_num
         "status": "saved",
         "client_gstin_id": "cid-1",
         "gstin": "27AABCU9603R1ZM",
+        "created_at": "2024-11-10T10:00:00Z",
     }
 
     with patch("app.routers.filing.get_supabase", return_value=mock_sb):
@@ -259,6 +260,7 @@ def test_gstr3b_filing_idempotency_gstn_success_with_db_failure_preserves_ack_nu
         "status": "offset_complete",
         "client_gstin_id": "cid-1",
         "gstin": "27AABCU9603R1ZM",
+        "created_at": "2024-11-10T10:00:00Z",
     }
 
     with patch("app.routers.filing.get_supabase", return_value=mock_sb):

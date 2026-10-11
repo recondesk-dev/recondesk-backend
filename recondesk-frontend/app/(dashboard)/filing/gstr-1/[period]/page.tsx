@@ -18,6 +18,7 @@ import {
   SaveToGstnAction,
   type SaveServerState,
 } from "@/components/filing/SaveToGstnAction";
+import { MakerCheckerApprovalCard } from "@/components/filing/MakerCheckerApprovalCard";
 import type { Gstr1PatchRecord } from "@/lib/gstr1PatchVoucher";
 import { toFilingPeriodYyyyMm } from "@/components/filing/filingHelpers";
 import {
@@ -397,6 +398,21 @@ function Gstr1FilingPageContent() {
           clientGstinId={clientGstinId}
           sessionId={sessionId}
           onSessionId={setSessionId}
+        />
+      ) : null}
+
+      {gstin && clientGstinId ? (
+        <MakerCheckerApprovalCard
+          token={token}
+          clientGstinId={clientGstinId}
+          gstin={gstin}
+          period={period}
+          returnType="GSTR-1"
+          preparedFigures={
+            readiness?.portal_mirror
+              ? (readiness.portal_mirror as unknown as Record<string, unknown>)
+              : null
+          }
         />
       ) : null}
 

@@ -9,6 +9,7 @@ import useSWR from "swr";
 import { Gstr3bEvcAndFilePanel } from "@/components/filing/gstr3b/Gstr3bEvcAndFilePanel";
 import { Gstr3bFiguresForm } from "@/components/filing/gstr3b/Gstr3bFiguresForm";
 import { Gstr3bSaveAction } from "@/components/filing/gstr3b/Gstr3bSaveAction";
+import { MakerCheckerApprovalCard } from "@/components/filing/MakerCheckerApprovalCard";
 import {
   OffsetLiabilityGate,
   type Gstr3bRunState,
@@ -389,6 +390,17 @@ function Gstr3bFilingPageContent() {
             runState.serverRunStatus === "evc_pending" ||
             runState.serverRunStatus === "filed"
           }
+        />
+      ) : null}
+
+      {gstin && clientGstinId ? (
+        <MakerCheckerApprovalCard
+          token={token}
+          clientGstinId={clientGstinId}
+          gstin={gstin}
+          period={period}
+          returnType="GSTR-3B"
+          preparedFigures={figuresToSaveBody(figures)}
         />
       ) : null}
 

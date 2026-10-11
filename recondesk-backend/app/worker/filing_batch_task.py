@@ -232,6 +232,37 @@ def process_filing_batch(self, batch_id: str) -> dict[str, Any]:
 
             active_override_id = getattr(active_override, "id", None) if active_override else None
 
+            # 3c. Pre-Filing Maker-Checker Approval Gate (Phase 3.2)
+            from app.services.maker_checker_service import (
+                assert_maker_checker_gate,
+                transition_approval_status,
+                ApprovalStatus,
+                ApprovalAction,
+            )
+            try:
+                assert_maker_checker_gate(
+                    sb,
+                    firm_id=firm_id,
+                    client_gstin_id=client_gstin_id,
+                    gstin=gstin,
+                    period=period,
+                    return_type="GSTR-1",
+                    current_figures_payload=save_payload,
+                    operation="SAVE",
+                )
+            except HTTPException as exc:
+                detail_msg = exc.detail.get("message") if isinstance(exc.detail, dict) else str(exc.detail)
+                err_code = exc.detail.get("code") if isinstance(exc.detail, dict) else "MAKER_CHECKER_APPROVAL_REQUIRED"
+                _log.warning("[BATCH_WORKER] Maker-checker approval blocked for %s: %s", gstin, detail_msg)
+                filing_store.update_batch_item(
+                    sb,
+                    item_id,
+                    status="blocked",
+                    error_code=err_code,
+                    error_detail=detail_msg or "Blocked: Maker-checker approval required or stale figures.",
+                )
+                continue
+
             # Rate limit delay before GSTN API call
             time.sleep(RATE_LIMIT_DELAY_SEC)
 
@@ -270,6 +301,22 @@ def process_filing_batch(self, batch_id: str) -> dict[str, Any]:
                 raw_response=save_result.envelope,
                 clear_error=True,
             )
+
+            try:
+                transition_approval_status(
+                    sb,
+                    firm_id=firm_id,
+                    client_gstin_id=client_gstin_id,
+                    period=period,
+                    return_type="GSTR-1",
+                    to_status=ApprovalStatus.SAVED,
+                    action=ApprovalAction.SAVED.value,
+                    actor={"id": created_by, "role": "admin"},
+                    filing_run_id=run_id,
+                    notes=f"Bulk batch save initiated by task {task_id}",
+                )
+            except Exception as exc:
+                _log.warning("[BATCH_WORKER] Failed to transition approval status to SAVED: %s", exc)
 
             # 5. Poll Return Status until inner status_cd P or failure
             poll_delay = POLL_INITIAL_DELAY_SEC
