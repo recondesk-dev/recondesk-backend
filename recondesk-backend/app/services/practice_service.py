@@ -63,6 +63,7 @@ class _PracticeStore:
         self._org_by_pan: dict[str, OrganizationData] = {}    # key: f"{firm_id}:{pan}"
         self._tasks: dict[str, TaskData] = {}                 # key: task_id
         self._task_audits: list[dict[str, Any]] = []
+        self._deadlines: dict[str, dict[str, Any]] = {}
 
     def clear(self) -> None:
         with self._lock:
@@ -70,6 +71,7 @@ class _PracticeStore:
             self._org_by_pan.clear()
             self._tasks.clear()
             self._task_audits.clear()
+            self._deadlines.clear()
 
     # Organizations
     def put_organization(self, org: OrganizationData) -> None:
@@ -114,6 +116,18 @@ class _PracticeStore:
     def list_task_audits(self, task_id: str) -> list[dict[str, Any]]:
         with self._lock:
             return [a for a in self._task_audits if a.get("task_id") == task_id]
+
+    # Compliance Deadlines
+    def put_deadline(self, deadline: dict[str, Any]) -> None:
+        with self._lock:
+            key = f"{deadline.get('period')}:{deadline.get('return_type')}:{deadline.get('category', 'regular')}:{deadline.get('state_group', 'ALL')}"
+            self._deadlines[key] = deadline
+
+    def list_deadlines(self, period: Optional[str] = None) -> list[dict[str, Any]]:
+        with self._lock:
+            if period:
+                return [d for d in self._deadlines.values() if d.get("period") == period]
+            return list(self._deadlines.values())
 
 
 _practice_store = _PracticeStore()
@@ -783,29 +797,108 @@ def _row_to_task(row: dict[str, Any]) -> TaskData:
 
 
 # ---------------------------------------------------------------------------
-# 3. Compliance Calendar Engine
+# 3. Compliance Calendar Engine (CBIC / GSTN Authoritative Rules)
 # ---------------------------------------------------------------------------
 
-STATE_GROUP_A = frozenset({
-    "22", "23", "24", "26", "27", "29", "30", "31", "32", "33", "34", "35", "36", "37"
-})
-# Group A (Due: 22nd): Chhattisgarh (22), Madhya Pradesh (23), Gujarat (24),
-# Dadra & Nagar Haveli and Daman & Diu (26), Maharashtra (27), Karnataka (29), Goa (30),
-# Lakshadweep (31), Kerala (32), Tamil Nadu (33), Puducherry (34),
-# Andaman & Nicobar Islands (35), Telangana (36), Andhra Pradesh (37).
+@dataclass(frozen=True)
+class GSTJurisdiction:
+    code: str
+    name: str
+    qrmp_group: str          # "A" or "B"
+    qrmp_due_day: int        # 22 or 24
+    is_union_territory: bool
+    citation: str = "Notification No. 82/2020-Central Tax (10.11.2020) / CGST Rule 61(1)"
 
-STATE_GROUP_B = frozenset({
-    "01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12",
-    "13", "14", "15", "16", "17", "18", "19", "20", "21", "38"
-})
-# Group B (Due: 24th): Jammu & Kashmir (01), Himachal Pradesh (02), Punjab (03),
-# Chandigarh (04), Uttarakhand (05), Haryana (06), Delhi (07), Rajasthan (08),
-# Uttar Pradesh (09), Bihar (10), Sikkim (11), Arunachal Pradesh (12), Nagaland (13),
-# Manipur (14), Mizoram (15), Tripura (16), Meghalaya (17), Assam (18),
-# West Bengal (19), Jharkhand (20), Odisha (21), Ladakh (38).
+
+# Authoritative mapping of ALL 36 Indian States & Union Territories under GST
+# Group A (14 jurisdictions: 10 States + 4 UTs, Due: 22nd of succeeding month under CGST Rule 61(1)(i))
+# Group B (22 jurisdictions: 18 States + 4 UTs, Due: 24th of succeeding month under CGST Rule 61(1)(ii))
+ALL_GST_STATE_CODES: dict[str, GSTJurisdiction] = {
+    # Group B Jurisdictions (Due: 24th)
+    "01": GSTJurisdiction("01", "Jammu and Kashmir", "B", 24, True),
+    "02": GSTJurisdiction("02", "Himachal Pradesh", "B", 24, False),
+    "03": GSTJurisdiction("03", "Punjab", "B", 24, False),
+    "04": GSTJurisdiction("04", "Chandigarh", "B", 24, True),
+    "05": GSTJurisdiction("05", "Uttarakhand", "B", 24, False),
+    "06": GSTJurisdiction("06", "Haryana", "B", 24, False),
+    "07": GSTJurisdiction("07", "Delhi", "B", 24, True),
+    "08": GSTJurisdiction("08", "Rajasthan", "B", 24, False),
+    "09": GSTJurisdiction("09", "Uttar Pradesh", "B", 24, False),
+    "10": GSTJurisdiction("10", "Bihar", "B", 24, False),
+    "11": GSTJurisdiction("11", "Sikkim", "B", 24, False),
+    "12": GSTJurisdiction("12", "Arunachal Pradesh", "B", 24, False),
+    "13": GSTJurisdiction("13", "Nagaland", "B", 24, False),
+    "14": GSTJurisdiction("14", "Manipur", "B", 24, False),
+    "15": GSTJurisdiction("15", "Mizoram", "B", 24, False),
+    "16": GSTJurisdiction("16", "Tripura", "B", 24, False),
+    "17": GSTJurisdiction("17", "Meghalaya", "B", 24, False),
+    "18": GSTJurisdiction("18", "Assam", "B", 24, False),
+    "19": GSTJurisdiction("19", "West Bengal", "B", 24, False),
+    "20": GSTJurisdiction("20", "Jharkhand", "B", 24, False),
+    "21": GSTJurisdiction("21", "Odisha", "B", 24, False),
+    # Group A Jurisdictions (Due: 22nd)
+    "22": GSTJurisdiction("22", "Chhattisgarh", "A", 22, False),
+    "23": GSTJurisdiction("23", "Madhya Pradesh", "A", 22, False),
+    "24": GSTJurisdiction("24", "Gujarat", "A", 22, False),
+    "26": GSTJurisdiction("26", "Dadra and Nagar Haveli and Daman and Diu", "A", 22, True),
+    "27": GSTJurisdiction("27", "Maharashtra", "A", 22, False),
+    "29": GSTJurisdiction("29", "Karnataka", "A", 22, False),
+    "30": GSTJurisdiction("30", "Goa", "A", 22, False),
+    "31": GSTJurisdiction("31", "Lakshadweep", "A", 22, True),
+    "32": GSTJurisdiction("32", "Kerala", "A", 22, False),
+    "33": GSTJurisdiction("33", "Tamil Nadu", "A", 22, False),
+    "34": GSTJurisdiction("34", "Puducherry", "A", 22, True),
+    "35": GSTJurisdiction("35", "Andaman and Nicobar Islands", "A", 22, True),
+    "36": GSTJurisdiction("36", "Telangana", "A", 22, False),
+    "37": GSTJurisdiction("37", "Andhra Pradesh", "A", 22, False),
+    # Group B UT (Due: 24th)
+    "38": GSTJurisdiction("38", "Ladakh", "B", 24, True),
+}
+
+STATE_GROUP_A = frozenset({c for c, j in ALL_GST_STATE_CODES.items() if j.qrmp_group == "A"})
+STATE_GROUP_B = frozenset({c for c, j in ALL_GST_STATE_CODES.items() if j.qrmp_group == "B"})
 
 GROUP_A_NAMES = "Chhattisgarh, MP, Gujarat, Maharashtra, Karnataka, Goa, Kerala, TN, Telangana, AP, D&NH/D&D, Puducherry, A&N, Lakshadweep"
 GROUP_B_NAMES = "Delhi, UP, Bihar, Haryana, Punjab, Rajasthan, WB, Odisha, Jharkhand, HP, Uttarakhand, NE States, J&K, Ladakh, Chandigarh"
+
+
+def create_deadline_override(
+    sb: Any,
+    *,
+    period: str,
+    return_type: str,
+    extended_due_date: str,
+    notification_ref: str,
+    standard_due_date: Optional[str] = None,
+    category: str = "regular",
+    state_group: str = "ALL",
+    firm_id: Optional[str] = None,
+) -> dict[str, Any]:
+    """Register an official CBIC or custom statutory filing deadline extension."""
+    norm_period = period.strip()
+    if re.match(r"^[0-9]{2}[0-9]{4}$", norm_period):
+        norm_period = f"{norm_period[2:6]}-{norm_period[:2]}"
+
+    deadline_id = str(uuid4())
+    payload = {
+        "id": deadline_id,
+        "period": norm_period,
+        "return_type": return_type.upper().strip(),
+        "category": category,
+        "state_group": state_group,
+        "standard_due_date": standard_due_date or extended_due_date,
+        "extended_due_date": extended_due_date,
+        "notification_ref": notification_ref,
+        "firm_id": firm_id,
+        "created_at": _now_iso(),
+    }
+    _practice_store.put_deadline(payload)
+    if sb is not None and not _is_test_runner(sb):
+        try:
+            sb.table(DEADLINES_TABLE).upsert(payload).execute()
+        except Exception as exc:
+            _log.warning("Failed to persist deadline override to DB: %s", exc)
+    return payload
 
 
 def compute_statutory_due_dates(
@@ -815,12 +908,12 @@ def compute_statutory_due_dates(
 ) -> list[dict[str, Any]]:
     """Compute statutory GST filing deadlines for a given return period YYYY-MM or MMYYYY.
     
-    Jurisdiction-aware:
-    - GSTR-1 Monthly: 11th of succeeding month (Notification 83/2020-CT)
-    - GSTR-1 IFF (QRMP M1/M2): 13th of succeeding month (Rule 59(2))
-    - GSTR-3B Monthly: 20th of succeeding month (Notification 82/2020-CT)
-    - GSTR-3B QRMP: Staggered (22nd for Group A, 24th for Group B) (Rule 61(1))
-    - CMP-08 (Composition): 18th of month following quarter (Notification 21/2019-CT)
+    Authoritative statutory schedule:
+    - GSTR-1 Monthly: 11th of succeeding month (Notification No. 83/2020-CT, Rule 59(1))
+    - GSTR-1 IFF (QRMP M1/M2): 13th of succeeding month (Rule 59(2) & Circular 143/13/2020-GST)
+    - GSTR-3B Monthly: 20th of succeeding month (Notification No. 82/2020-CT, Rule 61(1))
+    - GSTR-3B QRMP: Staggered (22nd for Group A under Rule 61(1)(i), 24th for Group B under Rule 61(1)(ii))
+    - CMP-08 (Composition): 18th of month following quarter (Notification No. 21/2019-CT)
     """
     clean_p = (period or "").strip()
     if re.match(r"^[0-9]{4}-[0-9]{2}$", clean_p):
@@ -848,7 +941,7 @@ def compute_statutory_due_dates(
 
     today = date.today()
     is_quarter_end = month in (3, 6, 9, 12)
-    clean_freq = (frequency or "").upper().strip()
+    clean_freq = frequency.upper().strip() if isinstance(frequency, str) else ""
 
     def _make_item(
         rt: str,
@@ -884,7 +977,7 @@ def compute_statutory_due_dates(
         }
 
     results: list[dict[str, Any]] = []
-    st = (state_code or "").strip()[:2]
+    st = state_code.strip()[:2] if isinstance(state_code, str) else ""
 
     # 1. GSTR-1 Monthly
     if not clean_freq or clean_freq in ("ALL", "MONTHLY"):
@@ -896,6 +989,7 @@ def compute_statutory_due_dates(
             applicability="Monthly regular taxpayers with turnover > ₹5 Cr or opted monthly",
             verification_status="STATUTORY_RULE",
             is_verified=True,
+            note="Rule 59(1) / Notification No. 83/2020-Central Tax",
         ))
 
     # 2. GSTR-1 IFF (QRMP)
@@ -908,7 +1002,7 @@ def compute_statutory_due_dates(
             applicability="QRMP filers uploading B2B supplies for interim quarter months",
             verification_status="STATUTORY_RULE",
             is_verified=True,
-            note="Optional for M1 and M2; quarterly GSTR-1 filed in M3",
+            note="Optional for M1 and M2 under Rule 59(2); full quarterly GSTR-1 filed in M3",
         ))
 
     # 3. GSTR-3B Monthly
@@ -921,35 +1015,28 @@ def compute_statutory_due_dates(
             applicability="Monthly regular filers (all states)",
             verification_status="STATUTORY_RULE",
             is_verified=True,
+            note="Rule 61(1) / Notification No. 82/2020-Central Tax",
         ))
 
     # 4. GSTR-3B QRMP (Staggered by State)
     if not clean_freq or clean_freq in ("ALL", "QRMP"):
         if st:
-            if st in STATE_GROUP_A:
+            lookup_st = "26" if st == "25" else st
+            jur = ALL_GST_STATE_CODES.get(lookup_st)
+            if jur:
+                rule_clause = "Rule 61(1)(i)" if jur.qrmp_group == "A" else "Rule 61(1)(ii)"
                 results.append(_make_item(
                     "GSTR-3B",
-                    "qrmp_quarterly_group_a",
-                    22,
-                    f"GSTR-3B QRMP (Group A - State {st})",
-                    applicability=f"QRMP taxpayers in Group A (State {st})",
+                    f"qrmp_quarterly_group_{jur.qrmp_group.lower()}",
+                    jur.qrmp_due_day,
+                    f"GSTR-3B QRMP (Group {jur.qrmp_group} - {jur.name})",
+                    applicability=f"QRMP taxpayers in {jur.name} (Group {jur.qrmp_group}, State code {st})",
                     verification_status="STATUTORY_RULE",
                     is_verified=True,
-                    note=f"Authoritative 22nd deadline under Rule 61(1)(i). States: {GROUP_A_NAMES}",
-                ))
-            elif st in STATE_GROUP_B:
-                results.append(_make_item(
-                    "GSTR-3B",
-                    "qrmp_quarterly_group_b",
-                    24,
-                    f"GSTR-3B QRMP (Group B - State {st})",
-                    applicability=f"QRMP taxpayers in Group B (State {st})",
-                    verification_status="STATUTORY_RULE",
-                    is_verified=True,
-                    note=f"Authoritative 24th deadline under Rule 61(1)(ii). States: {GROUP_B_NAMES}",
+                    note=f"Authoritative {jur.qrmp_due_day}th deadline under {rule_clause} and Notification No. 82/2020-Central Tax.",
                 ))
             else:
-                # State code recognized neither Group A nor B (e.g. unknown UT)
+                # State code recognized neither Group A nor B (e.g. invalid state)
                 results.append(_make_item(
                     "GSTR-3B",
                     "qrmp_quarterly",
@@ -970,7 +1057,7 @@ def compute_statutory_due_dates(
                 applicability=f"QRMP taxpayers in Group A: {GROUP_A_NAMES}",
                 verification_status="INFERRED",
                 is_verified=False,
-                note="Taxpayer state unknown; applicability inferred pending state selection",
+                note="Taxpayer state unknown; applicability inferred pending state selection (Rule 61(1)(i))",
             ))
             results.append(_make_item(
                 "GSTR-3B",
@@ -980,7 +1067,7 @@ def compute_statutory_due_dates(
                 applicability=f"QRMP taxpayers in Group B: {GROUP_B_NAMES}",
                 verification_status="INFERRED",
                 is_verified=False,
-                note="Taxpayer state unknown; applicability inferred pending state selection",
+                note="Taxpayer state unknown; applicability inferred pending state selection (Rule 61(1)(ii))",
             ))
 
     # 5. CMP-08 (Composition)
@@ -991,10 +1078,10 @@ def compute_statutory_due_dates(
             "composition",
             18,
             cmp_desc,
-            applicability="Composition scheme taxpayers under Section 10 & Notification 2/2019",
+            applicability="Composition scheme taxpayers under Section 10 & Notification No. 2/2019-Central Tax",
             verification_status="STATUTORY_RULE" if is_quarter_end else "INFERRED",
             is_verified=is_quarter_end,
-            note="Quarterly payment challan due on 18th of month following each quarter" if is_quarter_end else "Interim month: CMP-08 is strictly quarterly",
+            note="Quarterly payment challan due on 18th of month following each quarter (Notification No. 21/2019-Central Tax)" if is_quarter_end else "Interim month: CMP-08 is strictly quarterly",
         ))
 
     return results
@@ -1009,10 +1096,18 @@ def get_compliance_calendar(
     frequency: Optional[str] = None,
 ) -> list[dict[str, Any]]:
     """Return upcoming statutory compliance calendar and firm-custom deadline overrides."""
-    target_period = period.strip() if isinstance(period, str) and period.strip() else date.today().strftime("%Y-%m")
+    clean_p = (period or "").strip()
+    if re.match(r"^[0-9]{2}[0-9]{4}$", clean_p):
+        target_period = f"{clean_p[2:6]}-{clean_p[:2]}"
+    elif re.match(r"^[0-9]{4}-[0-9]{2}$", clean_p):
+        target_period = clean_p
+    else:
+        target_period = date.today().strftime("%Y-%m")
+
     statutory = compute_statutory_due_dates(target_period, state_code=state_code, frequency=frequency)
 
-    # Check for custom firm overrides or official CBIC extensions if database exists
+    # Check for custom firm overrides or official CBIC extensions
+    deadline_overrides: list[dict[str, Any]] = []
     if sb is not None and not _is_test_runner(sb):
         try:
             res = (
@@ -1022,23 +1117,49 @@ def get_compliance_calendar(
                 .execute()
             )
             if res.data:
-                override_map = {(r["return_type"], r.get("category", "regular")): r for r in res.data}
-                for item in statutory:
-                    key = (item["return_type"], item["category"])
-                    if key in override_map:
-                        ov = override_map[key]
-                        if ov.get("extended_due_date"):
-                            item["due_date"] = ov["extended_due_date"]
-                            item["notification_ref"] = ov.get("notification_ref")
-                            item["is_extended"] = True
-                            item["verification_status"] = "OFFICIALLY_VERIFIED"
-                            item["is_verified"] = True
-                            d = date.fromisoformat(item["due_date"])
-                            days_rem = (d - date.today()).days
-                            item["days_remaining"] = days_rem
-                            item["is_overdue"] = days_rem < 0
-        except Exception:
-            pass
+                deadline_overrides.extend(res.data)
+        except Exception as exc:
+            _log.warning("Failed to query compliance deadlines from DB: %s", exc)
+
+    # Check in-memory store
+    in_memory = _practice_store.list_deadlines(target_period)
+    if in_memory:
+        deadline_overrides.extend(in_memory)
+
+    if deadline_overrides:
+        for ov in deadline_overrides:
+            ext_date = ov.get("extended_due_date")
+            if not ext_date:
+                continue
+            notif_ref = ov.get("notification_ref")
+            ov_cat = ov.get("category")
+            ov_rt = ov.get("return_type")
+            ov_sg = ov.get("state_group", "ALL")
+
+            for item in statutory:
+                if item["return_type"] != ov_rt:
+                    continue
+                if ov_cat and ov_cat not in ("ALL", "regular") and item["category"] != ov_cat:
+                    continue
+                if ov_sg and ov_sg != "ALL":
+                    if ov_sg in ("GROUP_A", "A") and "group_a" not in item["category"]:
+                        continue
+                    if ov_sg in ("GROUP_B", "B") and "group_b" not in item["category"]:
+                        continue
+
+                item["due_date"] = ext_date
+                item["notification_ref"] = notif_ref
+                item["is_extended"] = True
+                item["verification_status"] = "OFFICIALLY_VERIFIED"
+                item["is_verified"] = True
+                try:
+                    d = date.fromisoformat(ext_date)
+                    days_rem = (d - date.today()).days
+                    item["days_remaining"] = days_rem
+                    item["is_overdue"] = days_rem < 0
+                    item["urgency"] = "HIGH" if item["is_overdue"] or days_rem <= 2 else ("MEDIUM" if days_rem <= 7 else "LOW")
+                except Exception:
+                    pass
 
     return statutory
 

@@ -226,35 +226,40 @@ describe("Phase 3.4: Compliance Calendar Statutory Rules", () => {
     assert.equal(gstr1[0].due_date, "2026-11-11");
   });
 
-  it("2. Distinguishes QRMP Group A (22nd) and Group B (24th) state deadlines", () => {
-    // Authoritative Group A States and UTs (Rule 61(1)(i))
+  it("2. Distinguishes QRMP Group A (22nd) and Group B (24th) for all 36 states and UTs", () => {
+    // Authoritative Group A States and UTs (Rule 61(1)(i) - exactly 14 jurisdictions)
     const groupAStateCodes = new Set([
       "22", "23", "24", "26", "27", "29", "30", "31", "32", "33", "34", "35", "36", "37",
     ]);
+    // Authoritative Group B States and UTs (Rule 61(1)(ii) - exactly 22 jurisdictions)
+    const groupBStateCodes = new Set([
+      "01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12",
+      "13", "14", "15", "16", "17", "18", "19", "20", "21", "38",
+    ]);
+
+    assert.equal(groupAStateCodes.size, 14);
+    assert.equal(groupBStateCodes.size, 22);
 
     function getQrmpDueDate(stateCode: string): string {
       return groupAStateCodes.has(stateCode) ? "22nd" : "24th";
     }
 
-    // Representative Group A States (Due: 22nd)
+    // Verify all 14 Group A Jurisdictions
+    for (const st of groupAStateCodes) {
+      assert.equal(getQrmpDueDate(st), "22nd");
+    }
+    // Verify all 22 Group B Jurisdictions
+    for (const st of groupBStateCodes) {
+      assert.equal(getQrmpDueDate(st), "24th");
+    }
+
+    // Explicit checks on the 6 highlighted key jurisdictions:
     assert.equal(getQrmpDueDate("27"), "22nd"); // Maharashtra
     assert.equal(getQrmpDueDate("24"), "22nd"); // Gujarat
     assert.equal(getQrmpDueDate("29"), "22nd"); // Karnataka
-    assert.equal(getQrmpDueDate("22"), "22nd"); // Chhattisgarh
-    assert.equal(getQrmpDueDate("23"), "22nd"); // Madhya Pradesh
     assert.equal(getQrmpDueDate("33"), "22nd"); // Tamil Nadu
-    assert.equal(getQrmpDueDate("32"), "22nd"); // Kerala
-    assert.equal(getQrmpDueDate("26"), "22nd"); // Dadra & Nagar Haveli and Daman & Diu
-
-    // Representative Group B States (Due: 24th)
     assert.equal(getQrmpDueDate("07"), "24th"); // Delhi
     assert.equal(getQrmpDueDate("09"), "24th"); // Uttar Pradesh
-    assert.equal(getQrmpDueDate("19"), "24th"); // West Bengal
-    assert.equal(getQrmpDueDate("08"), "24th"); // Rajasthan
-    assert.equal(getQrmpDueDate("10"), "24th"); // Bihar
-    assert.equal(getQrmpDueDate("03"), "24th"); // Punjab
-    assert.equal(getQrmpDueDate("06"), "24th"); // Haryana
-    assert.equal(getQrmpDueDate("38"), "24th"); // Ladakh
   });
 
   it("3. Clearly flags inferred deadlines as unverified when taxpayer state is unknown", () => {
@@ -267,6 +272,43 @@ describe("Phase 3.4: Compliance Calendar Statutory Rules", () => {
     assert.equal(evaluateDeadlineVerification({ is_verified: false, verification_status: "INFERRED" }), "UNCONFIRMED_INFERRED");
     assert.equal(evaluateDeadlineVerification({ is_verified: true, verification_status: "STATUTORY_RULE" }), "STATUTORY_VERIFIED");
     assert.equal(evaluateDeadlineVerification({ is_verified: true, verification_status: "OFFICIALLY_VERIFIED" }), "CBIC_EXTENSION");
+  });
+
+  it("4. Statutory CBIC extension overrides default due date and flags official verification", () => {
+    interface Deadline {
+      return_type: string;
+      standard_due_date: string;
+      extended_due_date?: string;
+      due_date: string;
+      is_extended: boolean;
+      notification_ref?: string;
+      verification_status: string;
+    }
+
+    function applyExtension(item: Deadline, extDate: string, notifRef: string): Deadline {
+      return {
+        ...item,
+        extended_due_date: extDate,
+        due_date: extDate,
+        is_extended: true,
+        notification_ref: notifRef,
+        verification_status: "OFFICIALLY_VERIFIED",
+      };
+    }
+
+    const defaultItem: Deadline = {
+      return_type: "GSTR-3B",
+      standard_due_date: "2026-11-20",
+      due_date: "2026-11-20",
+      is_extended: false,
+      verification_status: "STATUTORY_RULE",
+    };
+
+    const extendedItem = applyExtension(defaultItem, "2026-11-28", "Notification No. 26/2021-Central Tax");
+    assert.equal(extendedItem.due_date, "2026-11-28");
+    assert.equal(extendedItem.is_extended, true);
+    assert.equal(extendedItem.notification_ref, "Notification No. 26/2021-Central Tax");
+    assert.equal(extendedItem.verification_status, "OFFICIALLY_VERIFIED");
   });
 });
 

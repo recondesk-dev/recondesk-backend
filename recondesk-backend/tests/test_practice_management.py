@@ -24,11 +24,13 @@ from app.models.practice_management import (
 )
 from app.models.roles import Role
 from app.services.practice_service import (
+    ALL_GST_STATE_CODES,
     _practice_store,
     bulk_assign_staff,
     bulk_create_tasks,
     bulk_update_task_statuses,
     compute_statutory_due_dates,
+    create_deadline_override,
     create_task,
     delete_task,
     ensure_organization_for_gstin,
@@ -802,6 +804,609 @@ def test_bulk_assign_staff_tenant_isolation_and_idempotency(mock_sb, partner_act
     )
     assert res2.total == 1
     assert res2.succeeded_count == 1
+
+
+# ---------------------------------------------------------------------------
+# 8. Comprehensive 36 State/UT QRMP Verification & Deadline Extensions
+# ---------------------------------------------------------------------------
+
+def test_compliance_calendar_all_36_states_and_uts():
+    """Verify that EVERY single Indian state and UT (all 36) has authoritatively verified QRMP group and due dates.
+    
+    Statutory Reference:
+    - Notification No. 82/2020-Central Tax (10.11.2020)
+    - CGST Rule 61(1)(i) [Group A - 22nd] and Rule 61(1)(ii) [Group B - 24th]
+    """
+    assert len(ALL_GST_STATE_CODES) == 36, "India must have exactly 36 GST jurisdictions (28 States + 8 UTs)"
+
+    # Count jurisdictions by group
+    group_a_count = sum(1 for j in ALL_GST_STATE_CODES.values() if j.qrmp_group == "A")
+    group_b_count = sum(1 for j in ALL_GST_STATE_CODES.values() if j.qrmp_group == "B")
+    assert group_a_count == 14, f"Rule 61(1)(i) mandates exactly 14 Group A jurisdictions (got {group_a_count})"
+    assert group_b_count == 22, f"Rule 61(1)(ii) mandates exactly 22 Group B jurisdictions (got {group_b_count})"
+
+    # Test each and every state code individually
+    period = "2026-10"
+    for code, jur in ALL_GST_STATE_CODES.items():
+        deadlines = compute_statutory_due_dates(period, state_code=code)
+        qrmp_item = next(
+            (d for d in deadlines if d["category"] in ("qrmp_quarterly_group_a", "qrmp_quarterly_group_b")),
+            None,
+        )
+        assert qrmp_item is not None, f"State code {code} ({jur.name}) must produce a QRMP deadline item"
+        assert qrmp_item["is_verified"] is True, f"State code {code} must be verified"
+        assert qrmp_item["verification_status"] == "STATUTORY_RULE"
+        assert jur.name in qrmp_item["description"]
+
+        if jur.qrmp_group == "A":
+            assert jur.qrmp_due_day == 22
+            assert qrmp_item["category"] == "qrmp_quarterly_group_a"
+            assert qrmp_item["due_date"] == "2026-11-22", f"State {code} ({jur.name}) must have 22nd due date"
+            assert "Group A" in qrmp_item["description"]
+        elif jur.qrmp_group == "B":
+            assert jur.qrmp_due_day == 24
+            assert qrmp_item["category"] == "qrmp_quarterly_group_b"
+            assert qrmp_item["due_date"] == "2026-11-24", f"State {code} ({jur.name}) must have 24th due date"
+            assert "Group B" in qrmp_item["description"]
+
+    # Explicit check on the 6 key jurisdictions highlighted in release audit
+    specific_checks = {
+        "27": ("Maharashtra", "A", "2026-11-22"),
+        "24": ("Gujarat", "A", "2026-11-22"),
+        "29": ("Karnataka", "A", "2026-11-22"),
+        "33": ("Tamil Nadu", "A", "2026-11-22"),
+        "07": ("Delhi", "B", "2026-11-24"),
+        "09": ("Uttar Pradesh", "B", "2026-11-24"),
+    }
+    for st_code, (expected_name, expected_grp, expected_date) in specific_checks.items():
+        jur = ALL_GST_STATE_CODES[st_code]
+        assert jur.name == expected_name
+        assert jur.qrmp_group == expected_grp
+        deadlines = compute_statutory_due_dates(period, state_code=st_code)
+        target = next(d for d in deadlines if f"group_{expected_grp.lower()}" in d["category"])
+        assert target["due_date"] == expected_date
+
+
+def test_compliance_calendar_statutory_extension_override(mock_sb):
+    """Verify that official CBIC statutory extensions override default statutory dates."""
+    period = "2026-10"
+
+    # Default baseline without extension
+    baseline = get_compliance_calendar(mock_sb, firm_id="firm-ext-1", period=period)
+    gstr3b_base = next(d for d in baseline if d["return_type"] == "GSTR-3B" and d["category"] == "regular_monthly")
+    assert gstr3b_base["due_date"] == "2026-11-20"
+    assert gstr3b_base["is_extended"] is False
+    assert gstr3b_base["notification_ref"] is None
+
+    # Register statutory extension via CBIC Notification No. 26/2021-CT
+    create_deadline_override(
+        mock_sb,
+        period=period,
+        return_type="GSTR-3B",
+        category="regular_monthly",
+        standard_due_date="2026-11-20",
+        extended_due_date="2026-11-28",
+        notification_ref="Notification No. 26/2021-Central Tax",
+    )
+
+    # Fetch calendar again
+    extended = get_compliance_calendar(mock_sb, firm_id="firm-ext-1", period=period)
+    gstr3b_ext = next(d for d in extended if d["return_type"] == "GSTR-3B" and d["category"] == "regular_monthly")
+    assert gstr3b_ext["due_date"] == "2026-11-28", "Statutory extension must override default 20th date"
+    assert gstr3b_ext["is_extended"] is True
+    assert gstr3b_ext["verification_status"] == "OFFICIALLY_VERIFIED"
+    assert gstr3b_ext["notification_ref"] == "Notification No. 26/2021-Central Tax"
+    assert gstr3b_ext["is_verified"] is True
+
+
+# ---------------------------------------------------------------------------
+# 9. Migration Rollback & Non-Destructive Restoration Verification
+# ---------------------------------------------------------------------------
+
+def test_migration_rollback_and_restoration_sql_files():
+    """Verify Phase 3.4 migration scripts enforce non-destructive archival and idempotent restoration."""
+    import os
+
+    backend_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    down_path = os.path.join(backend_root, "migrations/aurora/20261012000000_create_practice_management.down.sql")
+    up_path = os.path.join(backend_root, "migrations/aurora/20261012000000_create_practice_management.up.sql")
+    sb_path = os.path.join(backend_root, "supabase/migrations/20261012000000_create_practice_management.sql")
+
+    assert os.path.exists(down_path), f"Down migration missing at {down_path}"
+    assert os.path.exists(up_path), f"Up migration missing at {up_path}"
+    assert os.path.exists(sb_path), f"Supabase migration missing at {sb_path}"
+
+    with open(down_path) as f:
+        down_sql = f.read()
+    with open(up_path) as f:
+        up_sql = f.read()
+    with open(sb_path) as f:
+        sb_sql = f.read()
+
+    # 1. Down migration must create all 5 archival tables
+    expected_archives = [
+        "public._archive_practice_task_audit_trail_rollback",
+        "public._archive_practice_tasks_rollback",
+        "public._archive_compliance_deadlines_rollback",
+        "public._archive_client_organizations_rollback",
+        "public._archive_client_gstins_org_link_rollback",
+    ]
+    for arch in expected_archives:
+        assert f"CREATE TABLE IF NOT EXISTS {arch}" in down_sql, f"Missing archival table creation for {arch}"
+        assert f"INSERT INTO {arch}" in down_sql, f"Missing archival data copy for {arch}"
+
+    # 2. Up migration must restore from all 5 archive tables
+    assert "_archive_client_organizations_rollback" in up_sql
+    assert "ON CONFLICT (firm_id, pan) DO NOTHING" in up_sql
+    assert "_archive_practice_tasks_rollback" in up_sql
+    assert "ON CONFLICT (id) DO NOTHING" in up_sql
+    assert "_archive_practice_task_audit_trail_rollback" in up_sql
+    assert "_archive_compliance_deadlines_rollback" in up_sql
+    assert "_archive_client_gstins_org_link_rollback" in up_sql
+
+    # 3. Supabase migration schema parity
+    assert "_archive_client_organizations_rollback" in sb_sql
+    assert "_archive_practice_tasks_rollback" in sb_sql
+    assert "ON CONFLICT (firm_id, pan) DO NOTHING" in sb_sql
+
+
+def test_sql_migration_rollback_and_restoration_cycle():
+    """Execute the full migration cycle (UP -> INSERT -> DOWN ARCHIVE -> DROP -> RE-UP -> RESTORE) on SQLite engine."""
+    from sqlalchemy import create_engine, text
+
+    engine = create_engine("sqlite:///:memory:")
+
+    with engine.connect() as conn:
+        # Step 0: Setup predecessor tables
+        conn.execute(text("""
+            CREATE TABLE client_gstins (
+                id TEXT PRIMARY KEY,
+                firm_owner_id TEXT NOT NULL,
+                gstin TEXT NOT NULL,
+                organization_id TEXT
+            );
+        """))
+
+        # Step 1: UP migration - Create practice management tables
+        conn.execute(text("""
+            CREATE TABLE client_organizations (
+                id TEXT PRIMARY KEY,
+                firm_id TEXT NOT NULL,
+                pan TEXT NOT NULL,
+                legal_name TEXT NOT NULL,
+                trade_name TEXT,
+                constitution_of_business TEXT,
+                contact_name TEXT,
+                contact_email TEXT,
+                contact_phone TEXT,
+                is_active INTEGER NOT NULL DEFAULT 1,
+                metadata TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE (firm_id, pan)
+            );
+        """))
+        conn.execute(text("""
+            CREATE TABLE practice_tasks (
+                id TEXT PRIMARY KEY,
+                firm_id TEXT NOT NULL,
+                organization_id TEXT,
+                client_gstin_id TEXT,
+                period TEXT,
+                category TEXT NOT NULL,
+                title TEXT NOT NULL,
+                description TEXT,
+                priority TEXT NOT NULL,
+                status TEXT NOT NULL,
+                assignee_id TEXT,
+                due_date TEXT,
+                created_by TEXT,
+                completed_at TEXT,
+                completed_by TEXT,
+                metadata TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+        """))
+        conn.execute(text("""
+            CREATE TABLE practice_task_audit_trail (
+                id TEXT PRIMARY KEY,
+                task_id TEXT NOT NULL,
+                firm_id TEXT NOT NULL,
+                action TEXT NOT NULL,
+                actor_id TEXT,
+                actor_name TEXT NOT NULL,
+                actor_role TEXT NOT NULL,
+                from_status TEXT,
+                to_status TEXT,
+                from_assignee_id TEXT,
+                to_assignee_id TEXT,
+                notes TEXT,
+                metadata TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL
+            );
+        """))
+        conn.execute(text("""
+            CREATE TABLE compliance_deadlines (
+                id TEXT PRIMARY KEY,
+                period TEXT NOT NULL,
+                return_type TEXT NOT NULL,
+                category TEXT NOT NULL,
+                state_group TEXT NOT NULL,
+                standard_due_date TEXT NOT NULL,
+                extended_due_date TEXT,
+                notification_ref TEXT,
+                firm_id TEXT,
+                created_at TEXT NOT NULL
+            );
+        """))
+        conn.commit()
+
+        # Step 2: Insert active production records
+        org_id = "org-uuid-1"
+        task_id = "task-uuid-1"
+        audit_id = "audit-uuid-1"
+        dl_id = "dl-uuid-1"
+        gstin_id = "cg-uuid-1"
+        firm_id = "firm-uuid-1"
+
+        conn.execute(text("""
+            INSERT INTO client_organizations (id, firm_id, pan, legal_name, created_at, updated_at)
+            VALUES (:id, :fid, 'AABCU9603R', 'Alpha Tech Ltd', '2026-10-12T00:00:00Z', '2026-10-12T00:00:00Z')
+        """), {"id": org_id, "fid": firm_id})
+
+        conn.execute(text("""
+            INSERT INTO client_gstins (id, firm_owner_id, gstin, organization_id)
+            VALUES (:id, :fid, '27AABCU9603R1ZX', :oid)
+        """), {"id": gstin_id, "fid": firm_id, "oid": org_id})
+
+        conn.execute(text("""
+            INSERT INTO practice_tasks (id, firm_id, organization_id, client_gstin_id, category, title, priority, status, created_at, updated_at)
+            VALUES (:id, :fid, :oid, :cid, 'RECONCILIATION', 'Monthly 2B Recon', 'HIGH', 'TODO', '2026-10-12T00:00:00Z', '2026-10-12T00:00:00Z')
+        """), {"id": task_id, "fid": firm_id, "oid": org_id, "cid": gstin_id})
+
+        conn.execute(text("""
+            INSERT INTO practice_task_audit_trail (id, task_id, firm_id, action, actor_name, actor_role, to_status, created_at)
+            VALUES (:id, :tid, :fid, 'TASK_CREATED', 'CA Partner', 'partner', 'TODO', '2026-10-12T00:00:00Z')
+        """), {"id": audit_id, "tid": task_id, "fid": firm_id})
+
+        conn.execute(text("""
+            INSERT INTO compliance_deadlines (id, period, return_type, category, state_group, standard_due_date, created_at)
+            VALUES (:id, '2026-10', 'GSTR-3B', 'regular', 'GROUP_A', '2026-11-22', '2026-10-12T00:00:00Z')
+        """), {"id": dl_id})
+        conn.commit()
+
+        # Step 3: DOWN migration - Archive records into rollback tables and drop active tables
+        conn.execute(text("""
+            CREATE TABLE _archive_client_organizations_rollback (
+                archive_id TEXT PRIMARY KEY,
+                org_id TEXT NOT NULL,
+                firm_id TEXT NOT NULL,
+                pan TEXT NOT NULL,
+                legal_name TEXT NOT NULL,
+                trade_name TEXT,
+                constitution_of_business TEXT,
+                contact_name TEXT,
+                contact_email TEXT,
+                contact_phone TEXT,
+                is_active INTEGER NOT NULL,
+                metadata TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                archived_at TEXT NOT NULL DEFAULT '2026-10-12T00:00:00Z'
+            );
+        """))
+        conn.execute(text("""
+            INSERT INTO _archive_client_organizations_rollback (
+                archive_id, org_id, firm_id, pan, legal_name, trade_name,
+                constitution_of_business, contact_name, contact_email, contact_phone,
+                is_active, metadata, created_at, updated_at
+            )
+            SELECT 'arc-org-1', id, firm_id, pan, legal_name, trade_name,
+                   constitution_of_business, contact_name, contact_email, contact_phone,
+                   is_active, metadata, created_at, updated_at
+            FROM client_organizations;
+        """))
+
+        conn.execute(text("""
+            CREATE TABLE _archive_client_gstins_org_link_rollback (
+                archive_id TEXT PRIMARY KEY,
+                client_gstin_id TEXT NOT NULL,
+                organization_id TEXT NOT NULL,
+                firm_owner_id TEXT NOT NULL,
+                archived_at TEXT NOT NULL DEFAULT '2026-10-12T00:00:00Z'
+            );
+        """))
+        conn.execute(text("""
+            INSERT INTO _archive_client_gstins_org_link_rollback (archive_id, client_gstin_id, organization_id, firm_owner_id)
+            SELECT 'arc-link-1', id, organization_id, firm_owner_id
+            FROM client_gstins
+            WHERE organization_id IS NOT NULL;
+        """))
+        # Clear linkage in client_gstins to simulate column drop/nullification
+        conn.execute(text("UPDATE client_gstins SET organization_id = NULL;"))
+
+        conn.execute(text("""
+            CREATE TABLE _archive_practice_tasks_rollback (
+                archive_id TEXT PRIMARY KEY,
+                task_id TEXT NOT NULL,
+                firm_id TEXT NOT NULL,
+                organization_id TEXT,
+                client_gstin_id TEXT,
+                period TEXT,
+                category TEXT NOT NULL,
+                title TEXT NOT NULL,
+                description TEXT,
+                priority TEXT NOT NULL,
+                status TEXT NOT NULL,
+                assignee_id TEXT,
+                due_date TEXT,
+                created_by TEXT,
+                completed_at TEXT,
+                completed_by TEXT,
+                metadata TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                archived_at TEXT NOT NULL DEFAULT '2026-10-12T00:00:00Z'
+            );
+        """))
+        conn.execute(text("""
+            INSERT INTO _archive_practice_tasks_rollback (
+                archive_id, task_id, firm_id, organization_id, client_gstin_id, period,
+                category, title, description, priority, status, assignee_id, due_date,
+                created_by, completed_at, completed_by, metadata, created_at, updated_at
+            )
+            SELECT 'arc-task-1', id, firm_id, organization_id, client_gstin_id, period,
+                   category, title, description, priority, status, assignee_id, due_date,
+                   created_by, completed_at, completed_by, metadata, created_at, updated_at
+            FROM practice_tasks;
+        """))
+
+        conn.execute(text("""
+            CREATE TABLE _archive_practice_task_audit_trail_rollback (
+                archive_id TEXT PRIMARY KEY,
+                entry_id TEXT NOT NULL,
+                task_id TEXT NOT NULL,
+                firm_id TEXT NOT NULL,
+                action TEXT NOT NULL,
+                actor_id TEXT,
+                actor_name TEXT NOT NULL,
+                actor_role TEXT NOT NULL,
+                from_status TEXT,
+                to_status TEXT,
+                from_assignee_id TEXT,
+                to_assignee_id TEXT,
+                notes TEXT,
+                metadata TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                archived_at TEXT NOT NULL DEFAULT '2026-10-12T00:00:00Z'
+            );
+        """))
+        conn.execute(text("""
+            INSERT INTO _archive_practice_task_audit_trail_rollback (
+                archive_id, entry_id, task_id, firm_id, action, actor_id, actor_name,
+                actor_role, from_status, to_status, from_assignee_id, to_assignee_id,
+                notes, metadata, created_at
+            )
+            SELECT 'arc-audit-1', id, task_id, firm_id, action, actor_id, actor_name,
+                   actor_role, from_status, to_status, from_assignee_id, to_assignee_id,
+                   notes, metadata, created_at
+            FROM practice_task_audit_trail;
+        """))
+
+        conn.execute(text("""
+            CREATE TABLE _archive_compliance_deadlines_rollback (
+                archive_id TEXT PRIMARY KEY,
+                deadline_id TEXT NOT NULL,
+                period TEXT NOT NULL,
+                return_type TEXT NOT NULL,
+                category TEXT NOT NULL,
+                state_group TEXT NOT NULL,
+                standard_due_date TEXT NOT NULL,
+                extended_due_date TEXT,
+                notification_ref TEXT,
+                firm_id TEXT,
+                created_at TEXT NOT NULL,
+                archived_at TEXT NOT NULL DEFAULT '2026-10-12T00:00:00Z'
+            );
+        """))
+        conn.execute(text("""
+            INSERT INTO _archive_compliance_deadlines_rollback (
+                archive_id, deadline_id, period, return_type, category, state_group,
+                standard_due_date, extended_due_date, notification_ref, firm_id, created_at
+            )
+            SELECT 'arc-dl-1', id, period, return_type, category, state_group,
+                   standard_due_date, extended_due_date, notification_ref, firm_id, created_at
+            FROM compliance_deadlines;
+        """))
+
+        # Drop active tables
+        conn.execute(text("DROP TABLE practice_task_audit_trail;"))
+        conn.execute(text("DROP TABLE practice_tasks;"))
+        conn.execute(text("DROP TABLE compliance_deadlines;"))
+        conn.execute(text("DROP TABLE client_organizations;"))
+        conn.commit()
+
+        # Step 4: Verify archive tables hold the preserved data
+        arc_org = conn.execute(text("SELECT * FROM _archive_client_organizations_rollback")).fetchone()
+        assert arc_org._mapping["org_id"] == org_id
+        assert arc_org._mapping["pan"] == "AABCU9603R"
+
+        arc_task = conn.execute(text("SELECT * FROM _archive_practice_tasks_rollback")).fetchone()
+        assert arc_task._mapping["task_id"] == task_id
+        assert arc_task._mapping["title"] == "Monthly 2B Recon"
+
+        # Step 5: RE-UPGRADE - Recreate tables and execute non-destructive restoration
+        conn.execute(text("""
+            CREATE TABLE client_organizations (
+                id TEXT PRIMARY KEY,
+                firm_id TEXT NOT NULL,
+                pan TEXT NOT NULL,
+                legal_name TEXT NOT NULL,
+                trade_name TEXT,
+                constitution_of_business TEXT,
+                contact_name TEXT,
+                contact_email TEXT,
+                contact_phone TEXT,
+                is_active INTEGER NOT NULL DEFAULT 1,
+                metadata TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE (firm_id, pan)
+            );
+        """))
+        conn.execute(text("""
+            CREATE TABLE practice_tasks (
+                id TEXT PRIMARY KEY,
+                firm_id TEXT NOT NULL,
+                organization_id TEXT,
+                client_gstin_id TEXT,
+                period TEXT,
+                category TEXT NOT NULL,
+                title TEXT NOT NULL,
+                description TEXT,
+                priority TEXT NOT NULL,
+                status TEXT NOT NULL,
+                assignee_id TEXT,
+                due_date TEXT,
+                created_by TEXT,
+                completed_at TEXT,
+                completed_by TEXT,
+                metadata TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+        """))
+        conn.execute(text("""
+            CREATE TABLE practice_task_audit_trail (
+                id TEXT PRIMARY KEY,
+                task_id TEXT NOT NULL,
+                firm_id TEXT NOT NULL,
+                action TEXT NOT NULL,
+                actor_id TEXT,
+                actor_name TEXT NOT NULL,
+                actor_role TEXT NOT NULL,
+                from_status TEXT,
+                to_status TEXT,
+                from_assignee_id TEXT,
+                to_assignee_id TEXT,
+                notes TEXT,
+                metadata TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL
+            );
+        """))
+        conn.execute(text("""
+            CREATE TABLE compliance_deadlines (
+                id TEXT PRIMARY KEY,
+                period TEXT NOT NULL,
+                return_type TEXT NOT NULL,
+                category TEXT NOT NULL,
+                state_group TEXT NOT NULL,
+                standard_due_date TEXT NOT NULL,
+                extended_due_date TEXT,
+                notification_ref TEXT,
+                firm_id TEXT,
+                created_at TEXT NOT NULL
+            );
+        """))
+
+        # Execute restoration queries (idempotent with INSERT OR IGNORE)
+        conn.execute(text("""
+            INSERT OR IGNORE INTO client_organizations (
+                id, firm_id, pan, legal_name, trade_name, constitution_of_business,
+                contact_name, contact_email, contact_phone, is_active, metadata,
+                created_at, updated_at
+            )
+            SELECT org_id, firm_id, pan, legal_name, trade_name, constitution_of_business,
+                   contact_name, contact_email, contact_phone, is_active, metadata,
+                   created_at, updated_at
+            FROM _archive_client_organizations_rollback;
+        """))
+
+        conn.execute(text("""
+            INSERT OR IGNORE INTO practice_tasks (
+                id, firm_id, organization_id, client_gstin_id, period, category,
+                title, description, priority, status, assignee_id, due_date,
+                created_by, completed_at, completed_by, metadata, created_at, updated_at
+            )
+            SELECT task_id, firm_id, organization_id, client_gstin_id, period, category,
+                   title, description, priority, status, assignee_id, due_date,
+                   created_by, completed_at, completed_by, metadata, created_at, updated_at
+            FROM _archive_practice_tasks_rollback;
+        """))
+
+        conn.execute(text("""
+            INSERT OR IGNORE INTO practice_task_audit_trail (
+                id, task_id, firm_id, action, actor_id, actor_name, actor_role,
+                from_status, to_status, from_assignee_id, to_assignee_id, notes,
+                metadata, created_at
+            )
+            SELECT entry_id, task_id, firm_id, action, actor_id, actor_name, actor_role,
+                   from_status, to_status, from_assignee_id, to_assignee_id, notes,
+                   metadata, created_at
+            FROM _archive_practice_task_audit_trail_rollback;
+        """))
+
+        conn.execute(text("""
+            INSERT OR IGNORE INTO compliance_deadlines (
+                id, period, return_type, category, state_group,
+                standard_due_date, extended_due_date, notification_ref, firm_id, created_at
+            )
+            SELECT deadline_id, period, return_type, category, state_group,
+                   standard_due_date, extended_due_date, notification_ref, firm_id, created_at
+            FROM _archive_compliance_deadlines_rollback;
+        """))
+
+        conn.execute(text("""
+            UPDATE client_gstins
+            SET organization_id = (
+                SELECT organization_id
+                FROM _archive_client_gstins_org_link_rollback
+                WHERE client_gstin_id = client_gstins.id
+            )
+            WHERE organization_id IS NULL;
+        """))
+        conn.commit()
+
+        # Step 6: Verify ALL records restored with identical primary keys, tenant ownership, and linkage!
+        restored_org = conn.execute(text("SELECT * FROM client_organizations WHERE id = :id"), {"id": org_id}).fetchone()
+        assert restored_org is not None
+        assert restored_org._mapping["pan"] == "AABCU9603R"
+        assert restored_org._mapping["legal_name"] == "Alpha Tech Ltd"
+
+        restored_task = conn.execute(text("SELECT * FROM practice_tasks WHERE id = :id"), {"id": task_id}).fetchone()
+        assert restored_task is not None
+        assert restored_task._mapping["organization_id"] == org_id
+        assert restored_task._mapping["client_gstin_id"] == gstin_id
+        assert restored_task._mapping["title"] == "Monthly 2B Recon"
+
+        restored_audit = conn.execute(text("SELECT * FROM practice_task_audit_trail WHERE id = :id"), {"id": audit_id}).fetchone()
+        assert restored_audit is not None
+        assert restored_audit._mapping["task_id"] == task_id
+        assert restored_audit._mapping["action"] == "TASK_CREATED"
+
+        restored_dl = conn.execute(text("SELECT * FROM compliance_deadlines WHERE id = :id"), {"id": dl_id}).fetchone()
+        assert restored_dl is not None
+        assert restored_dl._mapping["standard_due_date"] == "2026-11-22"
+
+        restored_link = conn.execute(text("SELECT organization_id FROM client_gstins WHERE id = :id"), {"id": gstin_id}).fetchone()
+        assert restored_link._mapping["organization_id"] == org_id
+
+        # Step 7: Verify Idempotency - Re-running restore does not duplicate or corrupt records
+        conn.execute(text("""
+            INSERT OR IGNORE INTO client_organizations (
+                id, firm_id, pan, legal_name, trade_name, constitution_of_business,
+                contact_name, contact_email, contact_phone, is_active, metadata,
+                created_at, updated_at
+            )
+            SELECT org_id, firm_id, pan, legal_name, trade_name, constitution_of_business,
+                   contact_name, contact_email, contact_phone, is_active, metadata,
+                   created_at, updated_at
+            FROM _archive_client_organizations_rollback;
+        """))
+        conn.commit()
+        org_count = conn.execute(text("SELECT count(*) FROM client_organizations")).scalar()
+        assert org_count == 1, "Restoration must be idempotent without record duplication"
 
 
 

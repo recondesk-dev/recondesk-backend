@@ -172,3 +172,88 @@ CREATE TABLE IF NOT EXISTS public.compliance_deadlines (
 
 CREATE INDEX IF NOT EXISTS idx_compliance_deadlines_lookup
     ON public.compliance_deadlines (period, return_type, category, state_group);
+
+
+-- 6. Non-Destructive Restoration from Rollback Archives (if present)
+DO $$
+BEGIN
+    -- 6.1 Restore Client Organizations
+    IF EXISTS (
+        SELECT 1 FROM information_schema.tables 
+        WHERE table_schema = 'public' AND table_name = '_archive_client_organizations_rollback'
+    ) THEN
+        INSERT INTO public.client_organizations (
+            id, firm_id, pan, legal_name, trade_name, constitution_of_business,
+            contact_name, contact_email, contact_phone, is_active, metadata,
+            created_at, updated_at
+        )
+        SELECT org_id, firm_id, pan, legal_name, trade_name, constitution_of_business,
+               contact_name, contact_email, contact_phone, is_active, metadata,
+               created_at, updated_at
+        FROM public._archive_client_organizations_rollback
+        ON CONFLICT (firm_id, pan) DO NOTHING;
+    END IF;
+
+    -- 6.2 Restore Practice Tasks
+    IF EXISTS (
+        SELECT 1 FROM information_schema.tables 
+        WHERE table_schema = 'public' AND table_name = '_archive_practice_tasks_rollback'
+    ) THEN
+        INSERT INTO public.practice_tasks (
+            id, firm_id, organization_id, client_gstin_id, period, category,
+            title, description, priority, status, assignee_id, due_date,
+            created_by, completed_at, completed_by, metadata, created_at, updated_at
+        )
+        SELECT task_id, firm_id, organization_id, client_gstin_id, period, category,
+               title, description, priority, status, assignee_id, due_date,
+               created_by, completed_at, completed_by, metadata, created_at, updated_at
+        FROM public._archive_practice_tasks_rollback
+        ON CONFLICT (id) DO NOTHING;
+    END IF;
+
+    -- 6.3 Restore Practice Task Audit Trail
+    IF EXISTS (
+        SELECT 1 FROM information_schema.tables 
+        WHERE table_schema = 'public' AND table_name = '_archive_practice_task_audit_trail_rollback'
+    ) THEN
+        INSERT INTO public.practice_task_audit_trail (
+            id, task_id, firm_id, action, actor_id, actor_name, actor_role,
+            from_status, to_status, from_assignee_id, to_assignee_id, notes,
+            metadata, created_at
+        )
+        SELECT entry_id, task_id, firm_id, action, actor_id, actor_name, actor_role,
+               from_status, to_status, from_assignee_id, to_assignee_id, notes,
+               metadata, created_at
+        FROM public._archive_practice_task_audit_trail_rollback
+        ON CONFLICT (id) DO NOTHING;
+    END IF;
+
+    -- 6.4 Restore Compliance Deadlines
+    IF EXISTS (
+        SELECT 1 FROM information_schema.tables 
+        WHERE table_schema = 'public' AND table_name = '_archive_compliance_deadlines_rollback'
+    ) THEN
+        INSERT INTO public.compliance_deadlines (
+            id, period, return_type, category, state_group,
+            standard_due_date, extended_due_date, notification_ref,
+            firm_id, created_at
+        )
+        SELECT deadline_id, period, return_type, category, state_group,
+               standard_due_date, extended_due_date, notification_ref,
+               firm_id, created_at
+        FROM public._archive_compliance_deadlines_rollback
+        ON CONFLICT (id) DO NOTHING;
+    END IF;
+
+    -- 6.5 Restore GSTIN to Organization Linkages
+    IF EXISTS (
+        SELECT 1 FROM information_schema.tables 
+        WHERE table_schema = 'public' AND table_name = '_archive_client_gstins_org_link_rollback'
+    ) THEN
+        UPDATE public.client_gstins cg
+        SET organization_id = arc.organization_id
+        FROM public._archive_client_gstins_org_link_rollback arc
+        WHERE cg.id = arc.client_gstin_id
+          AND cg.organization_id IS NULL;
+    END IF;
+END $$;

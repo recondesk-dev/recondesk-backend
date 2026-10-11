@@ -238,7 +238,9 @@ async def get_partner_governance_endpoint(
 
 @router.get("/calendar")
 async def get_compliance_calendar_endpoint(
-    period: Optional[str] = Query(None, description="Filing period YYYY-MM"),
+    period: Optional[str] = Query(None, description="Filing period YYYY-MM or MMYYYY"),
+    state_code: Optional[str] = Query(None, description="2-digit GST state code (01-38)"),
+    frequency: Optional[str] = Query(None, description="Filing frequency filter (MONTHLY/QRMP/COMPOSITION/ALL)"),
     current_user: dict[str, Any] = Depends(get_current_active_user),
 ):
     """Upcoming and overdue statutory GST filing deadlines."""
@@ -247,7 +249,13 @@ async def get_compliance_calendar_endpoint(
     role = str(current_user.get("role", "")).strip().lower()
     firm_id = _resolve_firm_owner(sb, uid, role=role)
 
-    deadlines = get_compliance_calendar(sb, firm_id=firm_id, period=period)
+    clean_period = period if isinstance(period, str) else None
+    clean_state_code = state_code if isinstance(state_code, str) else None
+    clean_freq = frequency if isinstance(frequency, str) else None
+
+    deadlines = get_compliance_calendar(
+        sb, firm_id=firm_id, period=clean_period, state_code=clean_state_code, frequency=clean_freq
+    )
     return {"deadlines": deadlines}
 
 

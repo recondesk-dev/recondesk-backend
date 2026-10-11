@@ -84,7 +84,7 @@ class ClientOrganization(Base):
     contact_email = Column(String(255), nullable=True)
     contact_phone = Column(String(50), nullable=True)
     is_active = Column(Boolean, nullable=False, default=True)
-    extra_metadata = Column("metadata", JSONB, nullable=False, default=dict)
+    extra_metadata = Column("metadata", JSON().with_variant(JSONB, "postgresql"), nullable=False, default=dict)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
 
@@ -132,7 +132,7 @@ class PracticeTask(Base):
     created_by = Column(GUID(), ForeignKey("user_profiles.id", ondelete="SET NULL"), nullable=True)
     completed_at = Column(DateTime(timezone=True), nullable=True)
     completed_by = Column(GUID(), ForeignKey("user_profiles.id", ondelete="SET NULL"), nullable=True)
-    extra_metadata = Column("metadata", JSONB, nullable=False, default=dict)
+    extra_metadata = Column("metadata", JSON().with_variant(JSONB, "postgresql"), nullable=False, default=dict)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
 
@@ -183,7 +183,7 @@ class PracticeTaskAuditTrail(Base):
     from_assignee_id = Column(GUID(), nullable=True)
     to_assignee_id = Column(GUID(), nullable=True)
     notes = Column(Text, nullable=True)
-    extra_metadata = Column("metadata", JSONB, nullable=False, default=dict)
+    extra_metadata = Column("metadata", JSON().with_variant(JSONB, "postgresql"), nullable=False, default=dict)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
     def to_dict(self) -> dict[str, Any]:
