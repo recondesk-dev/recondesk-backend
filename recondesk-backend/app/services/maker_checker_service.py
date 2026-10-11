@@ -977,3 +977,34 @@ def get_approval_history(
     # 2. From process store
     entries = _mc_store.get_audit_trail(approval.id)
     return [e.to_dict() for e in entries]
+
+
+def list_pending_approvals(
+    sb: Any,
+    *,
+    firm_id: str,
+    current_user: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """List all returns currently in UNDER_REVIEW status awaiting manager/partner approval."""
+    with _mc_store._lock:
+        pending = [
+            a.to_dict()
+            for a in _mc_store._approvals.values()
+            if a.firm_id == firm_id and a.status == ApprovalStatus.UNDER_REVIEW
+        ]
+    if sb is not None and not _is_test_runner(sb):
+        try:
+            res = (
+                sb.table(APPROVALS_TABLE)
+                .select("*")
+                .eq("firm_id", firm_id)
+                .eq("status", ApprovalStatus.UNDER_REVIEW.value)
+                .order("prepared_at", desc=False)
+                .execute()
+            )
+            if res.data:
+                return res.data
+        except Exception:
+            pass
+    return pending
+

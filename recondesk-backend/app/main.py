@@ -60,6 +60,7 @@ from app.routers.gstr9 import router as gstr9_router
 from app.routers.gstr4 import router as gstr4_router
 from app.routers.gstr2a_delta import router as gstr2a_delta_router
 from app.routers.notices import router as notices_router
+from app.routers.practice import practice_router
 from app.routers.vendor_followup import (
     router as vendor_followup_router,
     public_router as vendor_public_router,
@@ -673,6 +674,11 @@ app.include_router(
     notices_router,
     prefix="/api/notices",
     tags=["Notices"],
+)
+app.include_router(
+    practice_router,
+    prefix="/api/practice",
+    tags=["Practice Management"],
 )
 
 

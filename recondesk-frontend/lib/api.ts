@@ -4042,6 +4042,343 @@ export const publicClientReviewApi = {
     ),
 };
 
+// ─── Phase 3.4 CA Practice Management, Organizations & Tasks ──────────────────
+
+export interface PracticeOrganization {
+  id: string;
+  firm_id: string;
+  pan: string;
+  legal_name: string;
+  trade_name?: string | null;
+  constitution_of_business?: string | null;
+  contact_name?: string | null;
+  contact_email?: string | null;
+  contact_phone?: string | null;
+  is_active: boolean;
+  gstin_count?: number;
+  task_count?: number;
+  open_task_count?: number;
+  gstins?: Array<{
+    id: string;
+    gstin: string;
+    trade_name?: string | null;
+    legal_name?: string | null;
+    state_code?: string | null;
+    registration_type?: string | null;
+    assigned_to?: string | null;
+  }>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PracticeTask {
+  id: string;
+  firm_id: string;
+  organization_id?: string | null;
+  client_gstin_id?: string | null;
+  period?: string | null;
+  category: string;
+  title: string;
+  description?: string | null;
+  priority: "LOW" | "MEDIUM" | "HIGH" | "URGENT";
+  status: "TODO" | "IN_PROGRESS" | "BLOCKED" | "COMPLETED" | "CANCELLED";
+  assignee_id?: string | null;
+  due_date?: string | null;
+  created_by?: string | null;
+  completed_at?: string | null;
+  completed_by?: string | null;
+  metadata?: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PracticeTaskHistoryItem {
+  id: string;
+  task_id: string;
+  firm_id: string;
+  action: string;
+  actor_id?: string | null;
+  actor_name: string;
+  actor_role: string;
+  from_status?: string | null;
+  to_status?: string | null;
+  notes?: string | null;
+  created_at: string;
+}
+
+export interface ComplianceDeadlineItem {
+  period: string;
+  financial_period?: string;
+  return_type: string;
+  category: string;
+  due_date: string;
+  description: string;
+  days_remaining: number;
+  is_overdue: boolean;
+  urgency: "LOW" | "MEDIUM" | "HIGH";
+  taxpayer_applicability?: string;
+  verification_status?: "OFFICIALLY_VERIFIED" | "STATUTORY_RULE" | "INFERRED" | string;
+  is_verified?: boolean;
+  is_extended?: boolean;
+  notification_ref?: string | null;
+  note?: string | null;
+}
+
+export interface PracticeDashboardGridRow {
+  client_gstin_id: string;
+  gstin: string;
+  trade_name: string;
+  legal_name?: string | null;
+  organization_id?: string | null;
+  pan: string;
+  period: string;
+  maker_checker_status: string;
+  client_auth_status: string;
+  actionable_stage: string;
+  blocker?: string | null;
+  assigned_to?: string | null;
+}
+
+export interface PracticeDashboardSummary {
+  summary: {
+    total_organizations: number;
+    total_gstins: number;
+    period: string;
+    total_filed: number;
+    total_ready_to_file: number;
+    pending_maker_checker_review: number;
+    pending_client_consent: number;
+    blocked_count: number;
+    open_tasks_count: number;
+  };
+  filing_grid: PracticeDashboardGridRow[];
+  calendar: ComplianceDeadlineItem[];
+  tasks: PracticeTask[];
+}
+
+export interface PartnerGovernanceSummary {
+  pending_maker_checker_approvals: Array<Record<string, unknown>>;
+  pending_maker_checker_count: number;
+  blocked_tasks: PracticeTask[];
+  blocked_tasks_count: number;
+  overdue_tasks: PracticeTask[];
+  overdue_tasks_count: number;
+  recent_governance_overrides: Array<Record<string, unknown>>;
+}
+
+export interface BulkOperationResult {
+  total: number;
+  succeeded_count: number;
+  failed_count: number;
+  succeeded: Array<Record<string, unknown>>;
+  failed: Array<{ id?: string; item?: unknown; error: string }>;
+}
+
+export const practiceApi = {
+  listOrganizations: (token: string, search?: string) => {
+    const qs = search ? `?search=${encodeURIComponent(search)}` : "";
+    return apiFetch<{ organizations: PracticeOrganization[] }>(
+      `/api/practice/organizations${qs}`,
+      { token, cache: "no-store" }
+    );
+  },
+
+  createOrganization: (
+    token: string,
+    body: {
+      gstin: string;
+      trade_name?: string;
+      legal_name?: string;
+      contact_name?: string;
+      contact_email?: string;
+      contact_phone?: string;
+    }
+  ) =>
+    apiFetch<{ organization: PracticeOrganization }>(
+      "/api/practice/organizations",
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+        token,
+      }
+    ),
+
+  getOrganizationDetail: (token: string, orgId: string) =>
+    apiFetch<{ organization: PracticeOrganization }>(
+      `/api/practice/organizations/${encodeURIComponent(orgId)}`,
+      { token, cache: "no-store" }
+    ),
+
+  updateOrganization: (
+    token: string,
+    orgId: string,
+    body: {
+      legal_name?: string;
+      trade_name?: string;
+      constitution_of_business?: string;
+      contact_name?: string;
+      contact_email?: string;
+      contact_phone?: string;
+    }
+  ) =>
+    apiFetch<{ organization: PracticeOrganization }>(
+      `/api/practice/organizations/${encodeURIComponent(orgId)}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify(body),
+        token,
+      }
+    ),
+
+  getDashboard: (
+    token: string,
+    params?: {
+      period?: string;
+      organization_id?: string;
+      client_gstin_id?: string;
+      status?: string;
+    }
+  ) => {
+    const q = new URLSearchParams();
+    if (params?.period) q.set("period", params.period);
+    if (params?.organization_id) q.set("organization_id", params.organization_id);
+    if (params?.client_gstin_id) q.set("client_gstin_id", params.client_gstin_id);
+    if (params?.status) q.set("status", params.status);
+    const qs = q.toString() ? `?${q.toString()}` : "";
+    return apiFetch<PracticeDashboardSummary>(`/api/practice/dashboard${qs}`, {
+      token,
+      cache: "no-store",
+    });
+  },
+
+  getPartnerGovernance: (token: string) =>
+    apiFetch<PartnerGovernanceSummary>("/api/practice/partner-governance", {
+      token,
+      cache: "no-store",
+    }),
+
+  getCalendar: (token: string, period?: string) => {
+    const qs = period ? `?period=${encodeURIComponent(period)}` : "";
+    return apiFetch<{ deadlines: ComplianceDeadlineItem[] }>(
+      `/api/practice/calendar${qs}`,
+      { token, cache: "no-store" }
+    );
+  },
+
+  listTasks: (
+    token: string,
+    params?: {
+      status?: string;
+      assignee_id?: string;
+      client_gstin_id?: string;
+      organization_id?: string;
+      period?: string;
+    }
+  ) => {
+    const q = new URLSearchParams();
+    if (params?.status) q.set("status", params.status);
+    if (params?.assignee_id) q.set("assignee_id", params.assignee_id);
+    if (params?.client_gstin_id) q.set("client_gstin_id", params.client_gstin_id);
+    if (params?.organization_id) q.set("organization_id", params.organization_id);
+    if (params?.period) q.set("period", params.period);
+    const qs = q.toString() ? `?${q.toString()}` : "";
+    return apiFetch<{ tasks: PracticeTask[] }>(`/api/practice/tasks${qs}`, {
+      token,
+      cache: "no-store",
+    });
+  },
+
+  createTask: (
+    token: string,
+    body: {
+      title: string;
+      category?: string;
+      organization_id?: string;
+      client_gstin_id?: string;
+      period?: string;
+      description?: string;
+      priority?: "LOW" | "MEDIUM" | "HIGH" | "URGENT";
+      assignee_id?: string;
+      due_date?: string;
+    }
+  ) =>
+    apiFetch<{ task: PracticeTask }>("/api/practice/tasks", {
+      method: "POST",
+      body: JSON.stringify(body),
+      token,
+    }),
+
+  updateTask: (
+    token: string,
+    taskId: string,
+    body: {
+      status?: string;
+      assignee_id?: string;
+      title?: string;
+      description?: string;
+      due_date?: string;
+      priority?: string;
+      notes?: string;
+    }
+  ) =>
+    apiFetch<{ task: PracticeTask }>(
+      `/api/practice/tasks/${encodeURIComponent(taskId)}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify(body),
+        token,
+      }
+    ),
+
+  deleteTask: (token: string, taskId: string) =>
+    apiFetch<void>(`/api/practice/tasks/${encodeURIComponent(taskId)}`, {
+      method: "DELETE",
+      token,
+    }),
+
+  getTaskHistory: (token: string, taskId: string) =>
+    apiFetch<{ history: PracticeTaskHistoryItem[] }>(
+      `/api/practice/tasks/${encodeURIComponent(taskId)}/history`,
+      { token, cache: "no-store" }
+    ),
+
+  bulkAssign: (
+    token: string,
+    body: {
+      client_ids: string[];
+      assigned_to: string;
+      assignment_role?: string;
+    }
+  ) =>
+    apiFetch<BulkOperationResult>("/api/practice/bulk/assign", {
+      method: "POST",
+      body: JSON.stringify(body),
+      token,
+    }),
+
+  bulkCreateTasks: (token: string, tasks: Array<Record<string, unknown>>) =>
+    apiFetch<BulkOperationResult>("/api/practice/bulk/tasks", {
+      method: "POST",
+      body: JSON.stringify({ tasks }),
+      token,
+    }),
+
+  bulkUpdateTaskStatus: (
+    token: string,
+    body: {
+      task_ids: string[];
+      status: string;
+      notes?: string;
+    }
+  ) =>
+    apiFetch<BulkOperationResult>("/api/practice/bulk/tasks/status", {
+      method: "POST",
+      body: JSON.stringify(body),
+      token,
+    }),
+};
+
+
 // ─── Manage Data (admin raw file storage) ─────────────────────────────────────
 
 export interface ManageDataFileInfo {
