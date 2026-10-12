@@ -1110,6 +1110,45 @@ def compute_statutory_due_dates(
             note="Rule 67(1) of CGST Rules, 2017 - Due by 10th of succeeding month",
         ))
 
+    # 8. GSTR-6 (Input Service Distributor)
+    if not clean_freq or clean_freq in ("ALL", "MONTHLY", "ISD"):
+        results.append(_make_item(
+            "GSTR-6",
+            "input_service_distributor",
+            13,
+            "GSTR-6 Return for Input Service Distributor (ISD under Section 20)",
+            applicability="Input Service Distributors distributing common input service credit to distinct persons",
+            verification_status="STATUTORY_RULE",
+            is_verified=True,
+            note="Rule 65 of CGST Rules, 2017 - Due by 13th of succeeding month",
+        ))
+
+    # 9. GSTR-5 (Non-Resident Taxable Persons)
+    if not clean_freq or clean_freq in ("ALL", "MONTHLY", "NRTP"):
+        results.append(_make_item(
+            "GSTR-5",
+            "non_resident_taxable_person",
+            13,
+            "GSTR-5 Return for Non-Resident Taxable Person (Section 27)",
+            applicability="Non-Resident Taxable Persons registered under Section 24(v) / Section 27",
+            verification_status="STATUTORY_RULE",
+            is_verified=True,
+            note="Rule 63 of CGST Rules, 2017 (Notification No. 26/2022-CT) - Due by 13th of succeeding month or 7 days post expiry",
+        ))
+
+    # 10. GSTR-5A (OIDAR Overseas Suppliers)
+    if not clean_freq or clean_freq in ("ALL", "MONTHLY", "OIDAR"):
+        results.append(_make_item(
+            "GSTR-5A",
+            "oidar_services",
+            20,
+            "GSTR-5A Return for OIDAR Services to NTOR Recipients (Section 14 IGST)",
+            applicability="Persons providing OIDAR services from a place outside India to non-taxable online recipients",
+            verification_status="STATUTORY_RULE",
+            is_verified=True,
+            note="Rule 64 of CGST Rules, 2017 - Due by 20th of succeeding month",
+        ))
+
     return results
 
 

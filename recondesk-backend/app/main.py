@@ -64,6 +64,9 @@ from app.routers.practice import practice_router
 from app.routers.gstr1a import router as gstr1a_router
 from app.routers.gstr7 import router as gstr7_router
 from app.routers.gstr8 import router as gstr8_router
+from app.routers.gstr6 import router as gstr6_router
+from app.routers.gstr5 import router as gstr5_router
+from app.routers.gstr5a import router as gstr5a_router
 from app.routers.vendor_followup import (
     router as vendor_followup_router,
     public_router as vendor_public_router,
@@ -729,6 +732,36 @@ app.include_router(
     gstr8_router,
     prefix="/api/v1/gstr8",
     tags=["GSTR-8 TCS"],
+)
+app.include_router(
+    gstr6_router,
+    prefix="/api/gstr6",
+    tags=["GSTR-6 ISD"],
+)
+app.include_router(
+    gstr6_router,
+    prefix="/api/v1/gstr6",
+    tags=["GSTR-6 ISD"],
+)
+app.include_router(
+    gstr5_router,
+    prefix="/api/gstr5",
+    tags=["GSTR-5 NRTP"],
+)
+app.include_router(
+    gstr5_router,
+    prefix="/api/v1/gstr5",
+    tags=["GSTR-5 NRTP"],
+)
+app.include_router(
+    gstr5a_router,
+    prefix="/api/gstr5a",
+    tags=["GSTR-5A OIDAR"],
+)
+app.include_router(
+    gstr5a_router,
+    prefix="/api/v1/gstr5a",
+    tags=["GSTR-5A OIDAR"],
 )
 
 

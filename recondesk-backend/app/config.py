@@ -159,6 +159,7 @@ class Settings(BaseSettings):
     ADMIN_EMAILS: Optional[str] = None
     FOUNDER_USER_IDS: Optional[str] = None
     FOUNDER_EMAILS: Optional[str] = None
+    FOUNDER_ADMIN_EMAILS: Optional[str] = None
 
     # Sandbox.co.in GST API
     SANDBOX_API_KEY: str = ""

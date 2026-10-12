@@ -318,6 +318,87 @@ def test_verified_founder_can_create_30_percent_coupon():
         assert created["founder_approved"] is True
 
 
+def test_is_founder_user_resolves_both_founder_emails_and_founder_admin_emails():
+    """Verify is_founder_user correctly recognizes founder identities configured via
+    either FOUNDER_EMAILS or FOUNDER_ADMIN_EMAILS (or both), preventing misconfiguration.
+    """
+    import os
+    from app.auth import is_founder_user
+    from app.config import settings
+
+    admin_user = {
+        "id": "admin-123",
+        "email": "partner@recondesk.in",
+        "role": "admin",
+        "is_platform_admin": True,
+    }
+
+    # Case 1: FOUNDER_EMAILS configured
+    with patch.object(settings, "FOUNDER_EMAILS", "founder@recondesk.in,other@recondesk.in"), \
+         patch.object(settings, "FOUNDER_ADMIN_EMAILS", None):
+        assert is_founder_user({"id": "f-1", "email": "founder@recondesk.in", "role": "admin", "is_platform_admin": True}) is True
+        assert is_founder_user({"id": "f-2", "email": "OTHER@RECONDESK.IN", "role": "admin", "is_platform_admin": True}) is True
+        assert is_founder_user(admin_user) is False
+
+    # Case 2: FOUNDER_ADMIN_EMAILS configured (alias resolution)
+    with patch.object(settings, "FOUNDER_EMAILS", None), \
+         patch.object(settings, "FOUNDER_ADMIN_EMAILS", "founder@recondesk.in"):
+        assert is_founder_user({"id": "f-1", "email": "founder@recondesk.in", "role": "admin", "is_platform_admin": True}) is True
+        assert is_founder_user(admin_user) is False
+
+    # Case 3: Both configured concurrently
+    with patch.object(settings, "FOUNDER_EMAILS", "founder1@recondesk.in"), \
+         patch.object(settings, "FOUNDER_ADMIN_EMAILS", "founder2@recondesk.in"):
+        assert is_founder_user({"id": "f-1", "email": "founder1@recondesk.in", "role": "admin", "is_platform_admin": True}) is True
+        assert is_founder_user({"id": "f-2", "email": "founder2@recondesk.in", "role": "admin", "is_platform_admin": True}) is True
+        assert is_founder_user(admin_user) is False
+
+    # Case 4: OS environment variable fallback
+    with patch.object(settings, "FOUNDER_EMAILS", None), \
+         patch.object(settings, "FOUNDER_ADMIN_EMAILS", None), \
+         patch.dict(os.environ, {"FOUNDER_EMAILS": "envfounder@recondesk.in"}):
+        assert is_founder_user({"id": "f-env", "email": "envfounder@recondesk.in", "role": "admin", "is_platform_admin": True}) is True
+        assert is_founder_user(admin_user) is False
+
+    # Case 5: End-to-end 30% coupon authorization enforcement
+    from app.services.coupon_service import create_admin_coupon
+    from app.models.coupon import CouponCreateRequest
+
+    mock_db = MagicMock()
+    mock_db.table().select().ilike().limit().execute.return_value.data = []
+    mock_db.table().insert().execute.return_value.data = [{
+        "id": "c-30-verified",
+        "code": "FOUNDER30",
+        "discount_percentage": 30,
+        "eligible_plans": ["solo", "firm", "large_firm"],
+        "founder_approved": True,
+        "founder_approved_by": "founder@recondesk.in",
+    }]
+
+    with patch.object(settings, "FOUNDER_EMAILS", "founder@recondesk.in"):
+        founder_identity = {"id": "f-99", "email": "founder@recondesk.in", "role": "admin", "is_platform_admin": True}
+        ordinary_admin = {"id": "a-99", "email": "admin@recondesk.in", "role": "admin", "is_platform_admin": True}
+
+        # Designated founder succeeds
+        res = create_admin_coupon(
+            mock_db,
+            CouponCreateRequest(code="FOUNDER30", discount_percentage=30, eligible_plans=["firm"]),
+            founder_identity,
+        )
+        assert res["discount_percentage"] == 30
+        assert res["founder_approved"] is True
+
+        # Ordinary platform admin receives 403 Forbidden
+        with pytest.raises(HTTPException) as exc:
+            create_admin_coupon(
+                mock_db,
+                CouponCreateRequest(code="FOUNDER30", discount_percentage=30, eligible_plans=["firm"]),
+                ordinary_admin,
+            )
+        assert exc.value.status_code == 403
+        assert "authorized founder" in exc.value.detail.lower()
+
+
 def test_acquisition_coupon_rejected_for_active_subscription():
     """Rule 3/4 & Finding 4: Existing subscriber with active subscription cannot redeem first-year coupon."""
     mock_db = MagicMock()

@@ -1,9 +1,36 @@
 "use client";
 
 import Link from "next/link";
-import { FileText, Layers, FileCheck, RefreshCcw, Calculator, ArrowRight, Receipt, ShoppingCart } from "lucide-react";
+import { FileText, Layers, FileCheck, RefreshCcw, Calculator, ArrowRight, Receipt, ShoppingCart, Building2, Plane, Globe } from "lucide-react";
 
 const FILING_MODULES = [
+  {
+    title: "Form GSTR-6 (ISD under Section 20)",
+    href: "/filing/gstr-6",
+    badge: "Input Service Distributor",
+    badgeColor: "bg-indigo-500/10 text-indigo-600 border-indigo-500/20",
+    desc: "Input Service Distributor credit pooling & distribution under Rule 39. Proportionate turnover allocation, cross-state CGST/SGST to IGST conversion, and downstream flow to recipient GSTR-2B Table 4(A)(4).",
+    icon: Building2,
+    actionText: "Open GSTR-6 Workbench",
+  },
+  {
+    title: "Form GSTR-5 (Non-Resident Taxable Persons)",
+    href: "/filing/gstr-5",
+    badge: "NRTP under Section 27",
+    badgeColor: "bg-blue-500/10 text-blue-600 border-blue-500/20",
+    desc: "Periodic return for non-resident taxable persons. Bill of Entry import ITC-only restriction under Section 17(5), advance tax deposit sufficiency, 90-day registration validity tracking, and amended 13th due date.",
+    icon: Plane,
+    actionText: "Open GSTR-5 Workbench",
+  },
+  {
+    title: "Form GSTR-5A (OIDAR Overseas Supplies)",
+    href: "/filing/gstr-5a",
+    badge: "OIDAR under Section 14 IGST",
+    badgeColor: "bg-violet-500/10 text-violet-600 border-violet-500/20",
+    desc: "Cross-border digital services supplied to non-taxable online recipients in India. State-wise B2C outward turnover at uniform 18% IGST, zero domestic ITC invariant, and GSTN offline JSON generation.",
+    icon: Globe,
+    actionText: "Open GSTR-5A Workbench",
+  },
   {
     title: "Form GSTR-7 (TDS under Section 51)",
     href: "/filing/gstr-7",

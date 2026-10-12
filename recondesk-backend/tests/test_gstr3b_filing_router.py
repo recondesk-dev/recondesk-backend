@@ -279,6 +279,8 @@ def _patch_router_auth(
             "mark_run_failed",
             return_value=None,
         ),
+        patch.object(filing_router, "assert_maker_checker_gate", return_value=None),
+        patch.object(filing_router, "assert_client_authorization_gate", return_value=None),
     ]
 
     with ExitStack() as stack:

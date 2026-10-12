@@ -1095,3 +1095,289 @@ def validate_gstr8_pre_filing(
         statutory_checks=statutory_checks,
         reconciliation_summary={"records_count": len(records)},
     )
+
+
+def validate_gstr6_pre_filing(
+    *,
+    batch: Mapping[str, Any],
+    inward_records: list[Mapping[str, Any]],
+    distribution_records: list[Mapping[str, Any]],
+) -> PreFilingValidationResult:
+    """Validate Form GSTR-6 (ISD) compliance prior to review and filing."""
+    clean_gstin = str(batch.get("gstin") or "").strip().upper()
+    clean_period = str(batch.get("period") or "").strip()
+    isd_state = clean_gstin[:2] if len(clean_gstin) >= 2 else ""
+
+    violations: list[ValidationViolation] = []
+    statutory_checks: dict[str, str] = {
+        "isd_pan_consistency": "PASSED",
+        "over_distribution_check": "PASSED",
+        "cross_state_conversion": "PASSED",
+    }
+
+    if not inward_records:
+        violations.append(
+            ValidationViolation(
+                code="G6_NO_INWARD_INVOICES",
+                message="No inward invoices or credit/debit notes present for GSTR-6 return period.",
+                category=ViolationCategory.DATA_INTEGRITY,
+                severity=ValidationSeverity.WARNING,
+            )
+        )
+
+    if not distribution_records:
+        violations.append(
+            ValidationViolation(
+                code="G6_NO_DISTRIBUTIONS",
+                message="No ISD credit distribution records found for recipient distinct persons (Rule 39).",
+                category=ViolationCategory.STATUTORY_BREACH,
+                severity=ValidationSeverity.CRITICAL_ERROR,
+            )
+        )
+        statutory_checks["over_distribution_check"] = "FAILED"
+
+    # 1. Total available pool vs Total distributed
+    tot_pool = sum(
+        float(r.get("igst") or 0.0) + float(r.get("cgst") or 0.0) + float(r.get("sgst") or 0.0)
+        for r in inward_records
+    )
+    tot_dist = sum(
+        float(d.get("total_distributed") if d.get("total_distributed") is not None else (
+            float(d.get("distributed_igst") or 0.0) + float(d.get("distributed_cgst") or 0.0) + float(d.get("distributed_sgst") or 0.0)
+        ))
+        for d in distribution_records
+    )
+
+    # Strictly zero tolerance for over-distribution under Rule 39(1)(d)
+    if round(tot_dist, 2) > round(tot_pool, 2):
+        violations.append(
+            ValidationViolation(
+                code="G6_OVER_DISTRIBUTION",
+                message=f"Over-distribution detected: distributed ₹{tot_dist:,.2f} exceeds available pool ₹{tot_pool:,.2f} (Rule 39(1)(d)).",
+                category=ViolationCategory.STATUTORY_BREACH,
+                severity=ValidationSeverity.CRITICAL_ERROR,
+                details={"available_pool": tot_pool, "distributed_total": tot_dist},
+            )
+        )
+        statutory_checks["over_distribution_check"] = "FAILED"
+
+    # 2. Check each recipient: PAN match and cross-state tax head
+    isd_pan = clean_gstin[2:12] if len(clean_gstin) >= 12 else ""
+    for idx, d in enumerate(distribution_records):
+        rec_gstin = str(d.get("recipient_gstin") or "").strip().upper()
+        rec_pan = rec_gstin[2:12] if len(rec_gstin) >= 12 else ""
+        rec_state = rec_gstin[:2] if len(rec_gstin) >= 2 else ""
+
+        if isd_pan and rec_pan and isd_pan != rec_pan:
+            violations.append(
+                ValidationViolation(
+                    code="G6_CROSS_PAN_RECIPIENT",
+                    message=f"Distribution #{idx+1}: Recipient PAN ({rec_pan}) does not match ISD PAN ({isd_pan}). ISD can only distribute to distinct persons under the same PAN (Section 20).",
+                    category=ViolationCategory.STATUTORY_BREACH,
+                    severity=ValidationSeverity.CRITICAL_ERROR,
+                    details={"recipient_gstin": rec_gstin, "isd_gstin": clean_gstin},
+                )
+            )
+            statutory_checks["isd_pan_consistency"] = "FAILED"
+
+        # Cross-state conversion check (Rule 39(1)(f))
+        if isd_state and rec_state and isd_state != rec_state:
+            dist_cgst = float(d.get("distributed_cgst") or 0.0)
+            dist_sgst = float(d.get("distributed_sgst") or 0.0)
+            if dist_cgst > 0 or dist_sgst > 0:
+                violations.append(
+                    ValidationViolation(
+                        code="G6_CROSS_STATE_TAX_HEAD_ERROR",
+                        message=f"Distribution #{idx+1}: Recipient in state {rec_state} received CGST/SGST from ISD in state {isd_state}. Cross-state distribution MUST be distributed as IGST (Rule 39(1)(f)).",
+                        category=ViolationCategory.STATUTORY_BREACH,
+                        severity=ValidationSeverity.CRITICAL_ERROR,
+                        details={"recipient_gstin": rec_gstin, "cgst": dist_cgst, "sgst": dist_sgst},
+                    )
+                )
+                statutory_checks["cross_state_conversion"] = "FAILED"
+
+    if any(v.severity == ValidationSeverity.CRITICAL_ERROR for v in violations):
+        overall_severity = ValidationSeverity.CRITICAL_ERROR
+    elif any(v.severity == ValidationSeverity.WARNING for v in violations):
+        overall_severity = ValidationSeverity.WARNING
+    else:
+        overall_severity = ValidationSeverity.CLEAN
+
+    digest = str(batch.get("figures_digest") or compute_figures_digest(dict(batch)))
+    val_digest = compute_validation_digest(violations)
+
+    return PreFilingValidationResult(
+        return_type="gstr-6",
+        gstin=clean_gstin,
+        period=clean_period,
+        is_valid=(overall_severity != ValidationSeverity.CRITICAL_ERROR),
+        overall_severity=overall_severity,
+        figures_digest=digest,
+        validation_digest=val_digest,
+        violations=violations,
+        statutory_checks=statutory_checks,
+        reconciliation_summary={"inward_count": len(inward_records), "distribution_count": len(distribution_records)},
+    )
+
+
+def validate_gstr5_pre_filing(
+    *,
+    batch: Mapping[str, Any],
+    outward_records: list[Mapping[str, Any]],
+    import_records: list[Mapping[str, Any]],
+) -> PreFilingValidationResult:
+    """Validate Form GSTR-5 (NRTP) compliance prior to review and filing."""
+    clean_gstin = str(batch.get("gstin") or "").strip().upper()
+    clean_period = str(batch.get("period") or "").strip()
+
+    violations: list[ValidationViolation] = []
+    statutory_checks: dict[str, str] = {
+        "nrtp_registration_validity": "PASSED",
+        "advance_tax_sufficiency": "PASSED",
+        "itc_statutory_restriction": "PASSED",
+    }
+
+    # 1. Registration expiry check
+    expiry_date_str = str(batch.get("registration_expiry_date") or "")
+    if expiry_date_str:
+        try:
+            from datetime import date
+            exp_date = date.fromisoformat(expiry_date_str.split("T")[0])
+            if date.today() > exp_date:
+                violations.append(
+                    ValidationViolation(
+                        code="G5_REGISTRATION_EXPIRED",
+                        message=f"NRTP registration expired on {expiry_date_str}. Filing requires active registration or valid extension (Section 27(1)). Late filing fees may apply.",
+                        category=ViolationCategory.RISK_WARNING,
+                        severity=ValidationSeverity.WARNING,
+                        details={"expiry_date": expiry_date_str},
+                    )
+                )
+                statutory_checks["nrtp_registration_validity"] = "WARNING"
+        except Exception:
+            pass
+
+    # 2. Advance tax sufficiency check (Section 27(2))
+    tot_out_liability = sum(
+        float(r.get("igst") or 0.0) + float(r.get("cgst") or 0.0) + float(r.get("sgst") or 0.0)
+        for r in outward_records
+    )
+    tot_imp_itc = sum(float(r.get("igst_paid") or 0.0) for r in import_records)
+    net_payable = max(0.0, tot_out_liability - tot_imp_itc)
+    adv_tax = float(batch.get("advance_tax_deposited") or 0.0)
+
+    if net_payable > adv_tax:
+        shortfall = net_payable - adv_tax
+        violations.append(
+            ValidationViolation(
+                code="G5_ADVANCE_TAX_DEFICIT",
+                message=f"Net tax payable ₹{net_payable:,.2f} exceeds advance tax deposit ₹{adv_tax:,.2f} by ₹{shortfall:,.2f} (Section 27(2)). Additional cash deposit required.",
+                category=ViolationCategory.STATUTORY_BREACH,
+                severity=ValidationSeverity.CRITICAL_ERROR,
+                details={"net_payable": net_payable, "advance_tax": adv_tax, "shortfall": shortfall},
+            )
+        )
+        statutory_checks["advance_tax_sufficiency"] = "FAILED"
+
+    if any(v.severity == ValidationSeverity.CRITICAL_ERROR for v in violations):
+        overall_severity = ValidationSeverity.CRITICAL_ERROR
+    elif any(v.severity == ValidationSeverity.WARNING for v in violations):
+        overall_severity = ValidationSeverity.WARNING
+    else:
+        overall_severity = ValidationSeverity.CLEAN
+
+    digest = str(batch.get("figures_digest") or compute_figures_digest(dict(batch)))
+    val_digest = compute_validation_digest(violations)
+
+    return PreFilingValidationResult(
+        return_type="gstr-5",
+        gstin=clean_gstin,
+        period=clean_period,
+        is_valid=(overall_severity != ValidationSeverity.CRITICAL_ERROR),
+        overall_severity=overall_severity,
+        figures_digest=digest,
+        validation_digest=val_digest,
+        violations=violations,
+        statutory_checks=statutory_checks,
+        reconciliation_summary={"outward_count": len(outward_records), "import_count": len(import_records)},
+    )
+
+
+def validate_gstr5a_pre_filing(
+    *,
+    batch: Mapping[str, Any],
+    supplies: list[Mapping[str, Any]],
+) -> PreFilingValidationResult:
+    """Validate Form GSTR-5A (OIDAR) compliance prior to review and filing."""
+    clean_gstin = str(batch.get("gstin") or "").strip().upper()
+    clean_period = str(batch.get("period") or "").strip()
+
+    violations: list[ValidationViolation] = []
+    statutory_checks: dict[str, str] = {
+        "oidar_rate_consistency": "PASSED",
+        "zero_itc_invariant": "PASSED",
+        "pos_validity": "PASSED",
+    }
+
+    if not supplies:
+        violations.append(
+            ValidationViolation(
+                code="G5A_NO_SUPPLIES",
+                message="No taxable outward supplies declared in Form GSTR-5A for tax period.",
+                category=ViolationCategory.DATA_INTEGRITY,
+                severity=ValidationSeverity.WARNING,
+            )
+        )
+
+    for idx, s in enumerate(supplies):
+        pos = str(s.get("pos") or "").strip()
+        if not pos or len(pos) != 2 or not pos.isdigit():
+            violations.append(
+                ValidationViolation(
+                    code="G5A_INVALID_POS",
+                    message=f"Supply #{idx+1}: Place of supply '{pos}' is not a valid 2-digit Indian State code.",
+                    category=ViolationCategory.STATUTORY_BREACH,
+                    severity=ValidationSeverity.CRITICAL_ERROR,
+                    details={"index": idx, "pos": pos},
+                )
+            )
+            statutory_checks["pos_validity"] = "FAILED"
+
+        # Check rate against authoritative statutory OIDAR schedules (Section 14 & Section 14A)
+        rt = float(s.get("rate_pct") if s.get("rate_pct") is not None else 18.0)
+        from app.rules.gstr5a_rules import is_valid_statutory_oidar_rate
+        if not is_valid_statutory_oidar_rate(rt):
+            violations.append(
+                ValidationViolation(
+                    code="G5A_INVALID_RATE",
+                    message=f"Supply #{idx+1}: Declared rate {rt}% is not a recognized statutory OIDAR tax rate under Section 14/14A of IGST Act (applicable rates: 18% standard, 28% online money gaming, 5% e-books, 0% exempt).",
+                    category=ViolationCategory.STATUTORY_BREACH,
+                    severity=ValidationSeverity.CRITICAL_ERROR,
+                    details={"index": idx, "rate": rt},
+                )
+            )
+            statutory_checks["oidar_rate_consistency"] = "FAILED"
+
+    if any(v.severity == ValidationSeverity.CRITICAL_ERROR for v in violations):
+        overall_severity = ValidationSeverity.CRITICAL_ERROR
+    elif any(v.severity == ValidationSeverity.WARNING for v in violations):
+        overall_severity = ValidationSeverity.WARNING
+    else:
+        overall_severity = ValidationSeverity.CLEAN
+
+    digest = str(batch.get("figures_digest") or compute_figures_digest(dict(batch)))
+    val_digest = compute_validation_digest(violations)
+
+    return PreFilingValidationResult(
+        return_type="gstr-5a",
+        gstin=clean_gstin,
+        period=clean_period,
+        is_valid=(overall_severity != ValidationSeverity.CRITICAL_ERROR),
+        overall_severity=overall_severity,
+        figures_digest=digest,
+        validation_digest=val_digest,
+        violations=violations,
+        statutory_checks=statutory_checks,
+        reconciliation_summary={"supplies_count": len(supplies)},
+    )
+

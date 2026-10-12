@@ -74,6 +74,12 @@ def normalize_return_type(rt: str) -> str:
         return "GSTR-7"
     if raw in ("GSTR-8", "GSTR8", "GSTR_8"):
         return "GSTR-8"
+    if raw in ("GSTR-6", "GSTR6", "GSTR_6"):
+        return "GSTR-6"
+    if raw in ("GSTR-5", "GSTR5", "GSTR_5"):
+        return "GSTR-5"
+    if raw in ("GSTR-5A", "GSTR5A", "GSTR_5A"):
+        return "GSTR-5A"
     return raw
 
 

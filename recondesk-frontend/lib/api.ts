@@ -6212,5 +6212,488 @@ export const gstr8Api = {
     ),
 };
 
+// ── Form GSTR-6 (Input Service Distributor) ─────────────────────────────────
+
+export interface Gstr6InwardRecord {
+  id: string;
+  record_type: "ORIGINAL" | "AMENDMENT";
+  supplier_gstin: string;
+  invoice_number: string;
+  invoice_date: string;
+  taxable_value: number;
+  igst: number;
+  cgst: number;
+  sgst: number;
+  cess: number;
+  itc_eligible: "ELIGIBLE" | "INELIGIBLE";
+  original_invoice_number?: string;
+  original_period?: string;
+  status: string;
+}
+
+export interface Gstr6DistributionRecord {
+  id: string;
+  record_type: "ORIGINAL" | "AMENDMENT";
+  recipient_gstin: string;
+  recipient_state: string;
+  is_turnover_based: boolean;
+  turnover_ratio: number;
+  distributed_igst: number;
+  distributed_cgst: number;
+  distributed_sgst: number;
+  distributed_cess: number;
+  itc_category: "ELIGIBLE" | "INELIGIBLE";
+  document_number?: string;
+  document_date?: string;
+  original_document_number?: string;
+  original_period?: string;
+  status: string;
+}
+
+export interface Gstr6BatchSummary {
+  batch: {
+    id: string;
+    firm_id: string;
+    client_gstin_id: string;
+    gstin: string;
+    period: string;
+    status: string;
+    figures_digest: string;
+    total_inward_records: number;
+    total_distribution_records: number;
+    total_pool_igst: number;
+    total_pool_cgst: number;
+    total_pool_sgst: number;
+    total_pool_cess: number;
+    total_distributed_igst: number;
+    total_distributed_cgst: number;
+    total_distributed_sgst: number;
+    total_distributed_cess: number;
+    arn?: string;
+  };
+  table3_inward: Gstr6InwardRecord[];
+  table6b_inward_amendments: Gstr6InwardRecord[];
+  table5_distribution: Gstr6DistributionRecord[];
+  table6b_dist_amendments: Gstr6DistributionRecord[];
+  pool_summary: {
+    total_pool_igst: number;
+    total_pool_cgst: number;
+    total_pool_sgst: number;
+    total_pool_cess: number;
+    total_pool_itc: number;
+    total_ineligible_pool: number;
+  };
+  distribution_summary: {
+    total_distributed_igst: number;
+    total_distributed_cgst: number;
+    total_distributed_sgst: number;
+    total_distributed_cess: number;
+    total_distributed_itc: number;
+  };
+  downstream_destination: string;
+  due_date_day: number;
+}
+
+export const gstr6Api = {
+  getOrCreateBatch: (token: string, clientGstinId: string, period: string) =>
+    apiFetch<{ batch: Gstr6BatchSummary["batch"]; summary: Gstr6BatchSummary }>(
+      `/api/gstr6/batches?client_gstin_id=${encodeURIComponent(clientGstinId)}&period=${encodeURIComponent(period)}`,
+      { token }
+    ),
+
+  getBatchDetails: (token: string, batchId: string) =>
+    apiFetch<Gstr6BatchSummary>(`/api/gstr6/batches/${encodeURIComponent(batchId)}`, { token }),
+
+  addInward: (token: string, batchId: string, record: Partial<Gstr6InwardRecord>) =>
+    apiFetch<Gstr6InwardRecord>(`/api/gstr6/batches/${encodeURIComponent(batchId)}/inward`, {
+      method: "POST",
+      body: JSON.stringify(record),
+      token,
+    }),
+
+  addDistribution: (token: string, batchId: string, record: Partial<Gstr6DistributionRecord>) =>
+    apiFetch<Gstr6DistributionRecord>(`/api/gstr6/batches/${encodeURIComponent(batchId)}/distribution`, {
+      method: "POST",
+      body: JSON.stringify(record),
+      token,
+    }),
+
+  deleteInward: (token: string, batchId: string, inwardId: string) =>
+    apiFetch<{ deleted: boolean; inward_id: string }>(
+      `/api/gstr6/batches/${encodeURIComponent(batchId)}/inward/${encodeURIComponent(inwardId)}`,
+      { method: "DELETE", token }
+    ),
+
+  deleteDistribution: (token: string, batchId: string, distId: string) =>
+    apiFetch<{ deleted: boolean; dist_id: string }>(
+      `/api/gstr6/batches/${encodeURIComponent(batchId)}/distribution/${encodeURIComponent(distId)}`,
+      { method: "DELETE", token }
+    ),
+
+  validate: (token: string, batchId: string) =>
+    apiFetch<PreFilingValidationResult>(`/api/gstr6/batches/${encodeURIComponent(batchId)}/validate`, {
+      method: "POST",
+      token,
+    }),
+
+  prepare: (token: string, batchId: string) =>
+    apiFetch<{ status: string; approval_id: string; figures_digest: string }>(
+      `/api/gstr6/batches/${encodeURIComponent(batchId)}/prepare`,
+      { method: "POST", token }
+    ),
+
+  submitReview: (token: string, batchId: string, notes?: string) =>
+    apiFetch<{ status: string; approval_id: string }>(
+      `/api/gstr6/batches/${encodeURIComponent(batchId)}/submit-review`,
+      {
+        method: "POST",
+        body: JSON.stringify({ notes }),
+        token,
+      }
+    ),
+
+  approve: (token: string, batchId: string, notes?: string) =>
+    apiFetch<{ status: string; approval_id: string }>(
+      `/api/gstr6/batches/${encodeURIComponent(batchId)}/approve`,
+      {
+        method: "POST",
+        body: JSON.stringify({ notes }),
+        token,
+      }
+    ),
+
+  createClientAuthRequest: (token: string, batchId: string, expiresInHours?: number) =>
+    apiFetch<{ authorization_id: string; raw_token: string; review_url: string; expires_at: string }>(
+      `/api/gstr6/batches/${encodeURIComponent(batchId)}/client-authorization-request`,
+      {
+        method: "POST",
+        body: JSON.stringify({ expires_in_hours: expiresInHours ?? 48 }),
+        token,
+      }
+    ),
+
+  getOfflineJson: (token: string, batchId: string) =>
+    apiFetch<Record<string, any>>(`/api/gstr6/batches/${encodeURIComponent(batchId)}/offline-json`, { token }),
+
+  file: (token: string, batchId: string, body: { pan: string; signing_method?: string; otp?: string; signature?: string }) =>
+    apiFetch<{ status: string; arn: string; message: string }>(
+      `/api/gstr6/batches/${encodeURIComponent(batchId)}/file`,
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+        token,
+      }
+    ),
+};
+
+// ── Form GSTR-5 (Non-Resident Taxable Persons) ──────────────────────────────
+
+export interface Gstr5ImportRecord {
+  id: string;
+  boe_number: string;
+  boe_date: string;
+  port_code: string;
+  taxable_value: number;
+  igst_paid: number;
+  cess_paid: number;
+  status: string;
+}
+
+export interface Gstr5OutwardRecord {
+  id: string;
+  record_type: "ORIGINAL" | "AMENDMENT";
+  recipient_gstin?: string;
+  pos: string;
+  invoice_number: string;
+  invoice_date: string;
+  taxable_value: number;
+  rate_pct: number;
+  igst: number;
+  cgst: number;
+  sgst: number;
+  cess: number;
+  original_period?: string;
+  original_invoice_number?: string;
+  status: string;
+}
+
+export interface Gstr5BatchSummary {
+  batch: {
+    id: string;
+    firm_id: string;
+    client_gstin_id: string;
+    gstin: string;
+    period: string;
+    registration_start_date?: string;
+    registration_expiry_date?: string;
+    advance_tax_deposited: number;
+    status: string;
+    figures_digest: string;
+    total_import_records: number;
+    total_outward_records: number;
+    total_amendments: number;
+    total_taxable_value: number;
+    total_igst: number;
+    total_cgst: number;
+    total_sgst: number;
+    total_cess: number;
+    total_import_igst: number;
+    total_import_cess: number;
+    net_tax_payable: number;
+    arn?: string;
+  };
+  table3_imports: Gstr5ImportRecord[];
+  table5_b2b: Gstr5OutwardRecord[];
+  table6_b2c: Gstr5OutwardRecord[];
+  table7_amendments: Gstr5OutwardRecord[];
+  tax_summary: {
+    total_taxable_value: number;
+    gross_tax_liability: number;
+    eligible_import_itc: number;
+    net_tax_payable: number;
+    advance_tax_deposited: number;
+    cash_payable: number;
+    refund_eligible: number;
+  };
+  nrtp_status: {
+    is_valid_on_filing: boolean;
+    statutory_due_date: string;
+    advance_tax_deposited: number;
+    is_advance_tax_sufficient: boolean;
+    excess_tax_credit: number;
+    provisional_registration: boolean;
+  };
+  statutory_restrictions: {
+    inward_domestic_itc_permitted: boolean;
+    itc_restricted_to_boe_imports: boolean;
+    authority_notification: string;
+  };
+}
+
+export const gstr5Api = {
+  getOrCreateBatch: (
+    token: string,
+    clientGstinId: string,
+    period: string,
+    options?: { registration_start_date?: string; registration_expiry_date?: string; advance_tax_deposited?: number }
+  ) => {
+    let url = `/api/gstr5/batches?client_gstin_id=${encodeURIComponent(clientGstinId)}&period=${encodeURIComponent(period)}`;
+    if (options?.registration_start_date) url += `&registration_start_date=${encodeURIComponent(options.registration_start_date)}`;
+    if (options?.registration_expiry_date) url += `&registration_expiry_date=${encodeURIComponent(options.registration_expiry_date)}`;
+    if (options?.advance_tax_deposited !== undefined) url += `&advance_tax_deposited=${encodeURIComponent(options.advance_tax_deposited)}`;
+    return apiFetch<{ batch: Gstr5BatchSummary["batch"]; summary: Gstr5BatchSummary }>(url, { token });
+  },
+
+  getBatchDetails: (token: string, batchId: string) =>
+    apiFetch<Gstr5BatchSummary>(`/api/gstr5/batches/${encodeURIComponent(batchId)}`, { token }),
+
+  addImport: (token: string, batchId: string, record: Partial<Gstr5ImportRecord>) =>
+    apiFetch<Gstr5ImportRecord>(`/api/gstr5/batches/${encodeURIComponent(batchId)}/import`, {
+      method: "POST",
+      body: JSON.stringify(record),
+      token,
+    }),
+
+  addOutward: (token: string, batchId: string, record: Partial<Gstr5OutwardRecord>) =>
+    apiFetch<Gstr5OutwardRecord>(`/api/gstr5/batches/${encodeURIComponent(batchId)}/outward`, {
+      method: "POST",
+      body: JSON.stringify(record),
+      token,
+    }),
+
+  deleteImport: (token: string, batchId: string, importId: string) =>
+    apiFetch<{ deleted: boolean; import_id: string }>(
+      `/api/gstr5/batches/${encodeURIComponent(batchId)}/import/${encodeURIComponent(importId)}`,
+      { method: "DELETE", token }
+    ),
+
+  deleteOutward: (token: string, batchId: string, outwardId: string) =>
+    apiFetch<{ deleted: boolean; outward_id: string }>(
+      `/api/gstr5/batches/${encodeURIComponent(batchId)}/outward/${encodeURIComponent(outwardId)}`,
+      { method: "DELETE", token }
+    ),
+
+  validate: (token: string, batchId: string) =>
+    apiFetch<PreFilingValidationResult>(`/api/gstr5/batches/${encodeURIComponent(batchId)}/validate`, {
+      method: "POST",
+      token,
+    }),
+
+  prepare: (token: string, batchId: string) =>
+    apiFetch<{ status: string; approval_id: string; figures_digest: string }>(
+      `/api/gstr5/batches/${encodeURIComponent(batchId)}/prepare`,
+      { method: "POST", token }
+    ),
+
+  submitReview: (token: string, batchId: string, notes?: string) =>
+    apiFetch<{ status: string; approval_id: string }>(
+      `/api/gstr5/batches/${encodeURIComponent(batchId)}/submit-review`,
+      {
+        method: "POST",
+        body: JSON.stringify({ notes }),
+        token,
+      }
+    ),
+
+  approve: (token: string, batchId: string, notes?: string) =>
+    apiFetch<{ status: string; approval_id: string }>(
+      `/api/gstr5/batches/${encodeURIComponent(batchId)}/approve`,
+      {
+        method: "POST",
+        body: JSON.stringify({ notes }),
+        token,
+      }
+    ),
+
+  createClientAuthRequest: (token: string, batchId: string, expiresInHours?: number) =>
+    apiFetch<{ authorization_id: string; raw_token: string; review_url: string; expires_at: string }>(
+      `/api/gstr5/batches/${encodeURIComponent(batchId)}/client-authorization-request`,
+      {
+        method: "POST",
+        body: JSON.stringify({ expires_in_hours: expiresInHours ?? 48 }),
+        token,
+      }
+    ),
+
+  getOfflineJson: (token: string, batchId: string) =>
+    apiFetch<Record<string, any>>(`/api/gstr5/batches/${encodeURIComponent(batchId)}/offline-json`, { token }),
+
+  file: (token: string, batchId: string, body: { pan: string; signing_method?: string; otp?: string; signature?: string }) =>
+    apiFetch<{ status: string; arn: string; message: string }>(
+      `/api/gstr5/batches/${encodeURIComponent(batchId)}/file`,
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+        token,
+      }
+    ),
+};
+
+// ── Form GSTR-5A (OIDAR Overseas Supplies) ──────────────────────────────────
+
+export interface Gstr5aRecord {
+  id: string;
+  record_type: "ORIGINAL" | "AMENDMENT";
+  pos: string;
+  taxable_value: number;
+  rate_pct: number;
+  igst: number;
+  cess: number;
+  original_period?: string;
+  original_pos?: string;
+  status: string;
+}
+
+export interface Gstr5aBatchSummary {
+  batch: {
+    id: string;
+    firm_id: string;
+    client_gstin_id: string;
+    gstin: string;
+    period: string;
+    status: string;
+    figures_digest: string;
+    total_taxable_value: number;
+    total_igst: number;
+    total_cess: number;
+    net_tax_payable: number;
+    total_records: number;
+    total_amendments: number;
+    arn?: string;
+  };
+  table5_supplies: Gstr5aRecord[];
+  table5a_amendments: Gstr5aRecord[];
+  tax_summary: {
+    total_taxable_value: number;
+    total_igst: number;
+    total_cess: number;
+    net_tax_payable: number;
+  };
+  statutory_checks: {
+    eligible_itc: number;
+    applicable_tax_head: string;
+    due_date_day: number;
+  };
+}
+
+export const gstr5aApi = {
+  getOrCreateBatch: (token: string, clientGstinId: string, period: string) =>
+    apiFetch<{ batch: Gstr5aBatchSummary["batch"]; summary: Gstr5aBatchSummary }>(
+      `/api/gstr5a/batches?client_gstin_id=${encodeURIComponent(clientGstinId)}&period=${encodeURIComponent(period)}`,
+      { token }
+    ),
+
+  getBatchDetails: (token: string, batchId: string) =>
+    apiFetch<Gstr5aBatchSummary>(`/api/gstr5a/batches/${encodeURIComponent(batchId)}`, { token }),
+
+  addRecord: (token: string, batchId: string, record: Partial<Gstr5aRecord>) =>
+    apiFetch<Gstr5aRecord>(`/api/gstr5a/batches/${encodeURIComponent(batchId)}/record`, {
+      method: "POST",
+      body: JSON.stringify(record),
+      token,
+    }),
+
+  deleteRecord: (token: string, batchId: string, recordId: string) =>
+    apiFetch<{ deleted: boolean; record_id: string }>(
+      `/api/gstr5a/batches/${encodeURIComponent(batchId)}/record/${encodeURIComponent(recordId)}`,
+      { method: "DELETE", token }
+    ),
+
+  validate: (token: string, batchId: string) =>
+    apiFetch<PreFilingValidationResult>(`/api/gstr5a/batches/${encodeURIComponent(batchId)}/validate`, {
+      method: "POST",
+      token,
+    }),
+
+  prepare: (token: string, batchId: string) =>
+    apiFetch<{ status: string; approval_id: string; figures_digest: string }>(
+      `/api/gstr5a/batches/${encodeURIComponent(batchId)}/prepare`,
+      { method: "POST", token }
+    ),
+
+  submitReview: (token: string, batchId: string, notes?: string) =>
+    apiFetch<{ status: string; approval_id: string }>(
+      `/api/gstr5a/batches/${encodeURIComponent(batchId)}/submit-review`,
+      {
+        method: "POST",
+        body: JSON.stringify({ notes }),
+        token,
+      }
+    ),
+
+  approve: (token: string, batchId: string, notes?: string) =>
+    apiFetch<{ status: string; approval_id: string }>(
+      `/api/gstr5a/batches/${encodeURIComponent(batchId)}/approve`,
+      {
+        method: "POST",
+        body: JSON.stringify({ notes }),
+        token,
+      }
+    ),
+
+  createClientAuthRequest: (token: string, batchId: string, expiresInHours?: number) =>
+    apiFetch<{ authorization_id: string; raw_token: string; review_url: string; expires_at: string }>(
+      `/api/gstr5a/batches/${encodeURIComponent(batchId)}/client-authorization-request`,
+      {
+        method: "POST",
+        body: JSON.stringify({ expires_in_hours: expiresInHours ?? 48 }),
+        token,
+      }
+    ),
+
+  getOfflineJson: (token: string, batchId: string) =>
+    apiFetch<Record<string, any>>(`/api/gstr5a/batches/${encodeURIComponent(batchId)}/offline-json`, { token }),
+
+  file: (token: string, batchId: string, body: { pan: string; signing_method?: string; otp?: string; signature?: string }) =>
+    apiFetch<{ status: string; arn: string; message: string }>(
+      `/api/gstr5a/batches/${encodeURIComponent(batchId)}/file`,
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+        token,
+      }
+    ),
+};
+
 
 

@@ -164,6 +164,8 @@ def _mock_filing_pipeline(fake_client: FakeFilingClient, initial_status: str = "
         patch.object(filing_router.filing_store, "assert_gstr3b_save_allowed", return_value=None),
         patch.object(filing_router.filing_store, "get_run", side_effect=_get_run),
         patch.object(filing_router.filing_store, "update_run", side_effect=_update_run),
+        patch.object(filing_router, "assert_maker_checker_gate", return_value=None),
+        patch.object(filing_router, "assert_client_authorization_gate", return_value=None),
     ]
     for p in patches:
         p.start()

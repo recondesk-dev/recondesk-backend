@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import threading
 import time
 from dataclasses import dataclass
@@ -861,22 +862,55 @@ def is_founder_user(user: dict) -> bool:
     uid = str(user.get("id") or "").strip()
     email = str(user.get("email") or "").strip().lower()
 
-    fids = [x.strip() for x in (getattr(settings, "FOUNDER_USER_IDS", "") or "").split(",") if x.strip()]
+    fids_candidates = [
+        getattr(settings, "FOUNDER_USER_IDS", None),
+        getattr(settings, "FOUNDER_ADMIN_USER_IDS", None),
+        os.environ.get("FOUNDER_USER_IDS"),
+        os.environ.get("FOUNDER_ADMIN_USER_IDS"),
+    ]
+    fids: list[str] = []
+    for cand in fids_candidates:
+        if cand:
+            fids.extend([x.strip() for x in str(cand).split(",") if x.strip()])
+    fids = list(dict.fromkeys(fids))
     if uid and uid in fids:
         return True
 
-    femails = [x.strip().lower() for x in (getattr(settings, "FOUNDER_EMAILS", "") or "").split(",") if x.strip()]
+    femails_candidates = [
+        getattr(settings, "FOUNDER_EMAILS", None),
+        getattr(settings, "FOUNDER_ADMIN_EMAILS", None),
+        os.environ.get("FOUNDER_EMAILS"),
+        os.environ.get("FOUNDER_ADMIN_EMAILS"),
+    ]
+    femails: list[str] = []
+    for cand in femails_candidates:
+        if cand:
+            femails.extend([x.strip().lower() for x in str(cand).split(",") if x.strip()])
+    femails = list(dict.fromkeys(femails))
     if email and email in femails:
         return True
 
-    # If neither FOUNDER_USER_IDS nor FOUNDER_EMAILS is set, fallback to primary ADMIN_USER_ID or first ADMIN_EMAIL
-    if not fids and not femails:
-        aid = (settings.ADMIN_USER_ID or "").strip()
-        if aid and uid == aid:
-            return True
-        aemails = [x.strip().lower() for x in (getattr(settings, "ADMIN_EMAILS", "") or "").split(",") if x.strip()]
-        if aemails and email == aemails[0]:
-            return True
+    # If explicit founder identity (fids or femails) is configured, NEVER fall back to general admins.
+    # Non-founder platform admins must strictly receive False.
+    if fids or femails:
+        return False
+
+    # Fail-safe fallback ONLY when no founder identities are configured anywhere:
+    # Restrict strictly to primary ADMIN_USER_ID or first ADMIN_EMAIL (a single designated root admin)
+    aid = (settings.ADMIN_USER_ID or os.environ.get("ADMIN_USER_ID") or "").strip()
+    if aid and uid == aid:
+        return True
+    aemails = [
+        x.strip().lower()
+        for x in (
+            getattr(settings, "ADMIN_EMAILS", "")
+            or os.environ.get("ADMIN_EMAILS", "")
+            or ""
+        ).split(",")
+        if x.strip()
+    ]
+    if aemails and email == aemails[0]:
+        return True
 
     return False
 
