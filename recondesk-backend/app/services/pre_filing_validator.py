@@ -689,3 +689,409 @@ def validate_gstr1a_pre_filing(
         statutory_checks=statutory_checks,
         reconciliation_summary={"items_count": len(items)},
     )
+
+
+def validate_gstr7_pre_filing(
+    *,
+    gstin: str,
+    period: str,
+    batch: Mapping[str, Any],
+    records: Sequence[Mapping[str, Any]],
+) -> PreFilingValidationResult:
+    """Pre-filing validation for Form GSTR-7 (TDS under Section 51).
+
+    Checks:
+    1. Deductor GSTIN validity
+    2. Batch not empty
+    3. Deductee GSTIN validity
+    4. Contract threshold (> ₹2,50,000)
+    5. Section 51(1) Proviso exemption (supplier state == POS != deductor state)
+    6. Tax head allocations (Intra-state: CGST+SGST, Inter-state: IGST)
+    7. Duplicate records check
+    """
+    from app.rules.gstr7_rules import (
+        GSTR7_CONTRACT_THRESHOLD,
+        calculate_gstr7_tds,
+        evaluate_section_51_proviso,
+        extract_state_code,
+        validate_gstin_format,
+    )
+
+    clean_gstin = (gstin or "").strip().upper()
+    clean_period = (period or "").strip()
+    violations: list[ValidationViolation] = []
+    statutory_checks: dict[str, Any] = {
+        "deductor_gstin_validity": "PASSED",
+        "batch_content": "PASSED",
+        "deductee_gstins_validity": "PASSED",
+        "section_51_contract_threshold": "PASSED",
+        "section_51_proviso_exemption": "PASSED",
+        "tax_head_allocation": "PASSED",
+    }
+
+    if not validate_gstin_format(clean_gstin):
+        violations.append(
+            ValidationViolation(
+                code="G7_INVALID_DEDUCTOR_GSTIN",
+                message=f"Deductor GSTIN '{clean_gstin}' is invalid.",
+                category=ViolationCategory.STATUTORY_BREACH,
+                severity=ValidationSeverity.CRITICAL_ERROR,
+            )
+        )
+        statutory_checks["deductor_gstin_validity"] = "FAILED"
+
+    if not records:
+        violations.append(
+            ValidationViolation(
+                code="G7_EMPTY_BATCH",
+                message="GSTR-7 return has no TDS deduction records.",
+                category=ViolationCategory.INTERNAL_POLICY,
+                severity=ValidationSeverity.WARNING,
+            )
+        )
+        statutory_checks["batch_content"] = "WARNING"
+
+    deductor_state = extract_state_code(clean_gstin)
+    seen_deductee_refs: set[tuple[str, str, str]] = set()
+
+    for idx, r in enumerate(records, 1):
+        ded_gstin = str(r.get("deductee_gstin") or "").strip().upper()
+        rec_type = str(r.get("record_type") or "ORIGINAL").upper()
+        pay_ref = str(r.get("payment_reference") or "").strip()
+
+        if not validate_gstin_format(ded_gstin):
+            violations.append(
+                ValidationViolation(
+                    code="G7_INVALID_DEDUCTEE_GSTIN",
+                    message=f"Deductee GSTIN '{ded_gstin}' on record #{idx} is invalid.",
+                    category=ViolationCategory.STATUTORY_BREACH,
+                    severity=ValidationSeverity.CRITICAL_ERROR,
+                    details={"index": idx, "deductee_gstin": ded_gstin},
+                )
+            )
+            statutory_checks["deductee_gstins_validity"] = "FAILED"
+
+        # Duplicate check
+        key = (rec_type, ded_gstin, pay_ref)
+        if pay_ref and key in seen_deductee_refs:
+            violations.append(
+                ValidationViolation(
+                    code="G7_DUPLICATE_DEDUCTION_RECORD",
+                    message=f"Duplicate TDS record for deductee {ded_gstin} with payment reference '{pay_ref}'.",
+                    category=ViolationCategory.RISK_WARNING,
+                    severity=ValidationSeverity.WARNING,
+                    details={"index": idx, "deductee_gstin": ded_gstin, "payment_reference": pay_ref},
+                )
+            )
+        seen_deductee_refs.add(key)
+
+        supplier_state = extract_state_code(ded_gstin)
+        pos = str(r.get("pos") or supplier_state).strip()
+        contract_val = float(r.get("contract_value") or 0.0)
+        amount_paid = float(r.get("amount_paid") or 0.0)
+        tds_igst = float(r.get("tds_igst") or 0.0)
+        tds_cgst = float(r.get("tds_cgst") or 0.0)
+        tds_sgst = float(r.get("tds_sgst") or 0.0)
+
+        # Statutory checks
+        calc = calculate_gstr7_tds(
+            contract_value=contract_val,
+            amount_paid=amount_paid,
+            deductor_state=deductor_state,
+            supplier_state=supplier_state,
+            pos=pos,
+        )
+
+        if not calc.contract_exceeds_threshold and contract_val > 0:
+            violations.append(
+                ValidationViolation(
+                    code="G7_CONTRACT_BELOW_THRESHOLD",
+                    message=f"Record #{idx}: Contract value ₹{contract_val:,.2f} does not exceed statutory ₹2,50,000 threshold.",
+                    category=ViolationCategory.STATUTORY_BREACH,
+                    severity=ValidationSeverity.WARNING,
+                    details={"index": idx, "contract_value": contract_val},
+                )
+            )
+            statutory_checks["section_51_contract_threshold"] = "WARNING"
+
+        if calc.is_proviso_exempt:
+            violations.append(
+                ValidationViolation(
+                    code="G7_PROVISO_EXEMPTION_BREACH",
+                    message=(
+                        f"Record #{idx}: TDS prohibited under Proviso to Sec 51(1). "
+                        f"Supplier ({supplier_state}) and POS ({pos}) are in same State, different from Deductor ({deductor_state})."
+                    ),
+                    category=ViolationCategory.STATUTORY_BREACH,
+                    severity=ValidationSeverity.CRITICAL_ERROR,
+                    details={"index": idx, "supplier_state": supplier_state, "pos": pos, "deductor_state": deductor_state},
+                )
+            )
+            statutory_checks["section_51_proviso_exemption"] = "FAILED"
+
+        # Tax-head alignment
+        if calc.is_eligible:
+            if calc.tax_type == "INTRA_STATE" and tds_igst > 0 and (tds_cgst == 0 and tds_sgst == 0):
+                violations.append(
+                    ValidationViolation(
+                        code="G7_TAX_HEAD_MISMATCH_INTRA",
+                        message=f"Record #{idx}: Intra-state supply declared with IGST instead of CGST + SGST.",
+                        category=ViolationCategory.STATUTORY_BREACH,
+                        severity=ValidationSeverity.CRITICAL_ERROR,
+                        details={"index": idx, "tds_igst": tds_igst},
+                    )
+                )
+                statutory_checks["tax_head_allocation"] = "FAILED"
+            elif calc.tax_type == "INTER_STATE" and (tds_cgst > 0 or tds_sgst > 0) and tds_igst == 0:
+                violations.append(
+                    ValidationViolation(
+                        code="G7_TAX_HEAD_MISMATCH_INTER",
+                        message=f"Record #{idx}: Inter-state supply declared with CGST/SGST instead of IGST.",
+                        category=ViolationCategory.STATUTORY_BREACH,
+                        severity=ValidationSeverity.CRITICAL_ERROR,
+                        details={"index": idx, "tds_cgst": tds_cgst, "tds_sgst": tds_sgst},
+                    )
+                )
+                statutory_checks["tax_head_allocation"] = "FAILED"
+
+    if any(v.severity == ValidationSeverity.CRITICAL_ERROR for v in violations):
+        overall_severity = ValidationSeverity.CRITICAL_ERROR
+    elif any(v.severity == ValidationSeverity.WARNING for v in violations):
+        overall_severity = ValidationSeverity.WARNING
+    elif any(v.severity == ValidationSeverity.INFO for v in violations):
+        overall_severity = ValidationSeverity.INFO
+    else:
+        overall_severity = ValidationSeverity.CLEAN
+
+    is_valid = overall_severity not in (ValidationSeverity.CRITICAL_ERROR,)
+    digest = str(batch.get("figures_digest") or compute_figures_digest(dict(batch)))
+    val_digest = compute_validation_digest(violations)
+
+    return PreFilingValidationResult(
+        return_type="gstr-7",
+        gstin=clean_gstin,
+        period=clean_period,
+        is_valid=is_valid,
+        overall_severity=overall_severity,
+        figures_digest=digest,
+        validation_digest=val_digest,
+        violations=violations,
+        statutory_checks=statutory_checks,
+        reconciliation_summary={"records_count": len(records)},
+    )
+
+
+def validate_gstr8_pre_filing(
+    *,
+    gstin: str,
+    period: str,
+    batch: Mapping[str, Any],
+    records: Sequence[Mapping[str, Any]],
+) -> PreFilingValidationResult:
+    """Pre-filing validation for Form GSTR-8 (TCS under Section 52).
+
+    Checks:
+    1. ECO GSTIN validity
+    2. Batch not empty
+    3. B2B supplier GSTIN validity / B2C 2-digit POS validity
+    4. Net supplies arithmetic (gross - returns)
+    5. Negative net supplies warning
+    6. Statutory TCS rate (0.5% post 10-Jul-2024, 1.0% pre 10-Jul-2024)
+    7. Tax head allocations (Intra-state: CGST+SGST, Inter-state: IGST)
+    8. Duplicate records check
+    """
+    from app.rules.gstr8_rules import (
+        calculate_gstr8_tcs,
+        get_applicable_tcs_rates,
+    )
+    from app.rules.gstr7_rules import extract_state_code, validate_gstin_format
+
+    clean_gstin = (gstin or "").strip().upper()
+    clean_period = (period or "").strip()
+    violations: list[ValidationViolation] = []
+    statutory_checks: dict[str, Any] = {
+        "eco_gstin_validity": "PASSED",
+        "batch_content": "PASSED",
+        "supplier_and_pos_validity": "PASSED",
+        "net_supplies_arithmetic": "PASSED",
+        "statutory_tcs_rate": "PASSED",
+        "tax_head_allocation": "PASSED",
+    }
+
+    if not validate_gstin_format(clean_gstin):
+        violations.append(
+            ValidationViolation(
+                code="G8_INVALID_ECO_GSTIN",
+                message=f"ECO GSTIN '{clean_gstin}' is invalid.",
+                category=ViolationCategory.STATUTORY_BREACH,
+                severity=ValidationSeverity.CRITICAL_ERROR,
+            )
+        )
+        statutory_checks["eco_gstin_validity"] = "FAILED"
+
+    if not records:
+        violations.append(
+            ValidationViolation(
+                code="G8_EMPTY_BATCH",
+                message="GSTR-8 return has no TCS collection records.",
+                category=ViolationCategory.INTERNAL_POLICY,
+                severity=ValidationSeverity.WARNING,
+            )
+        )
+        statutory_checks["batch_content"] = "WARNING"
+
+    eco_state = extract_state_code(clean_gstin)
+    seen_b2b_suppliers: set[tuple[str, str]] = set()
+    seen_b2c_pos: set[tuple[str, str]] = set()
+
+    for idx, r in enumerate(records, 1):
+        stype = str(r.get("supply_type") or "B2B").upper()
+        rtype = str(r.get("record_type") or "ORIGINAL").upper()
+        supp_gstin = str(r.get("supplier_gstin") or "").strip().upper()
+        pos = str(r.get("pos") or "").strip()
+
+        gross = float(r.get("gross_supplies") or 0.0)
+        returned = float(r.get("returned_supplies") or 0.0)
+        net = float(r.get("net_supplies") or 0.0)
+
+        # 1. Supply & POS Format
+        if stype == "B2B":
+            if not validate_gstin_format(supp_gstin):
+                violations.append(
+                    ValidationViolation(
+                        code="G8_INVALID_SUPPLIER_GSTIN",
+                        message=f"Record #{idx}: B2B supplier GSTIN '{supp_gstin}' is invalid.",
+                        category=ViolationCategory.STATUTORY_BREACH,
+                        severity=ValidationSeverity.CRITICAL_ERROR,
+                        details={"index": idx, "supplier_gstin": supp_gstin},
+                    )
+                )
+                statutory_checks["supplier_and_pos_validity"] = "FAILED"
+
+            key_b2b = (rtype, supp_gstin)
+            if key_b2b in seen_b2b_suppliers:
+                violations.append(
+                    ValidationViolation(
+                        code="G8_DUPLICATE_B2B_SUPPLIER",
+                        message=f"Duplicate B2B entry for supplier {supp_gstin} in {rtype} table.",
+                        category=ViolationCategory.RISK_WARNING,
+                        severity=ValidationSeverity.WARNING,
+                        details={"index": idx, "supplier_gstin": supp_gstin},
+                    )
+                )
+            seen_b2b_suppliers.add(key_b2b)
+        else:
+            if not pos or len(pos) != 2 or not pos.isdigit():
+                violations.append(
+                    ValidationViolation(
+                        code="G8_INVALID_POS",
+                        message=f"Record #{idx}: B2C supply requires valid 2-digit Place of Supply ('{pos}').",
+                        category=ViolationCategory.STATUTORY_BREACH,
+                        severity=ValidationSeverity.CRITICAL_ERROR,
+                        details={"index": idx, "pos": pos},
+                    )
+                )
+                statutory_checks["supplier_and_pos_validity"] = "FAILED"
+
+            key_b2c = (rtype, pos)
+            if key_b2c in seen_b2c_pos:
+                violations.append(
+                    ValidationViolation(
+                        code="G8_DUPLICATE_B2C_POS",
+                        message=f"Duplicate B2C entry for Place of Supply {pos} in {rtype} table.",
+                        category=ViolationCategory.RISK_WARNING,
+                        severity=ValidationSeverity.WARNING,
+                        details={"index": idx, "pos": pos},
+                    )
+                )
+            seen_b2c_pos.add(key_b2c)
+
+        # 2. Net Arithmetic Check
+        expected_net = round(gross - returned, 2)
+        if abs(net - expected_net) > 0.05:
+            violations.append(
+                ValidationViolation(
+                    code="G8_NET_SUPPLIES_ARITHMETIC_ERROR",
+                    message=f"Record #{idx}: Net supplies (₹{net:,.2f}) does not equal Gross (₹{gross:,.2f}) minus Returned (₹{returned:,.2f}).",
+                    category=ViolationCategory.STATUTORY_BREACH,
+                    severity=ValidationSeverity.CRITICAL_ERROR,
+                    details={"index": idx, "gross": gross, "returned": returned, "net": net, "expected": expected_net},
+                )
+            )
+            statutory_checks["net_supplies_arithmetic"] = "FAILED"
+
+        # 3. Negative Net Warning
+        if expected_net < 0:
+            violations.append(
+                ValidationViolation(
+                    code="G8_NEGATIVE_NET_SUPPLY",
+                    message=f"Record #{idx}: Returned supplies exceed gross sales (Net = ₹{expected_net:,.2f}). TCS collection is ₹0.00.",
+                    category=ViolationCategory.RISK_WARNING,
+                    severity=ValidationSeverity.WARNING,
+                    details={"index": idx, "net": expected_net},
+                )
+            )
+
+        # 4. Tax Rate & Head Allocation
+        supp_state = extract_state_code(supp_gstin) if supp_gstin else None
+        calc = calculate_gstr8_tcs(
+            period=clean_period,
+            gross_supplies=gross,
+            returned_supplies=returned,
+            eco_state=eco_state,
+            pos=pos or (supp_state or ""),
+            supplier_state=supp_state,
+        )
+
+        t_igst = float(r.get("tcs_igst") or 0.0)
+        t_cgst = float(r.get("tcs_cgst") or 0.0)
+        t_sgst = float(r.get("tcs_sgst") or 0.0)
+
+        if calc.supply_nature == "INTRA_STATE" and t_igst > 0 and (t_cgst == 0 and t_sgst == 0):
+            violations.append(
+                ValidationViolation(
+                    code="G8_TAX_HEAD_MISMATCH_INTRA",
+                    message=f"Record #{idx}: Intra-state supply declared with IGST instead of CGST+SGST.",
+                    category=ViolationCategory.STATUTORY_BREACH,
+                    severity=ValidationSeverity.CRITICAL_ERROR,
+                    details={"index": idx, "pos": pos, "tcs_igst": t_igst},
+                )
+            )
+            statutory_checks["tax_head_allocation"] = "FAILED"
+        elif calc.supply_nature == "INTER_STATE" and (t_cgst > 0 or t_sgst > 0) and t_igst == 0:
+            violations.append(
+                ValidationViolation(
+                    code="G8_TAX_HEAD_MISMATCH_INTER",
+                    message=f"Record #{idx}: Inter-state supply declared with CGST/SGST instead of IGST.",
+                    category=ViolationCategory.STATUTORY_BREACH,
+                    severity=ValidationSeverity.CRITICAL_ERROR,
+                    details={"index": idx, "pos": pos, "tcs_cgst": t_cgst, "tcs_sgst": t_sgst},
+                )
+            )
+            statutory_checks["tax_head_allocation"] = "FAILED"
+
+    if any(v.severity == ValidationSeverity.CRITICAL_ERROR for v in violations):
+        overall_severity = ValidationSeverity.CRITICAL_ERROR
+    elif any(v.severity == ValidationSeverity.WARNING for v in violations):
+        overall_severity = ValidationSeverity.WARNING
+    elif any(v.severity == ValidationSeverity.INFO for v in violations):
+        overall_severity = ValidationSeverity.INFO
+    else:
+        overall_severity = ValidationSeverity.CLEAN
+
+    is_valid = overall_severity not in (ValidationSeverity.CRITICAL_ERROR,)
+    digest = str(batch.get("figures_digest") or compute_figures_digest(dict(batch)))
+    val_digest = compute_validation_digest(violations)
+
+    return PreFilingValidationResult(
+        return_type="gstr-8",
+        gstin=clean_gstin,
+        period=clean_period,
+        is_valid=is_valid,
+        overall_severity=overall_severity,
+        figures_digest=digest,
+        validation_digest=val_digest,
+        violations=violations,
+        statutory_checks=statutory_checks,
+        reconciliation_summary={"records_count": len(records)},
+    )

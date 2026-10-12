@@ -3251,6 +3251,8 @@ export type PreFilingValidationResponse = {
   policy_mode?: "ADVISORY" | "PARTNER_OVERRIDE" | "STRICT_BLOCK";
 };
 
+export type PreFilingValidationResult = PreFilingValidationResponse;
+
 export type FilingGovernancePolicy = {
   firm_id: string;
   mode: "ADVISORY" | "PARTNER_OVERRIDE" | "STRICT_BLOCK";
@@ -5948,6 +5950,265 @@ export const gstr1aApi = {
         body: JSON.stringify(body),
         token,
       }
+    ),
+};
+
+export interface Gstr7Record {
+  id: string;
+  record_type: "ORIGINAL" | "AMENDMENT";
+  deductee_gstin: string;
+  contract_number?: string;
+  contract_value: number;
+  payment_reference?: string;
+  payment_date?: string;
+  amount_paid: number;
+  supplier_state?: string;
+  pos?: string;
+  tds_rate: number;
+  tds_igst: number;
+  tds_cgst: number;
+  tds_sgst: number;
+  original_period?: string;
+  original_deductee_gstin?: string;
+  tax_deposited: number;
+  is_eligible_for_tds: boolean;
+  ineligibility_reason?: string;
+  status: string;
+}
+
+export interface Gstr7BatchSummary {
+  batch: {
+    id: string;
+    firm_id: string;
+    client_gstin_id: string;
+    gstin: string;
+    period: string;
+    status: string;
+    figures_digest: string;
+    total_records: number;
+    total_amendments: number;
+    total_amount_paid: number;
+    total_tds_igst: number;
+    total_tds_cgst: number;
+    total_tds_sgst: number;
+    total_tds_deposited: number;
+    arn?: string;
+  };
+  table3_original: Gstr7Record[];
+  table4_amendments: Gstr7Record[];
+  total_tds_liability: number;
+  deposit_variance: number;
+  exceptions: Array<{ category: string; reason: string; record_id?: string; deductee_gstin?: string }>;
+}
+
+export interface Gstr8Record {
+  id: string;
+  supply_type: "B2B" | "B2C";
+  record_type: "ORIGINAL" | "AMENDMENT";
+  pos: string;
+  supplier_gstin?: string;
+  gross_supplies: number;
+  returned_supplies: number;
+  net_supplies: number;
+  tcs_rate: number;
+  tcs_igst: number;
+  tcs_cgst: number;
+  tcs_sgst: number;
+  original_period?: string;
+  original_supplier_gstin?: string;
+  original_pos?: string;
+  tax_deposited: number;
+  status: string;
+}
+
+export interface Gstr8BatchSummary {
+  batch: {
+    id: string;
+    firm_id: string;
+    client_gstin_id: string;
+    gstin: string;
+    period: string;
+    status: string;
+    figures_digest: string;
+    total_b2b_records: number;
+    total_b2c_records: number;
+    total_amendments: number;
+    gross_supplies_value: number;
+    returned_supplies_value: number;
+    net_taxable_value: number;
+    total_tcs_igst: number;
+    total_tcs_cgst: number;
+    total_tcs_sgst: number;
+    total_tcs_deposited: number;
+    arn?: string;
+  };
+  table3_b2b: Gstr8Record[];
+  table3_b2c: Gstr8Record[];
+  table4_b2b: Gstr8Record[];
+  table4_b2c: Gstr8Record[];
+  applicable_rates: {
+    total_pct: number;
+    cgst_pct: number;
+    sgst_pct: number;
+    igst_pct: number;
+    reference: string;
+  };
+  total_tcs_liability: number;
+  deposit_variance: number;
+  exceptions: Array<{ category: string; reason: string; record_id?: string; supplier_gstin?: string; pos?: string }>;
+}
+
+export const gstr7Api = {
+  getOrCreateBatch: (token: string, clientGstinId: string, period: string) =>
+    apiFetch<Gstr7BatchSummary["batch"]>(
+      `/api/gstr7/batches?client_gstin_id=${encodeURIComponent(clientGstinId)}&period=${encodeURIComponent(period)}`,
+      { token }
+    ),
+
+  getBatchSummary: (token: string, batchId: string) =>
+    apiFetch<Gstr7BatchSummary>(`/api/gstr7/batches/${encodeURIComponent(batchId)}`, { token }),
+
+  saveRecord: (token: string, batchId: string, record: Partial<Gstr7Record>) =>
+    apiFetch<Gstr7Record>(`/api/gstr7/batches/${encodeURIComponent(batchId)}/records`, {
+      method: "POST",
+      body: JSON.stringify(record),
+      token,
+    }),
+
+  deleteRecord: (token: string, batchId: string, recordId: string) =>
+    apiFetch<{ status: string; id: string }>(
+      `/api/gstr7/batches/${encodeURIComponent(batchId)}/records/${encodeURIComponent(recordId)}`,
+      { method: "DELETE", token }
+    ),
+
+  validate: (token: string, batchId: string) =>
+    apiFetch<PreFilingValidationResult>(`/api/gstr7/batches/${encodeURIComponent(batchId)}/validate`, {
+      method: "POST",
+      token,
+    }),
+
+  prepare: (token: string, batchId: string) =>
+    apiFetch<{ status: string; approval_id: string }>(
+      `/api/gstr7/batches/${encodeURIComponent(batchId)}/prepare`,
+      { method: "POST", token }
+    ),
+
+  submitReview: (token: string, batchId: string, notes?: string) =>
+    apiFetch<{ status: string }>(`/api/gstr7/batches/${encodeURIComponent(batchId)}/submit-review`, {
+      method: "POST",
+      body: JSON.stringify({ notes }),
+      token,
+    }),
+
+  approve: (token: string, batchId: string, notes?: string) =>
+    apiFetch<{ status: string }>(`/api/gstr7/batches/${encodeURIComponent(batchId)}/approve`, {
+      method: "POST",
+      body: JSON.stringify({ notes }),
+      token,
+    }),
+
+  reject: (token: string, batchId: string, reason: string) =>
+    apiFetch<{ status: string }>(`/api/gstr7/batches/${encodeURIComponent(batchId)}/reject`, {
+      method: "POST",
+      body: JSON.stringify({ rejection_reason: reason }),
+      token,
+    }),
+
+  getOfflineJson: (token: string, batchId: string) =>
+    apiFetch<Record<string, any>>(`/api/gstr7/batches/${encodeURIComponent(batchId)}/offline-json`, { token }),
+
+  saveToGstn: (token: string, batchId: string, taxpayerToken: string) =>
+    apiFetch<{ status: string; gstn_response?: any; notice?: string; offline_json?: any }>(
+      `/api/gstr7/batches/${encodeURIComponent(batchId)}/save?taxpayer_token=${encodeURIComponent(taxpayerToken)}`,
+      { method: "POST", token }
+    ),
+
+  fileToGstn: (
+    token: string,
+    batchId: string,
+    taxpayerToken: string,
+    body: { pan: string; signing_method?: string; otp?: string; signature?: string }
+  ) =>
+    apiFetch<{ status: string; arn?: string; gstn_response?: any; notice?: string; offline_json?: any }>(
+      `/api/gstr7/batches/${encodeURIComponent(batchId)}/file?taxpayer_token=${encodeURIComponent(taxpayerToken)}`,
+      { method: "POST", body: JSON.stringify(body), token }
+    ),
+};
+
+export const gstr8Api = {
+  getOrCreateBatch: (token: string, clientGstinId: string, period: string) =>
+    apiFetch<Gstr8BatchSummary["batch"]>(
+      `/api/gstr8/batches?client_gstin_id=${encodeURIComponent(clientGstinId)}&period=${encodeURIComponent(period)}`,
+      { token }
+    ),
+
+  getBatchSummary: (token: string, batchId: string) =>
+    apiFetch<Gstr8BatchSummary>(`/api/gstr8/batches/${encodeURIComponent(batchId)}`, { token }),
+
+  saveRecord: (token: string, batchId: string, record: Partial<Gstr8Record>) =>
+    apiFetch<Gstr8Record>(`/api/gstr8/batches/${encodeURIComponent(batchId)}/records`, {
+      method: "POST",
+      body: JSON.stringify(record),
+      token,
+    }),
+
+  deleteRecord: (token: string, batchId: string, recordId: string) =>
+    apiFetch<{ status: string; id: string }>(
+      `/api/gstr8/batches/${encodeURIComponent(batchId)}/records/${encodeURIComponent(recordId)}`,
+      { method: "DELETE", token }
+    ),
+
+  validate: (token: string, batchId: string) =>
+    apiFetch<PreFilingValidationResult>(`/api/gstr8/batches/${encodeURIComponent(batchId)}/validate`, {
+      method: "POST",
+      token,
+    }),
+
+  prepare: (token: string, batchId: string) =>
+    apiFetch<{ status: string; approval_id: string }>(
+      `/api/gstr8/batches/${encodeURIComponent(batchId)}/prepare`,
+      { method: "POST", token }
+    ),
+
+  submitReview: (token: string, batchId: string, notes?: string) =>
+    apiFetch<{ status: string }>(`/api/gstr8/batches/${encodeURIComponent(batchId)}/submit-review`, {
+      method: "POST",
+      body: JSON.stringify({ notes }),
+      token,
+    }),
+
+  approve: (token: string, batchId: string, notes?: string) =>
+    apiFetch<{ status: string }>(`/api/gstr8/batches/${encodeURIComponent(batchId)}/approve`, {
+      method: "POST",
+      body: JSON.stringify({ notes }),
+      token,
+    }),
+
+  reject: (token: string, batchId: string, reason: string) =>
+    apiFetch<{ status: string }>(`/api/gstr8/batches/${encodeURIComponent(batchId)}/reject`, {
+      method: "POST",
+      body: JSON.stringify({ rejection_reason: reason }),
+      token,
+    }),
+
+  getOfflineJson: (token: string, batchId: string) =>
+    apiFetch<Record<string, any>>(`/api/gstr8/batches/${encodeURIComponent(batchId)}/offline-json`, { token }),
+
+  saveToGstn: (token: string, batchId: string, taxpayerToken: string) =>
+    apiFetch<{ status: string; gstn_response?: any; notice?: string; offline_json?: any }>(
+      `/api/gstr8/batches/${encodeURIComponent(batchId)}/save?taxpayer_token=${encodeURIComponent(taxpayerToken)}`,
+      { method: "POST", token }
+    ),
+
+  fileToGstn: (
+    token: string,
+    batchId: string,
+    taxpayerToken: string,
+    body: { pan: string; signing_method?: string; otp?: string; signature?: string }
+  ) =>
+    apiFetch<{ status: string; arn?: string; gstn_response?: any; notice?: string; offline_json?: any }>(
+      `/api/gstr8/batches/${encodeURIComponent(batchId)}/file?taxpayer_token=${encodeURIComponent(taxpayerToken)}`,
+      { method: "POST", body: JSON.stringify(body), token }
     ),
 };
 

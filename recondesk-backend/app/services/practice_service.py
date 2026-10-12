@@ -1084,6 +1084,32 @@ def compute_statutory_due_dates(
             note="Quarterly payment challan due on 18th of month following each quarter (Notification No. 21/2019-Central Tax)" if is_quarter_end else "Interim month: CMP-08 is strictly quarterly",
         ))
 
+    # 6. GSTR-7 (TDS deductors)
+    if not clean_freq or clean_freq in ("ALL", "MONTHLY", "TDS"):
+        results.append(_make_item(
+            "GSTR-7",
+            "tds_deductors",
+            10,
+            "GSTR-7 Tax Deducted at Source (TDS under Section 51)",
+            applicability="Notified Government departments, local authorities and PSUs deducting TDS under Section 51",
+            verification_status="STATUTORY_RULE",
+            is_verified=True,
+            note="Rule 66(1) of CGST Rules, 2017 - Due by 10th of succeeding month",
+        ))
+
+    # 7. GSTR-8 (TCS e-commerce operators)
+    if not clean_freq or clean_freq in ("ALL", "MONTHLY", "TCS"):
+        results.append(_make_item(
+            "GSTR-8",
+            "tcs_ecommerce",
+            10,
+            "GSTR-8 Tax Collected at Source (TCS under Section 52)",
+            applicability="Electronic commerce operators liable to collect TCS under Section 52",
+            verification_status="STATUTORY_RULE",
+            is_verified=True,
+            note="Rule 67(1) of CGST Rules, 2017 - Due by 10th of succeeding month",
+        ))
+
     return results
 
 

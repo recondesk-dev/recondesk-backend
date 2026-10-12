@@ -70,6 +70,10 @@ def normalize_return_type(rt: str) -> str:
         return "GSTR-9"
     if raw in ("GSTR-9C", "GSTR9C", "GSTR_9C"):
         return "GSTR-9C"
+    if raw in ("GSTR-7", "GSTR7", "GSTR_7"):
+        return "GSTR-7"
+    if raw in ("GSTR-8", "GSTR8", "GSTR_8"):
+        return "GSTR-8"
     return raw
 
 
@@ -218,6 +222,10 @@ class _MakerCheckerStore:
 
 
 _mc_store = _MakerCheckerStore()
+
+
+def reset_maker_checker_store_for_testing() -> None:
+    _mc_store.clear()
 
 # Phase 3.2 Cutoff: Only runs created strictly before this UTC timestamp qualify as legacy
 PHASE_3_2_CUTOFF_ISO = "2026-10-11T22:00:00+00:00"

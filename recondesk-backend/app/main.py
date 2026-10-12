@@ -62,6 +62,8 @@ from app.routers.gstr2a_delta import router as gstr2a_delta_router
 from app.routers.notices import router as notices_router
 from app.routers.practice import practice_router
 from app.routers.gstr1a import router as gstr1a_router
+from app.routers.gstr7 import router as gstr7_router
+from app.routers.gstr8 import router as gstr8_router
 from app.routers.vendor_followup import (
     router as vendor_followup_router,
     public_router as vendor_public_router,
@@ -707,6 +709,26 @@ app.include_router(
     gstr1a_router,
     prefix="/api/v1/gstr1a",
     tags=["GSTR-1A Amendments"],
+)
+app.include_router(
+    gstr7_router,
+    prefix="/api/gstr7",
+    tags=["GSTR-7 TDS"],
+)
+app.include_router(
+    gstr7_router,
+    prefix="/api/v1/gstr7",
+    tags=["GSTR-7 TDS"],
+)
+app.include_router(
+    gstr8_router,
+    prefix="/api/gstr8",
+    tags=["GSTR-8 TCS"],
+)
+app.include_router(
+    gstr8_router,
+    prefix="/api/v1/gstr8",
+    tags=["GSTR-8 TCS"],
 )
 
 

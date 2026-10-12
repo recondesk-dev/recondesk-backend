@@ -75,6 +75,10 @@ def normalize_return_type(rt: str) -> str:
         return "GSTR-9"
     if raw in ("GSTR-9C", "GSTR9C", "GSTR_9C"):
         return "GSTR-9C"
+    if raw in ("GSTR-7", "GSTR7", "GSTR_7"):
+        return "GSTR-7"
+    if raw in ("GSTR-8", "GSTR8", "GSTR_8"):
+        return "GSTR-8"
     return raw
 
 
@@ -276,6 +280,10 @@ class _ClientAuthStore:
 
 
 _client_store = _ClientAuthStore()
+
+
+def reset_client_authorization_store_for_testing() -> None:
+    _client_store.clear()
 
 
 def _is_test_runner(sb: Any) -> bool:

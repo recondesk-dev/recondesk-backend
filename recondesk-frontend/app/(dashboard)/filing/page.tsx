@@ -1,9 +1,27 @@
 "use client";
 
 import Link from "next/link";
-import { FileText, Layers, FileCheck, RefreshCcw, Calculator, ArrowRight } from "lucide-react";
+import { FileText, Layers, FileCheck, RefreshCcw, Calculator, ArrowRight, Receipt, ShoppingCart } from "lucide-react";
 
 const FILING_MODULES = [
+  {
+    title: "Form GSTR-7 (TDS under Section 51)",
+    href: "/filing/gstr-7",
+    badge: "Government / PSU Deductor",
+    badgeColor: "bg-indigo-500/10 text-indigo-600 border-indigo-500/20",
+    desc: "Tax Deducted at Source for notified government entities and PSUs. Contract-level threshold validation (> ₹2.5L), Section 51(1) Proviso checks, Table 3/4 reconciliation, and GSTN offline JSON.",
+    icon: Receipt,
+    actionText: "Open GSTR-7 Workbench",
+  },
+  {
+    title: "Form GSTR-8 (TCS under Section 52)",
+    href: "/filing/gstr-8",
+    badge: "E-Commerce Operator",
+    badgeColor: "bg-purple-500/10 text-purple-600 border-purple-500/20",
+    desc: "Tax Collected at Source for e-commerce platforms. Supplier-wise gross and returned supply reconciliation, net taxable turnover calculation, reduced 0.5% rate verification, and GSTN offline JSON.",
+    icon: ShoppingCart,
+    actionText: "Open GSTR-8 Workbench",
+  },
   {
     title: "Form GSTR-4 & CMP-08 (Composition)",
     href: "/filing/gstr-4",
