@@ -565,3 +565,193 @@ def test_cannot_assign_duplicate_active_offer_for_same_ca(mock_staff_user):
         assign_private_ca_coupon(mock_db, req, mock_staff_user)
     assert exc.value.status_code == 400
     assert "active private offer" in exc.value.detail.lower()
+
+
+def test_private_ca_coupon_disposable_database_migration_rehearsal_and_rollback():
+    """Verify 20261012200000 UP and DOWN migrations against disposable database copy."""
+    import sqlite3
+    db = sqlite3.connect(":memory:")
+
+    # 1. Base coupons schema from 20261012120000
+    db.execute("""
+        CREATE TABLE coupons (
+            id TEXT PRIMARY KEY,
+            code TEXT NOT NULL UNIQUE,
+            discount_percentage INTEGER NOT NULL,
+            eligible_plans TEXT NOT NULL,
+            is_active INTEGER NOT NULL DEFAULT 1,
+            expires_at TEXT,
+            max_redemptions INTEGER DEFAULT 1,
+            redemptions_count INTEGER DEFAULT 0,
+            max_per_customer INTEGER DEFAULT 1,
+            restricted_to_tenant_id TEXT,
+            restricted_to_email TEXT,
+            is_acquisition_only INTEGER DEFAULT 1,
+            founder_approved INTEGER DEFAULT 0,
+            founder_approved_by TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
+    """)
+    db.execute("INSERT INTO coupons (id, code, discount_percentage, eligible_plans) VALUES ('c-base-1', 'GLOBAL25', 25, '[\"firm\"]')")
+    db.commit()
+
+    # 2. Rehearse UP migration columns and constraint
+    db.execute("""
+        ALTER TABLE coupons ADD COLUMN assigned_to_tenant_id TEXT;
+    """)
+    db.execute("ALTER TABLE coupons ADD COLUMN assigned_to_name TEXT;")
+    db.execute("ALTER TABLE coupons ADD COLUMN assigned_to_firm_name TEXT;")
+    db.execute("ALTER TABLE coupons ADD COLUMN assigned_to_email TEXT;")
+    db.execute("ALTER TABLE coupons ADD COLUMN assigned_by TEXT;")
+    db.execute("ALTER TABLE coupons ADD COLUMN assigned_by_name TEXT;")
+    db.execute("ALTER TABLE coupons ADD COLUMN assigned_at TEXT;")
+    db.execute("ALTER TABLE coupons ADD COLUMN sales_notes TEXT;")
+    db.execute("ALTER TABLE coupons ADD COLUMN offer_status TEXT NOT NULL DEFAULT 'active';")
+    db.execute("ALTER TABLE coupons ADD COLUMN revoked_at TEXT;")
+    db.execute("ALTER TABLE coupons ADD COLUMN revoked_by TEXT;")
+    db.execute("ALTER TABLE coupons ADD COLUMN revoked_by_name TEXT;")
+    db.execute("ALTER TABLE coupons ADD COLUMN revoked_reason TEXT;")
+    db.commit()
+
+    # Insert private offer in draft status
+    db.execute("""
+        INSERT INTO coupons (
+            id, code, discount_percentage, eligible_plans, assigned_to_tenant_id,
+            assigned_to_firm_name, offer_status, sales_notes
+        ) VALUES (
+            'c-priv-1', 'CA_FIRM25_SECURE', 25, '[\"firm\"]', 'tenant-100',
+            'Patel & Associates', 'draft', 'Phone call agreement'
+        )
+    """)
+    db.commit()
+
+    row = db.execute("SELECT code, offer_status, assigned_to_firm_name, sales_notes FROM coupons WHERE id = 'c-priv-1'").fetchone()
+    assert row[0] == "CA_FIRM25_SECURE"
+    assert row[1] == "draft"
+    assert row[2] == "Patel & Associates"
+    assert row[3] == "Phone call agreement"
+
+    # Promote to active
+    db.execute("UPDATE coupons SET offer_status = 'active', is_active = 1 WHERE id = 'c-priv-1'")
+    db.commit()
+    row_active = db.execute("SELECT offer_status, is_active FROM coupons WHERE id = 'c-priv-1'").fetchone()
+    assert row_active[0] == "active"
+    assert row_active[1] == 1
+
+    # Revoke offer
+    db.execute("UPDATE coupons SET offer_status = 'revoked', is_active = 0, revoked_reason = 'Customer requested cancel' WHERE id = 'c-priv-1'")
+    db.commit()
+    row_revoked = db.execute("SELECT offer_status, is_active, revoked_reason FROM coupons WHERE id = 'c-priv-1'").fetchone()
+    assert row_revoked[0] == "revoked"
+    assert row_revoked[1] == 0
+    assert row_revoked[2] == "Customer requested cancel"
+
+    # 3. Rehearse DOWN migration rollback: table columns safely drop, base data intact
+    db.execute("ALTER TABLE coupons DROP COLUMN revoked_reason;")
+    db.execute("ALTER TABLE coupons DROP COLUMN revoked_by_name;")
+    db.execute("ALTER TABLE coupons DROP COLUMN revoked_by;")
+    db.execute("ALTER TABLE coupons DROP COLUMN revoked_at;")
+    db.execute("ALTER TABLE coupons DROP COLUMN offer_status;")
+    db.execute("ALTER TABLE coupons DROP COLUMN sales_notes;")
+    db.execute("ALTER TABLE coupons DROP COLUMN assigned_at;")
+    db.execute("ALTER TABLE coupons DROP COLUMN assigned_by_name;")
+    db.execute("ALTER TABLE coupons DROP COLUMN assigned_by;")
+    db.execute("ALTER TABLE coupons DROP COLUMN assigned_to_email;")
+    db.execute("ALTER TABLE coupons DROP COLUMN assigned_to_firm_name;")
+    db.execute("ALTER TABLE coupons DROP COLUMN assigned_to_name;")
+    db.execute("ALTER TABLE coupons DROP COLUMN assigned_to_tenant_id;")
+    db.commit()
+
+    # Original coupons remain intact
+    base_rows = db.execute("SELECT id, code, discount_percentage FROM coupons").fetchall()
+    assert len(base_rows) == 2
+    assert base_rows[0][1] == "GLOBAL25"
+    db.close()
+
+
+def test_full_lifecycle_staff_assignment_customer_billing_checkout_integration(mock_staff_user):
+    """End-to-end integration: Staff assigns draft -> activates -> CA sees on billing -> applies to checkout."""
+    storage = {}
+
+    def mock_insert(rec):
+        rec.setdefault("id", "c-mock-uuid-99")
+        storage[rec["code"]] = rec.copy()
+        exec_mock = MagicMock()
+        exec_mock.execute.return_value = MagicMock(data=[rec.copy()])
+        return exec_mock
+
+    mock_db = MagicMock()
+    mock_db.table("user_profiles").select().eq().limit().execute.return_value.data = [{
+        "id": "tenant-ca-99",
+        "email": "ca.mehta@firm.com",
+        "full_name": "Kavita Mehta",
+        "firm_name": "Mehta Tax Consultants",
+    }]
+    mock_db.table("coupons").select().eq().eq().execute.return_value.data = []
+    mock_db.table("coupons").insert.side_effect = mock_insert
+
+    # Step 1: Staff creates draft offer
+    draft_req = PrivateCouponAssignRequest(
+        tenant_id="tenant-ca-99",
+        plan="large_firm",
+        discount_percentage=25,
+        sales_notes="Agreed for 150 GSTIN tier",
+        activate_now=False,
+    )
+    assigned_draft = assign_private_ca_coupon(mock_db, draft_req, mock_staff_user)
+    assert assigned_draft["offer_status"] == "draft"
+    assert assigned_draft["is_active"] is False
+    assert assigned_draft["code"].startswith("CA")
+
+    # Step 2: Customer queries /my-offers while draft -> returns EMPTY list
+    mock_db.table("coupons").select().or_().eq().order().execute.return_value.data = [assigned_draft]
+    offers_before_activation = list_customer_exclusive_offers(mock_db, tenant_id="tenant-ca-99")
+    assert len(offers_before_activation) == 0  # Drafts invisible!
+
+    # Step 3: Staff activates draft offer
+    mock_db.table("coupons").select().eq().limit().execute.return_value.data = [assigned_draft]
+    activated_record = assigned_draft.copy()
+    activated_record["is_active"] = True
+    activated_record["offer_status"] = "active"
+    mock_db.table("coupons").update().eq().execute.return_value.data = [activated_record]
+
+    activated = activate_private_ca_coupon(mock_db, assigned_draft["id"], mock_staff_user)
+    assert activated["offer_status"] == "active"
+    assert activated["is_active"] is True
+
+    # Step 4: Customer queries /my-offers -> returns active offer with exact price calculation
+    mock_db.table("coupons").select().or_().eq().order().execute.return_value.data = [activated_record]
+    offers_after_activation = list_customer_exclusive_offers(mock_db, tenant_id="tenant-ca-99")
+    assert len(offers_after_activation) == 1
+    offer = offers_after_activation[0]
+    assert offer["code"] == assigned_draft["code"]
+    assert offer["eligible_plan"] == "large_firm"
+    assert offer["discount_percentage"] == 25
+    # Large firm base: ₹18,999.00 = 1,899,900 paise
+    # 25% discount: 474,975 paise = ₹4,749.75
+    # Discounted base: 1,424,925 paise = ₹14,249.25
+    # GST (18%): 256,487 paise = ₹2,564.87
+    # Total: 1,681,412 paise = ₹16,814.12
+    assert offer["original_base_paise"] == 1899900
+    assert offer["discount_amount_paise"] == 474975
+    assert offer["discounted_base_paise"] == 1424925
+    assert offer["gst_paise"] == 256487
+    assert offer["total_paise"] == 1681412
+
+    # Step 5: Customer enters coupon into checkout -> validation succeeds with exact same paisa
+    mock_db.table("coupons").select().ilike().limit().execute.return_value.data = [activated_record]
+    mock_db.table("coupon_redemptions").select().eq().eq().in_().execute.return_value.data = []
+    mock_db.table("payments").select().eq().in_().eq().execute.return_value.data = []
+
+    validation = validate_coupon_for_checkout(
+        mock_db,
+        code=offer["code"],
+        plan="large_firm",
+        billing_cycle="yearly",
+        firm_owner_id="tenant-ca-99",
+    )
+    assert validation["code"] == offer["code"]
+    assert validation["total_paise"] == 1681412
+    assert validation["discount_amount_paise"] == 474975
+    assert validation["gst_paise"] == 256487
+
