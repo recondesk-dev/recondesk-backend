@@ -20,6 +20,7 @@ import {
   Sparkles,
   ArrowLeft,
   RefreshCw,
+  Building2,
 } from "lucide-react";
 
 import {
@@ -30,6 +31,7 @@ import {
 } from "@/lib/api";
 import { useAccessToken } from "@/lib/hooks/useAccessToken";
 import { formatInr } from "@/lib/pricing-data";
+import { AssignPrivateOfferModal } from "@/components/billing/AssignPrivateOfferModal";
 
 export default function AdminCouponsPage() {
   const token = useAccessToken();
@@ -37,6 +39,7 @@ export default function AdminCouponsPage() {
 
   const [activeTab, setActiveTab] = useState<"coupons" | "redemptions">("coupons");
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
 
   // Form State
@@ -112,6 +115,30 @@ export default function AdminCouponsPage() {
       void mutateAnalytics();
     } catch (err: any) {
       alert(err.detail || "Failed to update coupon status");
+    }
+  }
+
+  async function handleActivateOffer(coupon: CouponRecord) {
+    if (!authToken) return;
+    try {
+      await couponsAdminApi.activateOffer(authToken, coupon.id);
+      void mutateCoupons();
+      void mutateAnalytics();
+    } catch (err: any) {
+      alert(err.detail || "Failed to activate offer");
+    }
+  }
+
+  async function handleRevokeOffer(coupon: CouponRecord) {
+    if (!authToken) return;
+    const reason = window.prompt("Reason for revoking this private offer (optional):");
+    if (reason === null) return;
+    try {
+      await couponsAdminApi.revokeOffer(authToken, coupon.id, reason);
+      void mutateCoupons();
+      void mutateAnalytics();
+    } catch (err: any) {
+      alert(err.detail || "Failed to revoke offer");
     }
   }
 
@@ -228,6 +255,14 @@ export default function AdminCouponsPage() {
             title="Refresh"
           >
             <RefreshCw className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            onClick={() => setIsAssignModalOpen(true)}
+            className="inline-flex items-center gap-2 rounded-xl bg-purple-600 px-4 py-2.5 text-xs font-bold text-white shadow-sm hover:bg-purple-700 transition"
+          >
+            <Sparkles className="h-4 w-4" />
+            <span>Assign Private Offer</span>
           </button>
           <button
             type="button"
@@ -433,7 +468,24 @@ export default function AdminCouponsPage() {
 
                         {/* Restrictions */}
                         <td className="px-6 py-4 text-[11px] text-slate-500">
-                          {c.restricted_to_email ? (
+                          {c.assigned_to_tenant_id ? (
+                            <div className="space-y-0.5">
+                              <span className="inline-flex items-center gap-1 rounded bg-purple-100 px-1.5 py-0.5 text-[10px] font-bold text-purple-700">
+                                <Sparkles className="h-2.5 w-2.5" /> Private Offer
+                              </span>
+                              <div className="font-semibold text-slate-900 truncate max-w-[130px]">
+                                {c.assigned_to_firm_name || c.assigned_to_name || "CA Account"}
+                              </div>
+                              <div className="text-[10px] text-slate-500 truncate max-w-[130px]" title={c.assigned_to_email || ""}>
+                                {c.assigned_to_email || c.assigned_to_tenant_id.slice(0, 8)}
+                              </div>
+                              {c.sales_notes && (
+                                <div className="text-[10px] text-slate-400 italic truncate max-w-[130px]" title={c.sales_notes}>
+                                  Note: {c.sales_notes}
+                                </div>
+                              )}
+                            </div>
+                          ) : c.restricted_to_email ? (
                             <span className="truncate max-w-[120px] block" title={c.restricted_to_email}>
                               Email: {c.restricted_to_email}
                             </span>
@@ -460,7 +512,19 @@ export default function AdminCouponsPage() {
 
                         {/* Status */}
                         <td className="px-6 py-4">
-                          {c.is_active ? (
+                          {c.offer_status === "draft" ? (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-800">
+                              <Clock className="h-3 w-3" /> Draft
+                            </span>
+                          ) : c.offer_status === "revoked" ? (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-bold text-rose-800" title={c.revoked_reason || "Revoked"}>
+                              <XCircle className="h-3 w-3" /> Revoked
+                            </span>
+                          ) : c.redemptions_count >= (c.max_redemptions || 1) || c.offer_status === "redeemed" ? (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-bold text-blue-800">
+                              <CheckCircle2 className="h-3 w-3" /> Redeemed
+                            </span>
+                          ) : c.is_active ? (
                             <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-800">
                               <CheckCircle2 className="h-3 w-3" /> Active
                             </span>
@@ -473,17 +537,39 @@ export default function AdminCouponsPage() {
 
                         {/* Actions */}
                         <td className="px-6 py-4 text-right">
-                          <button
-                            type="button"
-                            onClick={() => void handleToggleStatus(c)}
-                            className={`text-xs font-semibold px-3 py-1 rounded-lg border transition ${
-                              c.is_active
-                                ? "border-slate-200 text-slate-600 hover:bg-slate-50"
-                                : "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
-                            }`}
-                          >
-                            {c.is_active ? "Deactivate" : "Activate"}
-                          </button>
+                          <div className="flex items-center justify-end gap-1.5">
+                            {c.offer_status === "draft" && (
+                              <button
+                                type="button"
+                                onClick={() => void handleActivateOffer(c)}
+                                className="text-xs font-semibold px-2.5 py-1 rounded-lg border border-purple-200 bg-purple-50 text-purple-700 hover:bg-purple-100 transition"
+                              >
+                                Activate
+                              </button>
+                            )}
+                            {c.assigned_to_tenant_id && c.redemptions_count === 0 && c.offer_status !== "revoked" && (
+                              <button
+                                type="button"
+                                onClick={() => void handleRevokeOffer(c)}
+                                className="text-xs font-semibold px-2.5 py-1 rounded-lg border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 transition"
+                              >
+                                Revoke
+                              </button>
+                            )}
+                            {!c.assigned_to_tenant_id && (
+                              <button
+                                type="button"
+                                onClick={() => void handleToggleStatus(c)}
+                                className={`text-xs font-semibold px-3 py-1 rounded-lg border transition ${
+                                  c.is_active
+                                    ? "border-slate-200 text-slate-600 hover:bg-slate-50"
+                                    : "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                                }`}
+                              >
+                                {c.is_active ? "Deactivate" : "Activate"}
+                              </button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     );
@@ -812,6 +898,17 @@ export default function AdminCouponsPage() {
           </div>
         </div>
       )}
+
+      {/* Assign Private CA Offer Modal */}
+      <AssignPrivateOfferModal
+        isOpen={isAssignModalOpen}
+        authToken={authToken || ""}
+        onClose={() => setIsAssignModalOpen(false)}
+        onSuccess={() => {
+          void mutateCoupons();
+          void mutateAnalytics();
+        }}
+      />
     </div>
   );
 }

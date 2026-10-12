@@ -91,6 +91,15 @@ def calculate_discounted_pricing(
     }
 
 
+def calculate_discount_breakdown(
+    plan: str,
+    discount_percentage: int,
+) -> dict[str, int]:
+    """Calculates discounted price breakdown for an annual plan."""
+    plan_info = get_plan_details(plan, "yearly")
+    return calculate_discounted_pricing(plan_info["base_paise"], discount_percentage)
+
+
 def find_coupon_by_code(db: Client, code: str) -> Optional[dict[str, Any]]:
     """Look up coupon by case-insensitive code."""
     clean_code = (code or "").strip().upper()
@@ -146,6 +155,19 @@ def validate_coupon_for_checkout(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Invalid coupon code.",
+        )
+
+    # Check draft or revoked status
+    offer_status = str(coupon.get("offer_status") or "").strip().lower()
+    if offer_status == "draft":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This private offer has not yet been activated.",
+        )
+    if offer_status == "revoked":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This offer has been revoked.",
         )
 
     # Check active status
@@ -228,7 +250,7 @@ def validate_coupon_for_checkout(
             _log.warning("Error checking prior customer subscription history: %s", exc)
 
     # Rule 8: Tenant / customer restriction
-    restricted_tenant = coupon.get("restricted_to_tenant_id")
+    restricted_tenant = coupon.get("restricted_to_tenant_id") or coupon.get("assigned_to_tenant_id")
     if restricted_tenant and str(restricted_tenant).strip().lower() != str(firm_owner_id).strip().lower():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -675,3 +697,347 @@ def get_coupon_analytics(db: Client) -> dict[str, Any]:
             "30%": sum(1 for c in coupons if c.get("discount_percentage") == 30),
         },
     }
+
+
+def generate_high_entropy_coupon_code(plan: str, discount: int) -> str:
+    """Generate cryptographically secure high-entropy coupon code."""
+    import secrets
+    clean_plan = plan.strip().upper().replace(" ", "").replace("_", "")
+    token = secrets.token_hex(3).upper()  # 6 uppercase hex characters
+    return f"CA-{clean_plan}-{discount}-{token}"
+
+
+def search_tenants_for_assignment(db: Client, query: str = "") -> list[dict[str, Any]]:
+    """Search authoritative CA customer accounts in user_profiles by name, firm, email, or GSTIN."""
+    clean_q = (query or "").strip()
+    select_fields = "id, email, full_name, firm_name, firm_gstin, plan, created_at"
+    if not clean_q:
+        res = (
+            db.table("user_profiles")
+            .select(select_fields)
+            .order("created_at", desc=True)
+            .limit(20)
+            .execute()
+        )
+        return res.data or []
+
+    try:
+        res = (
+            db.table("user_profiles")
+            .select(select_fields)
+            .or_(f"email.ilike.%{clean_q}%,firm_name.ilike.%{clean_q}%,full_name.ilike.%{clean_q}%,firm_gstin.ilike.%{clean_q}%")
+            .limit(25)
+            .execute()
+        )
+        return res.data or []
+    except Exception as exc:
+        _log.warning("Postgrest or_ filter failed: %s; falling back to email filter", exc)
+        res = (
+            db.table("user_profiles")
+            .select(select_fields)
+            .ilike("email", f"%{clean_q}%")
+            .limit(25)
+            .execute()
+        )
+        return res.data or []
+
+
+def assign_private_ca_coupon(
+    db: Client,
+    payload: Any,
+    staff_user: dict,
+) -> dict[str, Any]:
+    """Manually assign and activate a negotiated private discount offer to an existing CA customer."""
+    from app.auth import is_founder_user, is_internal_coupon_staff_user
+
+    # Internal staff check: CA customers strictly blocked with 403
+    if not is_internal_coupon_staff_user(staff_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Internal staff or management permissions required to assign private offers.",
+        )
+
+    # 30% discount founder check
+    if payload.discount_percentage == 30:
+        if not is_founder_user(staff_user):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="30% discount coupons strictly require authorization by an authorized founder.",
+            )
+
+    clean_plan = payload.plan.strip().lower()
+    if clean_plan not in ANNUAL_PLANS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Coupons are only applicable to annual subscription plans: {sorted(ANNUAL_PLANS)}",
+        )
+
+    # Look up target CA account in user_profiles
+    tenant_res = db.table("user_profiles").select("*").eq("id", payload.tenant_id).limit(1).execute()
+    if not tenant_res.data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="CA customer account not found in tenant database.",
+        )
+    tenant = tenant_res.data[0]
+
+    # Prevent duplicate active offer assignment for the same CA customer
+    existing_active = (
+        db.table("coupons")
+        .select("id, code, is_active, offer_status, redemptions_count, max_redemptions")
+        .eq("assigned_to_tenant_id", payload.tenant_id)
+        .eq("is_active", True)
+        .execute()
+    )
+    for existing in (existing_active.data or []):
+        if str(existing.get("offer_status") or "").lower() == "active":
+            current_count = int(existing.get("redemptions_count") or 0)
+            max_limit = int(existing.get("max_redemptions") or 1)
+            if current_count < max_limit:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"An active private offer ({existing.get('code')}) is already assigned to this CA customer. Please revoke or wait for redemption before assigning a new offer.",
+                )
+
+    # Determine unique coupon code
+    if getattr(payload, "custom_code", None) and payload.custom_code.strip():
+        code = payload.custom_code.strip().upper()
+        if find_coupon_by_code(db, code):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Coupon code '{code}' already exists. Please choose a different code.",
+            )
+    else:
+        for _ in range(10):
+            candidate = generate_high_entropy_coupon_code(clean_plan, payload.discount_percentage)
+            if not find_coupon_by_code(db, candidate):
+                code = candidate
+                break
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to generate unique coupon code. Please try again.",
+            )
+
+    # Calculate authoritative pricing preview
+    pricing_preview = calculate_discount_breakdown(clean_plan, payload.discount_percentage)
+
+    now_iso = _utcnow().isoformat()
+    staff_id = str(staff_user.get("id") or "")
+    staff_name = str(staff_user.get("full_name") or staff_user.get("email") or "Staff")
+
+    is_active = bool(getattr(payload, "activate_now", True))
+    offer_status = "active" if is_active else "draft"
+
+    coupon_record = {
+        "code": code,
+        "discount_percentage": payload.discount_percentage,
+        "eligible_plans": [clean_plan],
+        "is_active": is_active,
+        "offer_status": offer_status,
+        "expires_at": payload.expires_at.isoformat() if payload.expires_at else None,
+        "max_redemptions": 1,
+        "redemptions_count": 0,
+        "max_per_customer": 1,
+        "restricted_to_tenant_id": payload.tenant_id,
+        "assigned_to_tenant_id": payload.tenant_id,
+        "assigned_to_name": tenant.get("full_name"),
+        "assigned_to_firm_name": tenant.get("firm_name"),
+        "assigned_to_email": tenant.get("email"),
+        "assigned_by": staff_id if staff_id else None,
+        "assigned_by_name": staff_name,
+        "assigned_at": now_iso if is_active else None,
+        "sales_notes": payload.sales_notes.strip() if getattr(payload, "sales_notes", None) and payload.sales_notes else None,
+        "is_acquisition_only": True,
+        "created_by": staff_id if staff_id else None,
+        "founder_approved": True if payload.discount_percentage == 30 else False,
+        "founder_approved_by": str(staff_user.get("email") or staff_id) if payload.discount_percentage == 30 else None,
+        "founder_approval_notes": payload.founder_approval_notes.strip() if getattr(payload, "founder_approval_notes", None) and payload.founder_approval_notes else None,
+        "metadata": {
+            "type": "private_ca_offer",
+            "assigned_plan": clean_plan,
+            "pricing_preview": pricing_preview,
+        },
+        "created_at": now_iso,
+        "updated_at": now_iso,
+    }
+
+    insert_res = db.table("coupons").insert(coupon_record).execute()
+    if not insert_res.data:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to save assigned coupon to database.",
+        )
+
+    res_data = insert_res.data[0]
+    res_data["pricing_preview"] = pricing_preview
+    return res_data
+
+
+def activate_private_ca_coupon(
+    db: Client,
+    coupon_id: str,
+    staff_user: dict,
+) -> dict[str, Any]:
+    """Activate a draft or inactive private offer so the CA can view and redeem it."""
+    from app.auth import is_internal_coupon_staff_user, is_founder_user
+    if not is_internal_coupon_staff_user(staff_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Internal staff or management authorization required.",
+        )
+
+    coupon_res = db.table("coupons").select("*").eq("id", coupon_id).limit(1).execute()
+    if not coupon_res.data:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Coupon not found.")
+    coupon = coupon_res.data[0]
+
+    if int(coupon.get("discount_percentage") or 0) == 30 and not coupon.get("founder_approved"):
+        if not is_founder_user(staff_user):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Activating a 30% discount coupon requires founder authorization.",
+            )
+
+    if int(coupon.get("redemptions_count") or 0) >= int(coupon.get("max_redemptions") or 1):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot activate an already-redeemed offer.")
+
+    now_iso = _utcnow().isoformat()
+    staff_name = str(staff_user.get("full_name") or staff_user.get("email") or "Staff")
+
+    update_payload: dict[str, Any] = {
+        "is_active": True,
+        "offer_status": "active",
+        "assigned_at": now_iso,
+        "assigned_by_name": staff_name,
+        "updated_at": now_iso,
+    }
+    if int(coupon.get("discount_percentage") or 0) == 30:
+        update_payload["founder_approved"] = True
+        update_payload["founder_approved_by"] = str(staff_user.get("email") or staff_user.get("id"))
+
+    res = db.table("coupons").update(update_payload).eq("id", coupon_id).execute()
+    return res.data[0] if res.data else coupon
+
+
+def revoke_private_ca_coupon(
+    db: Client,
+    coupon_id: str,
+    staff_user: dict,
+    reason: Optional[str] = None,
+) -> dict[str, Any]:
+    """Revoke an unredeemed private offer so it can never be used or viewed."""
+    from app.auth import is_internal_coupon_staff_user
+    if not is_internal_coupon_staff_user(staff_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Internal staff or management authorization required.",
+        )
+
+    coupon_res = db.table("coupons").select("*").eq("id", coupon_id).limit(1).execute()
+    if not coupon_res.data:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Coupon not found.")
+    coupon = coupon_res.data[0]
+
+    if int(coupon.get("redemptions_count") or 0) > 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot revoke an offer that has already been redeemed by the customer.",
+        )
+
+    now_iso = _utcnow().isoformat()
+    staff_id = str(staff_user.get("id") or "")
+    staff_name = str(staff_user.get("full_name") or staff_user.get("email") or "Staff")
+
+    update_payload = {
+        "is_active": False,
+        "offer_status": "revoked",
+        "revoked_at": now_iso,
+        "revoked_by": staff_id if staff_id else None,
+        "revoked_by_name": staff_name,
+        "revoked_reason": reason.strip() if reason else "Revoked by staff",
+        "updated_at": now_iso,
+    }
+
+    res = db.table("coupons").update(update_payload).eq("id", coupon_id).execute()
+    return res.data[0] if res.data else coupon
+
+
+def list_customer_exclusive_offers(db: Client, tenant_id: str) -> list[dict[str, Any]]:
+    """List exclusive, active offers assigned specifically to the authenticated CA tenant."""
+    clean_tenant = str(tenant_id).strip()
+    if not clean_tenant:
+        return []
+
+    # Server-side query strictly scoped to this tenant
+    try:
+        res = (
+            db.table("coupons")
+            .select("*")
+            .or_(f"assigned_to_tenant_id.eq.{clean_tenant},restricted_to_tenant_id.eq.{clean_tenant}")
+            .eq("is_active", True)
+            .order("created_at", desc=True)
+            .execute()
+        )
+    except Exception as exc:
+        _log.warning("Postgrest or_ query failed: %s; querying by assigned_to_tenant_id", exc)
+        res = (
+            db.table("coupons")
+            .select("*")
+            .eq("assigned_to_tenant_id", clean_tenant)
+            .eq("is_active", True)
+            .order("created_at", desc=True)
+            .execute()
+        )
+
+    now = _utcnow()
+    offers: list[dict[str, Any]] = []
+
+    for c in (res.data or []):
+        # 1. Draft offers are invisible to CA
+        offer_status = str(c.get("offer_status") or "active").strip().lower()
+        if offer_status in ("draft", "revoked"):
+            continue
+
+        # 2. Expired offers are hidden from active offers
+        expires_at = _parse_datetime(c.get("expires_at"))
+        if expires_at and expires_at < now:
+            continue
+
+        # 3. Redeemed offers are removed from active offers
+        max_redemptions = int(c.get("max_redemptions") or 1)
+        times_redeemed = int(c.get("redemptions_count") or 0)
+        if times_redeemed >= max_redemptions:
+            continue
+
+        # Plan & Pricing Calculation
+        plans = c.get("eligible_plans") or ["firm"]
+        if isinstance(plans, str):
+            import json
+            try:
+                plans = json.loads(plans)
+            except Exception:
+                plans = [plans]
+        primary_plan = plans[0] if plans else "firm"
+
+        pct = int(c.get("discount_percentage") or 25)
+        breakdown = calculate_discount_breakdown(primary_plan, pct)
+
+        offers.append({
+            "id": str(c.get("id")),
+            "code": str(c.get("code")),
+            "discount_percentage": pct,
+            "eligible_plan": primary_plan,
+            "eligible_plans": plans,
+            "expires_at": c.get("expires_at"),
+            "original_base_paise": breakdown["original_base_paise"],
+            "discount_amount_paise": breakdown["discount_amount_paise"],
+            "discounted_base_paise": breakdown["discounted_base_paise"],
+            "gst_paise": breakdown["gst_paise"],
+            "total_paise": breakdown["total_paise"],
+            "sales_notes": c.get("sales_notes"),
+            "offer_status": "active",
+            "created_at": str(c.get("created_at")),
+        })
+
+    return offers

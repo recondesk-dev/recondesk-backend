@@ -7,19 +7,37 @@ import logging
 from fastapi import APIRouter, Depends, Request, status
 from supabase import Client
 
+from typing import List
+
 from app.auth import get_current_active_user
 from app.database import supabase_client
 from app.models.coupon import (
     CouponValidationRequest,
     CouponValidationResponse,
+    CustomerOfferResponse,
 )
 from app.services.billing_gate import resolve_firm_owner_for_billing
-from app.services.coupon_service import validate_coupon_for_checkout
+from app.services.coupon_service import (
+    list_customer_exclusive_offers,
+    validate_coupon_for_checkout,
+)
 from app.utils.rate_limit import limiter
 
 _log = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+@router.get("/my-offers", response_model=List[CustomerOfferResponse])
+@limiter.limit("60/minute")
+async def list_my_exclusive_offers_endpoint(
+    request: Request,
+    current_user: dict = Depends(get_current_active_user),
+    db: Client = Depends(supabase_client),
+):
+    """List exclusive, active offers assigned specifically to the authenticated CA tenant."""
+    firm_owner = resolve_firm_owner_for_billing(db, current_user)
+    return list_customer_exclusive_offers(db, tenant_id=firm_owner)
 
 
 @router.post("/validate", response_model=CouponValidationResponse)

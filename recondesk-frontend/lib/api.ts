@@ -5639,13 +5639,66 @@ export type CouponRecord = {
   max_per_customer: number;
   restricted_to_tenant_id?: string | null;
   restricted_to_email?: string | null;
+  assigned_to_tenant_id?: string | null;
+  assigned_to_name?: string | null;
+  assigned_to_firm_name?: string | null;
+  assigned_to_email?: string | null;
+  assigned_by?: string | null;
+  assigned_by_name?: string | null;
+  assigned_at?: string | null;
+  sales_notes?: string | null;
+  offer_status?: "draft" | "active" | "redeemed" | "revoked" | string | null;
+  revoked_at?: string | null;
+  revoked_by?: string | null;
+  revoked_by_name?: string | null;
+  revoked_reason?: string | null;
+  pricing_preview?: any;
   is_acquisition_only: boolean;
   created_by?: string | null;
   founder_approved: boolean;
   founder_approved_by?: string | null;
   founder_approval_notes?: string | null;
+  metadata?: Record<string, any> | null;
   created_at: string;
   updated_at: string;
+};
+
+export type TenantSearchResult = {
+  id: string;
+  email: string;
+  full_name?: string | null;
+  firm_name?: string | null;
+  phone?: string | null;
+  subscription_tier?: string | null;
+  created_at?: string | null;
+};
+
+export type PrivateCouponAssignInput = {
+  tenant_id: string;
+  plan: "solo" | "firm" | "large_firm" | string;
+  discount_percentage: 20 | 25 | 30;
+  expires_at?: string | null;
+  sales_notes?: string | null;
+  custom_code?: string | null;
+  activate_now?: boolean;
+  founder_approval_notes?: string | null;
+};
+
+export type CustomerExclusiveOffer = {
+  id: string;
+  code: string;
+  discount_percentage: number;
+  eligible_plan: string;
+  eligible_plans: string[];
+  expires_at?: string | null;
+  original_base_paise: number;
+  discount_amount_paise: number;
+  discounted_base_paise: number;
+  gst_paise: number;
+  total_paise: number;
+  sales_notes?: string | null;
+  offer_status: string;
+  created_at: string;
 };
 
 export type CouponCreateInput = {
@@ -5717,6 +5770,45 @@ export const couponsAdminApi = {
 
   getAnalytics: (token: string) =>
     apiFetch<CouponAnalyticsResponse>("/api/admin/coupons/analytics", { token }),
+
+  searchTenants: (token: string, query: string, limit?: number) =>
+    apiFetch<TenantSearchResult[]>(
+      `/api/admin/coupons/tenants?query=${encodeURIComponent(query)}${limit ? `&limit=${encodeURIComponent(limit)}` : ""}`,
+      { token }
+    ),
+
+  assignOffer: (token: string, data: PrivateCouponAssignInput) =>
+    apiFetch<CouponRecord>("/api/admin/coupons/assign", {
+      method: "POST",
+      body: JSON.stringify(data),
+      token,
+    }),
+
+  activateOffer: (token: string, couponId: string) =>
+    apiFetch<CouponRecord>(
+      `/api/admin/coupons/${encodeURIComponent(couponId)}/activate`,
+      {
+        method: "PATCH",
+        token,
+      }
+    ),
+
+  revokeOffer: (token: string, couponId: string, reason?: string) =>
+    apiFetch<CouponRecord>(
+      `/api/admin/coupons/${encodeURIComponent(couponId)}/revoke`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ reason: reason || null }),
+        token,
+      }
+    ),
+};
+
+export const customerCouponsApi = {
+  getMyOffers: (token?: string) =>
+    apiFetch<CustomerExclusiveOffer[]>("/api/coupons/my-offers", {
+      token,
+    }),
 };
 
 // ─── Phase 4.1 GSTR-1A Amendments API ───────────────────────────────────────
@@ -6694,6 +6786,248 @@ export const gstr5aApi = {
       }
     ),
 };
+
+export interface Gstr10StockRecord {
+  id: string;
+  item_type: string;
+  supplier_gstin?: string;
+  invoice_number?: string;
+  invoice_date?: string;
+  description: string;
+  uqc: string;
+  quantity: number;
+  taxable_value: number;
+  reverse_igst: number;
+  reverse_cgst: number;
+  reverse_sgst: number;
+  reverse_cess: number;
+  ca_name?: string;
+  ca_membership_number?: string;
+  status: string;
+}
+
+export interface Gstr10BatchSummary {
+  batch: {
+    id: string;
+    firm_id: string;
+    client_gstin_id: string;
+    gstin: string;
+    period: string;
+    status: string;
+    figures_digest: string;
+    cancellation_order_number?: string;
+    cancellation_order_date?: string;
+    effective_cancellation_date?: string;
+    cancellation_arn?: string;
+    statutory_due_date?: string;
+    total_taxable_value: number;
+    total_reversal_igst: number;
+    total_reversal_cgst: number;
+    total_reversal_sgst: number;
+    total_reversal_cess: number;
+    total_reversal_liability: number;
+    tax_paid_cash: number;
+    tax_paid_credit: number;
+    interest_payable: number;
+    late_fee_payable: number;
+    arn?: string;
+  };
+  stock_records: Gstr10StockRecord[];
+  stock_summary: {
+    total_taxable_value: number;
+    total_reversal_igst: number;
+    total_reversal_cgst: number;
+    total_reversal_sgst: number;
+    total_reversal_cess: number;
+    total_reversal_liability: number;
+    count_8a: number;
+    count_8b: number;
+    count_8c: number;
+    count_8d: number;
+  };
+}
+
+export const gstr10Api = {
+  getOrCreateBatch: (token: string, clientGstinId: string, period: string, cancellationOrderNumber?: string, cancellationOrderDate?: string, effectiveCancellationDate?: string, cancellationArn?: string) =>
+    apiFetch<{ batch: Gstr10BatchSummary["batch"] }>(
+      `/api/gstr10/batches?client_gstin_id=${encodeURIComponent(clientGstinId)}&period=${encodeURIComponent(period)}${cancellationOrderNumber ? `&cancellation_order_number=${encodeURIComponent(cancellationOrderNumber)}` : ""}${cancellationOrderDate ? `&cancellation_order_date=${encodeURIComponent(cancellationOrderDate)}` : ""}${effectiveCancellationDate ? `&effective_cancellation_date=${encodeURIComponent(effectiveCancellationDate)}` : ""}${cancellationArn ? `&cancellation_arn=${encodeURIComponent(cancellationArn)}` : ""}`,
+      { token }
+    ),
+
+  getBatchDetails: (token: string, batchId: string) =>
+    apiFetch<Gstr10BatchSummary>(`/api/gstr10/batches/${encodeURIComponent(batchId)}`, { token }),
+
+  addStockRecord: (token: string, batchId: string, record: Partial<Gstr10StockRecord>) =>
+    apiFetch<{ status: string; record: Gstr10StockRecord }>(`/api/gstr10/batches/${encodeURIComponent(batchId)}/stock-records`, {
+      method: "POST",
+      body: JSON.stringify(record),
+      token,
+    }),
+
+  deleteStockRecord: (token: string, batchId: string, recordId: string) =>
+    apiFetch<{ status: string; message: string }>(
+      `/api/gstr10/batches/${encodeURIComponent(batchId)}/stock-records/${encodeURIComponent(recordId)}`,
+      { method: "DELETE", token }
+    ),
+
+  validate: (token: string, batchId: string) =>
+    apiFetch<{ validation: any }>(`/api/gstr10/batches/${encodeURIComponent(batchId)}/validate`, {
+      method: "POST",
+      token,
+    }),
+
+  submitReview: (token: string, batchId: string) =>
+    apiFetch<{ status: string; approval: any }>(
+      `/api/gstr10/batches/${encodeURIComponent(batchId)}/submit-review`,
+      { method: "POST", token }
+    ),
+
+  approve: (token: string, batchId: string) =>
+    apiFetch<{ status: string; approval: any }>(
+      `/api/gstr10/batches/${encodeURIComponent(batchId)}/approve`,
+      { method: "POST", token }
+    ),
+
+  requestAuthorization: (token: string, batchId: string, signatoryName: string, signatoryEmail: string, signatoryPhone?: string) =>
+    apiFetch<{ status: string; authorization_request: any }>(
+      `/api/gstr10/batches/${encodeURIComponent(batchId)}/request-authorization?signatory_name=${encodeURIComponent(signatoryName)}&signatory_email=${encodeURIComponent(signatoryEmail)}${signatoryPhone ? `&signatory_phone=${encodeURIComponent(signatoryPhone)}` : ""}`,
+      { method: "POST", token }
+    ),
+
+  getOfflineJson: (token: string, batchId: string) =>
+    apiFetch<Record<string, any>>(`/api/gstr10/batches/${encodeURIComponent(batchId)}/offline-json`, { token }),
+
+  file: (token: string, batchId: string, body: { pan: string; signing_method?: string; otp?: string; signature?: string }) =>
+    apiFetch<{ status: string; message: string; offline_json?: any }>(
+      `/api/gstr10/batches/${encodeURIComponent(batchId)}/file`,
+      { method: "POST", body: JSON.stringify(body), token }
+    ),
+};
+
+export interface Gstr11InwardRecord {
+  id: string;
+  supply_type: string;
+  supplier_gstin: string;
+  supplier_name?: string;
+  doc_number: string;
+  doc_date: string;
+  cdn_type?: string;
+  original_invoice_number?: string;
+  original_invoice_date?: string;
+  taxable_value: number;
+  igst: number;
+  cgst: number;
+  sgst: number;
+  cess: number;
+  is_eligible_for_refund: boolean;
+  status: string;
+}
+
+export interface Gstr11BatchSummary {
+  batch: {
+    id: string;
+    firm_id: string;
+    client_gstin_id: string;
+    uin: string;
+    period: string;
+    status: string;
+    figures_digest: string;
+    statutory_due_date?: string;
+    total_inward_taxable: number;
+    total_gross_igst: number;
+    total_gross_cgst: number;
+    total_gross_sgst: number;
+    total_gross_cess: number;
+    total_cdn_adjustment_igst: number;
+    total_cdn_adjustment_cgst: number;
+    total_cdn_adjustment_sgst: number;
+    total_cdn_adjustment_cess: number;
+    net_eligible_refund_igst: number;
+    net_eligible_refund_cgst: number;
+    net_eligible_refund_sgst: number;
+    net_eligible_refund_cess: number;
+    total_net_refund_claimed: number;
+    arn?: string;
+  };
+  inward_records: Gstr11InwardRecord[];
+  refund_summary: {
+    total_inward_taxable: number;
+    total_gross_igst: number;
+    total_gross_cgst: number;
+    total_gross_sgst: number;
+    total_gross_cess: number;
+    total_cdn_adjustment_igst: number;
+    total_cdn_adjustment_cgst: number;
+    total_cdn_adjustment_sgst: number;
+    total_cdn_adjustment_cess: number;
+    net_eligible_refund_igst: number;
+    net_eligible_refund_cgst: number;
+    net_eligible_refund_sgst: number;
+    net_eligible_refund_cess: number;
+    total_net_refund_claimed: number;
+    invoice_count: number;
+    cdn_count: number;
+    is_negative_refund_detected: boolean;
+  };
+}
+
+export const gstr11Api = {
+  getOrCreateBatch: (token: string, clientGstinId: string, period: string) =>
+    apiFetch<{ batch: Gstr11BatchSummary["batch"] }>(
+      `/api/gstr11/batches?client_gstin_id=${encodeURIComponent(clientGstinId)}&period=${encodeURIComponent(period)}`,
+      { token }
+    ),
+
+  getBatchDetails: (token: string, batchId: string) =>
+    apiFetch<Gstr11BatchSummary>(`/api/gstr11/batches/${encodeURIComponent(batchId)}`, { token }),
+
+  addInwardSupply: (token: string, batchId: string, record: Partial<Gstr11InwardRecord>) =>
+    apiFetch<{ status: string; record: Gstr11InwardRecord }>(`/api/gstr11/batches/${encodeURIComponent(batchId)}/inward-supplies`, {
+      method: "POST",
+      body: JSON.stringify(record),
+      token,
+    }),
+
+  deleteInwardSupply: (token: string, batchId: string, recordId: string) =>
+    apiFetch<{ status: string; message: string }>(
+      `/api/gstr11/batches/${encodeURIComponent(batchId)}/inward-supplies/${encodeURIComponent(recordId)}`,
+      { method: "DELETE", token }
+    ),
+
+  validate: (token: string, batchId: string) =>
+    apiFetch<{ validation: any }>(`/api/gstr11/batches/${encodeURIComponent(batchId)}/validate`, {
+      method: "POST",
+      token,
+    }),
+
+  submitReview: (token: string, batchId: string) =>
+    apiFetch<{ status: string; approval: any }>(
+      `/api/gstr11/batches/${encodeURIComponent(batchId)}/submit-review`,
+      { method: "POST", token }
+    ),
+
+  approve: (token: string, batchId: string) =>
+    apiFetch<{ status: string; approval: any }>(
+      `/api/gstr11/batches/${encodeURIComponent(batchId)}/approve`,
+      { method: "POST", token }
+    ),
+
+  requestAuthorization: (token: string, batchId: string, signatoryName: string, signatoryEmail: string, signatoryPhone?: string) =>
+    apiFetch<{ status: string; authorization_request: any }>(
+      `/api/gstr11/batches/${encodeURIComponent(batchId)}/request-authorization?signatory_name=${encodeURIComponent(signatoryName)}&signatory_email=${encodeURIComponent(signatoryEmail)}${signatoryPhone ? `&signatory_phone=${encodeURIComponent(signatoryPhone)}` : ""}`,
+      { method: "POST", token }
+    ),
+
+  getOfflineJson: (token: string, batchId: string) =>
+    apiFetch<Record<string, any>>(`/api/gstr11/batches/${encodeURIComponent(batchId)}/offline-json`, { token }),
+
+  file: (token: string, batchId: string, body: { pan: string; signing_method?: string; otp?: string; signature?: string }) =>
+    apiFetch<{ status: string; message: string; offline_json?: any }>(
+      `/api/gstr11/batches/${encodeURIComponent(batchId)}/file`,
+      { method: "POST", body: JSON.stringify(body), token }
+    ),
+};
+
 
 
 

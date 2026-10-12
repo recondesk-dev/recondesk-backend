@@ -54,7 +54,9 @@ type Props = {
     firmName?: string | null;
     firmGstin?: string | null;
     firmCity?: string | null;
+    initialCouponCode?: string | null;
   };
+  initialCouponCode?: string | null;
   loading?: boolean;
   onClose: () => void;
   onProceed: (details: BillingDetails) => Promise<void>;
@@ -65,6 +67,7 @@ export function CheckoutBillingModal({
   planId,
   cycle,
   initialData,
+  initialCouponCode,
   loading = false,
   onClose,
   onProceed,
@@ -93,18 +96,72 @@ export function CheckoutBillingModal({
     totalPaise: number;
   } | null>(null);
 
+  async function applyCode(codeToApply: string, gstinOverride?: string) {
+    const cleanCode = codeToApply.trim().toUpperCase();
+    if (!cleanCode) {
+      setCouponError("Please enter a coupon code");
+      return;
+    }
+    if (cycle !== "yearly") {
+      setCouponError("Promotional coupons are available only for annual subscription plans.");
+      return;
+    }
+    setCouponLoading(true);
+    setCouponError(null);
+    try {
+      const gstinVal = (gstinOverride !== undefined ? gstinOverride : firmGstin).trim().toUpperCase();
+      const res = await fetch("/api/billing/validate-coupon", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          code: cleanCode,
+          plan: planId,
+          billing_cycle: cycle,
+          customer_gstin: gstinVal || undefined,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setCouponError(data.detail || data.error || "Invalid or ineligible coupon code.");
+        setAppliedCoupon(null);
+        return;
+      }
+      setAppliedCoupon({
+        code: data.code,
+        discountPercentage: data.discount_percentage,
+        originalBasePaise: data.original_base_paise,
+        discountAmountPaise: data.discount_amount_paise,
+        discountedBasePaise: data.discounted_base_paise,
+        gstPaise: data.gst_paise,
+        totalPaise: data.total_paise,
+      });
+      setCouponError(null);
+    } catch {
+      setCouponError("Unable to validate coupon. Please try again.");
+      setAppliedCoupon(null);
+    } finally {
+      setCouponLoading(false);
+    }
+  }
+
   // Sync initial values when modal opens or initialData changes
   useEffect(() => {
     if (isOpen) {
+      const initGstin = initialData?.firmGstin || "";
       setFirmName(initialData?.firmName || "");
-      setFirmGstin(initialData?.firmGstin || "");
+      setFirmGstin(initGstin);
       setCity(initialData?.firmCity || "");
       setFormError(null);
-      setCouponCodeInput("");
+      const prefillCode = (initialCouponCode || initialData?.initialCouponCode || "").trim().toUpperCase();
+      setCouponCodeInput(prefillCode);
       setCouponError(null);
       setAppliedCoupon(null);
+
+      if (prefillCode && cycle === "yearly" && planId) {
+        void applyCode(prefillCode, initGstin);
+      }
     }
-  }, [isOpen, initialData]);
+  }, [isOpen, initialData, initialCouponCode, cycle, planId]);
 
   if (!isOpen || !plan) return null;
 
@@ -138,49 +195,7 @@ export function CheckoutBillingModal({
   const halfGst = Math.floor(gstAmount / 2);
 
   async function handleApplyCoupon() {
-    const cleanCode = couponCodeInput.trim().toUpperCase();
-    if (!cleanCode) {
-      setCouponError("Please enter a coupon code");
-      return;
-    }
-    if (cycle !== "yearly") {
-      setCouponError("Promotional coupons are available only for annual subscription plans.");
-      return;
-    }
-    setCouponLoading(true);
-    setCouponError(null);
-    try {
-      const res = await fetch("/api/billing/validate-coupon", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          code: cleanCode,
-          plan: plan?.id,
-          billing_cycle: cycle,
-          customer_gstin: cleanGstin || undefined,
-        }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setCouponError(data.detail || data.error || "Invalid or ineligible coupon code.");
-        setAppliedCoupon(null);
-        return;
-      }
-      setAppliedCoupon({
-        code: data.code,
-        discountPercentage: data.discount_percentage,
-        originalBasePaise: data.original_base_paise,
-        discountAmountPaise: data.discount_amount_paise,
-        discountedBasePaise: data.discounted_base_paise,
-        gstPaise: data.gst_paise,
-        totalPaise: data.total_paise,
-      });
-      setCouponError(null);
-    } catch {
-      setCouponError("Unable to validate coupon. Please try again.");
-    } finally {
-      setCouponLoading(false);
-    }
+    await applyCode(couponCodeInput);
   }
 
   function handleRemoveCoupon() {

@@ -14,6 +14,7 @@ import {
 import { SubscriptionFeatures } from "@/components/billing/SubscriptionFeatures";
 import { PricingGrid } from "@/components/billing/PricingGrid";
 import { CheckoutBillingModal } from "@/components/billing/CheckoutBillingModal";
+import { ExclusiveOffersSection } from "@/components/billing/ExclusiveOffersSection";
 import { startPlanCheckout, type CheckoutPlan, type BillingDetails } from "@/lib/billing-checkout";
 import { type PricingTierId } from "@/lib/pricing-data";
 import { authProfileFetcher, AUTH_PROFILE_SWR_OPTIONS } from "@/lib/auth-profile";
@@ -137,6 +138,7 @@ export default function BillingPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [selectedPlanForModal, setSelectedPlanForModal] = useState<PricingTierId | null>(null);
   const [selectedCycleForModal, setSelectedCycleForModal] = useState<"monthly" | "yearly">("yearly");
+  const [initialCouponForModal, setInitialCouponForModal] = useState<string | null>(null);
   const [isExportingGstr1, setIsExportingGstr1] = useState(false);
 
   const { data: meProfile } = useSWR(
@@ -149,11 +151,20 @@ export default function BillingPage() {
     document.getElementById("choose-plan")?.scrollIntoView({ behavior: "smooth" });
   }
 
+  function handleApplyExclusiveOffer(planId: PricingTierId, couponCode: string) {
+    setCheckoutError(null);
+    setSelectedPlanForModal(planId);
+    setSelectedCycleForModal("yearly");
+    setInitialCouponForModal(couponCode);
+    setModalOpen(true);
+  }
+
   async function onBuyPlan(plan: CheckoutPlan, cycle: "monthly" | "yearly" = "yearly") {
     if (plan === "free") return;
     setCheckoutError(null);
     setSelectedPlanForModal(plan as PricingTierId);
     setSelectedCycleForModal(cycle);
+    setInitialCouponForModal(null);
     setModalOpen(true);
   }
 
@@ -326,6 +337,11 @@ export default function BillingPage() {
         </section>
       )}
 
+      <ExclusiveOffersSection
+        accessToken={typeof accessToken === "string" ? accessToken : null}
+        onApplyOffer={handleApplyExclusiveOffer}
+      />
+
       <section id="choose-plan" className="space-y-6">
         <div>
           <h2 className="text-lg font-semibold tracking-tight text-[var(--ink)]">Choose a plan</h2>
@@ -416,6 +432,7 @@ export default function BillingPage() {
         isOpen={modalOpen}
         planId={selectedPlanForModal}
         cycle={selectedCycleForModal}
+        initialCouponCode={initialCouponForModal}
         initialData={{
           firmName: meProfile?.firm_name,
           firmGstin: meProfile?.firm_gstin,

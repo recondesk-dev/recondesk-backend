@@ -67,6 +67,8 @@ from app.routers.gstr8 import router as gstr8_router
 from app.routers.gstr6 import router as gstr6_router
 from app.routers.gstr5 import router as gstr5_router
 from app.routers.gstr5a import router as gstr5a_router
+from app.routers.gstr10 import router as gstr10_router
+from app.routers.gstr11 import router as gstr11_router
 from app.routers.vendor_followup import (
     router as vendor_followup_router,
     public_router as vendor_public_router,
@@ -762,6 +764,26 @@ app.include_router(
     gstr5a_router,
     prefix="/api/v1/gstr5a",
     tags=["GSTR-5A OIDAR"],
+)
+app.include_router(
+    gstr10_router,
+    prefix="/api/gstr10",
+    tags=["GSTR-10 Final Return"],
+)
+app.include_router(
+    gstr10_router,
+    prefix="/api/v1/gstr10",
+    tags=["GSTR-10 Final Return"],
+)
+app.include_router(
+    gstr11_router,
+    prefix="/api/gstr11",
+    tags=["GSTR-11 UIN Return"],
+)
+app.include_router(
+    gstr11_router,
+    prefix="/api/v1/gstr11",
+    tags=["GSTR-11 UIN Return"],
 )
 
 

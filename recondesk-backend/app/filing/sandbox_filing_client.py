@@ -1699,6 +1699,222 @@ class SandboxFilingClient:
                 ) from exc
             raise
 
+    # ----------------------------------------------------------- GSTR-10 chain
+    def save_gstr10(
+        self,
+        taxpayer_token: str,
+        *,
+        period: str,
+        save_body: Mapping[str, Any],
+    ) -> FilingApiResult:
+        """``POST /gst/compliance/tax-payer/gstrs/gstr-10/{year}/{month}``."""
+        year, month = period_to_year_month(period)
+        path = f"/gst/compliance/tax-payer/gstrs/gstr-10/{year}/{month}"
+        try:
+            envelope = self._request(
+                "POST",
+                path,
+                authorization=taxpayer_token,
+                json_body=dict(save_body),
+                require_gstn_success=True,
+            )
+            _raise_if_inner_gstn_failure(envelope, context="Save GSTR-10")
+            data = envelope.get("data") if isinstance(envelope, dict) else None
+            nested = _nested_payload(data if isinstance(data, dict) else None)
+            return FilingApiResult(
+                envelope=envelope,
+                data=nested or (data if isinstance(data, dict) else {}),
+                return_status=parse_return_status(envelope),
+            )
+        except FilingApiError as exc:
+            if exc.status_code in (404, 405, 501):
+                raise FilingGstnError(
+                    f"GSTR-10 Save endpoint is unsupported by the current GSTN/GSP API environment (HTTP {exc.status_code}). "
+                    "Use GSTN Offline Tool JSON Export for official upload.",
+                    error_cd="UNSUPPORTED_BY_GSTN_API",
+                ) from exc
+            raise
+
+    def get_gstr10_summary(
+        self,
+        taxpayer_token: str,
+        *,
+        period: str,
+    ) -> FilingApiResult:
+        """``GET /gst/compliance/tax-payer/gstrs/gstr-10/{year}/{month}``."""
+        year, month = period_to_year_month(period)
+        path = f"/gst/compliance/tax-payer/gstrs/gstr-10/{year}/{month}"
+        try:
+            envelope = self._request(
+                "GET",
+                path,
+                authorization=taxpayer_token,
+                require_gstn_success=True,
+            )
+            _raise_if_inner_gstn_failure(envelope, context="GSTR-10 summary")
+            data = envelope.get("data") if isinstance(envelope, dict) else None
+            nested = _nested_payload(data if isinstance(data, dict) else None)
+            return FilingApiResult(
+                envelope=envelope,
+                data=nested or (data if isinstance(data, dict) else {}),
+                return_status=parse_return_status(envelope),
+            )
+        except FilingApiError as exc:
+            if exc.status_code in (404, 405, 501):
+                raise FilingGstnError(
+                    f"GSTR-10 Summary endpoint is unsupported by the current GSTN/GSP API environment (HTTP {exc.status_code}).",
+                    error_cd="UNSUPPORTED_BY_GSTN_API",
+                ) from exc
+            raise
+
+    def file_gstr10(
+        self,
+        taxpayer_token: str,
+        *,
+        period: str,
+        pan: str,
+        signing_method: str = "evc",
+        otp: str | None = None,
+        pkcs7_signature: str | None = None,
+    ) -> FilingApiResult:
+        """``POST /gst/compliance/tax-payer/gstrs/gstr-10/{year}/{month}/file``."""
+        year, month = period_to_year_month(period)
+        path = f"/gst/compliance/tax-payer/gstrs/gstr-10/{year}/{month}/file"
+        try:
+            envelope = self._request(
+                "POST",
+                path,
+                authorization=taxpayer_token,
+                json_body={"pan": pan, "signing_method": signing_method, "otp": otp, "pkcs7_signature": pkcs7_signature},
+                require_gstn_success=True,
+            )
+            _raise_if_inner_gstn_failure(envelope, context="File GSTR-10")
+            data = envelope.get("data") if isinstance(envelope, dict) else None
+            nested = _nested_payload(data if isinstance(data, dict) else None)
+            ack = nested.get("ack_num") or nested.get("ack_number")
+            return FilingApiResult(
+                envelope=envelope,
+                ack_number=str(ack) if ack else None,
+                data=nested,
+                return_status=parse_return_status(envelope),
+            )
+        except FilingApiError as exc:
+            if exc.status_code in (404, 405, 501):
+                raise FilingGstnError(
+                    f"GSTR-10 File endpoint is unsupported by current GSTN API (HTTP {exc.status_code}). "
+                    "Upload via GST Portal Offline Utility.",
+                    error_cd="UNSUPPORTED_BY_GSTN_API",
+                ) from exc
+            raise
+
+    # ----------------------------------------------------------- GSTR-11 chain
+    def save_gstr11(
+        self,
+        taxpayer_token: str,
+        *,
+        period: str,
+        save_body: Mapping[str, Any],
+    ) -> FilingApiResult:
+        """``POST /gst/compliance/tax-payer/gstrs/gstr-11/{year}/{month}``."""
+        year, month = period_to_year_month(period)
+        path = f"/gst/compliance/tax-payer/gstrs/gstr-11/{year}/{month}"
+        try:
+            envelope = self._request(
+                "POST",
+                path,
+                authorization=taxpayer_token,
+                json_body=dict(save_body),
+                require_gstn_success=True,
+            )
+            _raise_if_inner_gstn_failure(envelope, context="Save GSTR-11")
+            data = envelope.get("data") if isinstance(envelope, dict) else None
+            nested = _nested_payload(data if isinstance(data, dict) else None)
+            return FilingApiResult(
+                envelope=envelope,
+                data=nested or (data if isinstance(data, dict) else {}),
+                return_status=parse_return_status(envelope),
+            )
+        except FilingApiError as exc:
+            if exc.status_code in (404, 405, 501):
+                raise FilingGstnError(
+                    f"GSTR-11 Save endpoint is unsupported by the current GSTN/GSP API environment (HTTP {exc.status_code}). "
+                    "Use GSTN Offline Tool JSON Export for official upload.",
+                    error_cd="UNSUPPORTED_BY_GSTN_API",
+                ) from exc
+            raise
+
+    def get_gstr11_summary(
+        self,
+        taxpayer_token: str,
+        *,
+        period: str,
+    ) -> FilingApiResult:
+        """``GET /gst/compliance/tax-payer/gstrs/gstr-11/{year}/{month}``."""
+        year, month = period_to_year_month(period)
+        path = f"/gst/compliance/tax-payer/gstrs/gstr-11/{year}/{month}"
+        try:
+            envelope = self._request(
+                "GET",
+                path,
+                authorization=taxpayer_token,
+                require_gstn_success=True,
+            )
+            _raise_if_inner_gstn_failure(envelope, context="GSTR-11 summary")
+            data = envelope.get("data") if isinstance(envelope, dict) else None
+            nested = _nested_payload(data if isinstance(data, dict) else None)
+            return FilingApiResult(
+                envelope=envelope,
+                data=nested or (data if isinstance(data, dict) else {}),
+                return_status=parse_return_status(envelope),
+            )
+        except FilingApiError as exc:
+            if exc.status_code in (404, 405, 501):
+                raise FilingGstnError(
+                    f"GSTR-11 Summary endpoint is unsupported by the current GSTN/GSP API environment (HTTP {exc.status_code}).",
+                    error_cd="UNSUPPORTED_BY_GSTN_API",
+                ) from exc
+            raise
+
+    def file_gstr11(
+        self,
+        taxpayer_token: str,
+        *,
+        period: str,
+        pan: str,
+        signing_method: str = "evc",
+        otp: str | None = None,
+        pkcs7_signature: str | None = None,
+    ) -> FilingApiResult:
+        """``POST /gst/compliance/tax-payer/gstrs/gstr-11/{year}/{month}/file``."""
+        year, month = period_to_year_month(period)
+        path = f"/gst/compliance/tax-payer/gstrs/gstr-11/{year}/{month}/file"
+        try:
+            envelope = self._request(
+                "POST",
+                path,
+                authorization=taxpayer_token,
+                json_body={"pan": pan, "signing_method": signing_method, "otp": otp, "pkcs7_signature": pkcs7_signature},
+                require_gstn_success=True,
+            )
+            _raise_if_inner_gstn_failure(envelope, context="File GSTR-11")
+            data = envelope.get("data") if isinstance(envelope, dict) else None
+            nested = _nested_payload(data if isinstance(data, dict) else None)
+            ack = nested.get("ack_num") or nested.get("ack_number")
+            return FilingApiResult(
+                envelope=envelope,
+                ack_number=str(ack) if ack else None,
+                data=nested,
+                return_status=parse_return_status(envelope),
+            )
+        except FilingApiError as exc:
+            if exc.status_code in (404, 405, 501):
+                raise FilingGstnError(
+                    f"GSTR-11 File endpoint is unsupported by current GSTN API (HTTP {exc.status_code}). "
+                    "Upload via GST Portal Offline Utility.",
+                    error_cd="UNSUPPORTED_BY_GSTN_API",
+                ) from exc
+            raise
+
     # -------------------------------------------------------------- internals
     def _headers(
         self,

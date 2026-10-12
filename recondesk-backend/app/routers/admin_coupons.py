@@ -13,20 +13,27 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 from supabase import Client
 
-from app.auth import require_platform_admin
+from app.auth import require_internal_coupon_staff, require_platform_admin
 from app.database import supabase_client
 from app.models.coupon import (
     CouponCreateRequest,
     CouponResponse,
     CouponUpdateRequest,
+    PrivateCouponAssignRequest,
+    PrivateCouponRevokeRequest,
     RedemptionRecord,
+    TenantSearchResult,
 )
 from app.services.coupon_service import (
+    activate_private_ca_coupon,
+    assign_private_ca_coupon,
     create_admin_coupon,
     find_coupon_by_code,
     get_coupon_analytics,
     list_admin_coupons,
     list_redemption_history,
+    revoke_private_ca_coupon,
+    search_tenants_for_assignment,
     toggle_coupon_status,
 )
 from app.utils.audit import log_action
@@ -131,3 +138,91 @@ async def update_coupon_status_endpoint(
     )
 
     return updated
+
+
+@router.get("/tenants", response_model=List[TenantSearchResult])
+async def search_tenants_endpoint(
+    query: str = "",
+    current_staff: dict = Depends(require_internal_coupon_staff),
+    db: Client = Depends(supabase_client),
+):
+    """Search authoritative CA customer accounts for negotiated offer assignment."""
+    return search_tenants_for_assignment(db, query=query)
+
+
+@router.post("/assign", response_model=dict[str, Any], status_code=status.HTTP_201_CREATED)
+async def assign_private_offer_endpoint(
+    payload: PrivateCouponAssignRequest,
+    request: Request,
+    current_staff: dict = Depends(require_internal_coupon_staff),
+    db: Client = Depends(supabase_client),
+):
+    """Assign and optionally activate a negotiated private discount offer to an existing CA customer."""
+    staff_id = str(current_staff.get("id") or "")
+    assigned = assign_private_ca_coupon(db, payload, current_staff)
+
+    await log_action(
+        staff_id,
+        "PRIVATE_COUPON_ASSIGNED",
+        "coupon",
+        str(assigned.get("id")),
+        {
+            "code": assigned.get("code"),
+            "tenant_id": payload.tenant_id,
+            "plan": payload.plan,
+            "discount_percentage": payload.discount_percentage,
+            "is_active": assigned.get("is_active"),
+            "offer_status": assigned.get("offer_status"),
+        },
+        ip_address=(request.client.host if request.client else None),
+    )
+
+    return assigned
+
+
+@router.patch("/{coupon_id}/activate", response_model=dict[str, Any])
+async def activate_offer_endpoint(
+    coupon_id: str,
+    request: Request,
+    current_staff: dict = Depends(require_internal_coupon_staff),
+    db: Client = Depends(supabase_client),
+):
+    """Activate a draft or inactive private offer."""
+    staff_id = str(current_staff.get("id") or "")
+    updated = activate_private_ca_coupon(db, coupon_id, current_staff)
+
+    await log_action(
+        staff_id,
+        "PRIVATE_COUPON_ACTIVATED",
+        "coupon",
+        coupon_id,
+        {"code": updated.get("code"), "status": "active"},
+        ip_address=(request.client.host if request.client else None),
+    )
+
+    return updated
+
+
+@router.patch("/{coupon_id}/revoke", response_model=dict[str, Any])
+async def revoke_offer_endpoint(
+    coupon_id: str,
+    request: Request,
+    payload: Optional[PrivateCouponRevokeRequest] = None,
+    current_staff: dict = Depends(require_internal_coupon_staff),
+    db: Client = Depends(supabase_client),
+):
+    """Revoke an unredeemed private offer."""
+    staff_id = str(current_staff.get("id") or "")
+    reason = payload.reason if payload else None
+    revoked = revoke_private_ca_coupon(db, coupon_id, current_staff, reason=reason)
+
+    await log_action(
+        staff_id,
+        "PRIVATE_COUPON_REVOKED",
+        "coupon",
+        coupon_id,
+        {"code": revoked.get("code"), "reason": reason},
+        ip_address=(request.client.host if request.client else None),
+    )
+
+    return revoked

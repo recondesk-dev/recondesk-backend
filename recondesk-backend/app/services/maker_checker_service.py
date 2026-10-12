@@ -80,6 +80,10 @@ def normalize_return_type(rt: str) -> str:
         return "GSTR-5"
     if raw in ("GSTR-5A", "GSTR5A", "GSTR_5A"):
         return "GSTR-5A"
+    if raw in ("GSTR-10", "GSTR10", "GSTR_10"):
+        return "GSTR-10"
+    if raw in ("GSTR-11", "GSTR11", "GSTR_11"):
+        return "GSTR-11"
     return raw
 
 

@@ -5,6 +5,24 @@ import { FileText, Layers, FileCheck, RefreshCcw, Calculator, ArrowRight, Receip
 
 const FILING_MODULES = [
   {
+    title: "Form GSTR-10 (Final Return on Cancellation)",
+    href: "/filing/gstr-10",
+    badge: "Cancellation under Sec 45",
+    badgeColor: "bg-rose-500/10 text-rose-600 border-rose-500/20",
+    desc: "Final return under Section 45 & Rule 81 on cancellation/surrender of GSTIN. Closing stock reversal on inputs (Table 8A/8B) and capital goods (Table 8C - 5%/quarter Rule 44), CA valuation (8D), and GSTN offline JSON.",
+    icon: Building2,
+    actionText: "Open GSTR-10 Workbench",
+  },
+  {
+    title: "Form GSTR-11 (UIN Inward Supplies Statement)",
+    href: "/filing/gstr-11",
+    badge: "UIN & Embassies under Sec 55",
+    badgeColor: "bg-sky-500/10 text-sky-600 border-sky-500/20",
+    desc: "Inward supplies received by persons having Unique Identity Number (UIN) under Section 55 & Rule 82. Invoices (3A) and Credit/Debit Notes (3B) substantiating cash refund claims in Form GST RFD-10.",
+    icon: Globe,
+    actionText: "Open GSTR-11 Workbench",
+  },
+  {
     title: "Form GSTR-6 (ISD under Section 20)",
     href: "/filing/gstr-6",
     badge: "Input Service Distributor",

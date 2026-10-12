@@ -108,8 +108,77 @@ class CouponResponse(BaseModel):
     founder_approved: bool
     founder_approved_by: Optional[str] = None
     founder_approval_notes: Optional[str] = None
+    assigned_to_tenant_id: Optional[str] = None
+    assigned_to_name: Optional[str] = None
+    assigned_to_firm_name: Optional[str] = None
+    assigned_to_email: Optional[str] = None
+    assigned_by: Optional[str] = None
+    assigned_by_name: Optional[str] = None
+    assigned_at: Optional[str] = None
+    sales_notes: Optional[str] = None
+    offer_status: Optional[str] = "active"
+    revoked_at: Optional[str] = None
+    revoked_by_name: Optional[str] = None
+    revoked_reason: Optional[str] = None
     created_at: str
     updated_at: str
+
+
+class PrivateCouponAssignRequest(BaseModel):
+    tenant_id: str = Field(..., description="Target CA user/tenant ID from user_profiles")
+    plan: str = Field(..., description="Eligible annual plan (solo, firm, large_firm)")
+    discount_percentage: int = Field(..., description="Discount tier (20, 25, or 30)")
+    expires_at: Optional[datetime] = Field(None, description="Offer expiration timestamp (UTC)")
+    sales_notes: Optional[str] = Field(None, max_length=1000, description="Internal sales/negotiation notes")
+    custom_code: Optional[str] = Field(None, max_length=50, description="Optional custom code; auto-generated if omitted")
+    activate_now: bool = Field(True, description="True to activate immediately; False to save as draft")
+    founder_approval_notes: Optional[str] = Field(None, description="Mandatory notes for 30% discount")
+
+    @field_validator("plan")
+    @classmethod
+    def validate_plan(cls, v: str) -> str:
+        clean = v.strip().lower()
+        if clean not in ANNUAL_PLANS:
+            raise ValueError(f"Plan must be one of {sorted(ANNUAL_PLANS)}")
+        return clean
+
+    @field_validator("discount_percentage")
+    @classmethod
+    def validate_discount(cls, v: int) -> int:
+        if v not in PERMITTED_DISCOUNTS:
+            raise ValueError(f"Discount must be one of {sorted(PERMITTED_DISCOUNTS)}%")
+        return v
+
+
+class PrivateCouponRevokeRequest(BaseModel):
+    reason: Optional[str] = Field(None, max_length=500, description="Reason for revoking offer")
+
+
+class TenantSearchResult(BaseModel):
+    id: str
+    email: Optional[str] = None
+    full_name: Optional[str] = None
+    firm_name: Optional[str] = None
+    firm_gstin: Optional[str] = None
+    plan: Optional[str] = None
+    created_at: Optional[str] = None
+
+
+class CustomerOfferResponse(BaseModel):
+    id: str
+    code: str
+    discount_percentage: int
+    eligible_plan: str
+    eligible_plans: List[str]
+    expires_at: Optional[str] = None
+    original_base_paise: int
+    discount_amount_paise: int
+    discounted_base_paise: int
+    gst_paise: int
+    total_paise: int
+    sales_notes: Optional[str] = None
+    offer_status: str
+    created_at: str
 
 
 class RedemptionRecord(BaseModel):

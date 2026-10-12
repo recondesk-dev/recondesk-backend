@@ -850,6 +850,54 @@ async def require_platform_admin(
     return current_user
 
 
+def is_internal_coupon_staff_user(user: dict) -> bool:
+    """True if user is an authorized internal ReconDesk staff member, sales, or management.
+
+    Strictly excludes CA tenant administrators, practice users, and clients.
+    """
+    if is_platform_admin_user(user):
+        return True
+
+    # Check explicit internal role
+    role = str(user.get("role") or "").strip().lower()
+    if role in ("sales", "internal_sales", "sales_manager", "management"):
+        return True
+
+    # Explicit internal flags
+    if user.get("is_internal_staff") is True or user.get("is_sales_staff") is True:
+        return True
+
+    # Email matching configured sales / internal staff list
+    email = str(user.get("email") or "").strip().lower()
+    raw_staff = (
+        getattr(settings, "INTERNAL_STAFF_EMAILS", "")
+        or getattr(settings, "SALES_STAFF_EMAILS", "")
+        or os.environ.get("INTERNAL_STAFF_EMAILS", "")
+        or os.environ.get("SALES_STAFF_EMAILS", "")
+        or ""
+    )
+    staff_emails = [x.strip().lower() for x in str(raw_staff).split(",") if x.strip()]
+    if email and email in staff_emails:
+        return True
+
+    return False
+
+
+async def require_internal_coupon_staff(
+    current_user: dict = Depends(get_current_active_user),
+) -> dict:
+    """Enforce that the user is internal ReconDesk staff, sales, or platform admin.
+
+    Rejects CA customers, practice admins, and unauthorized actors with 403 Forbidden.
+    """
+    if not is_internal_coupon_staff_user(current_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Internal staff or management authorization required for this action.",
+        )
+    return current_user
+
+
 def is_founder_user(user: dict) -> bool:
     """True if user is an authorized founder of ReconDesk.
 

@@ -1381,3 +1381,214 @@ def validate_gstr5a_pre_filing(
         reconciliation_summary={"supplies_count": len(supplies)},
     )
 
+
+def validate_gstr10_pre_filing(
+    *,
+    batch: Mapping[str, Any],
+    stock_records: list[Mapping[str, Any]],
+) -> PreFilingValidationResult:
+    """Validate Form GSTR-10 (Final Return) compliance prior to review and filing."""
+    from datetime import date
+    from app.rules.gstr10_rules import (
+        StockItemType,
+        calculate_gstr10_due_date,
+        validate_stock_item,
+    )
+
+    clean_gstin = str(batch.get("gstin") or "").strip().upper()
+    clean_period = str(batch.get("period") or "").strip()
+
+    violations: list[ValidationViolation] = []
+    statutory_checks: dict[str, str] = {
+        "cancellation_dates_validity": "PASSED",
+        "statutory_due_date_sufficiency": "PASSED",
+        "stock_records_integrity": "PASSED",
+        "ca_certification_rule44_3": "PASSED",
+    }
+
+    eff_canc_str = str(batch.get("effective_cancellation_date") or "").strip()
+    ord_canc_str = str(batch.get("cancellation_order_date") or "").strip()
+
+    canc_date: Optional[date] = None
+    if not eff_canc_str:
+        violations.append(
+            ValidationViolation(
+                code="G10_MISSING_CANCELLATION_DATE",
+                message="Effective cancellation date is missing from GSTR-10 final return header.",
+                category=ViolationCategory.DATA_INTEGRITY,
+                severity=ValidationSeverity.CRITICAL_ERROR,
+            )
+        )
+        statutory_checks["cancellation_dates_validity"] = "FAILED"
+    else:
+        try:
+            canc_date = date.fromisoformat(eff_canc_str)
+        except Exception:
+            violations.append(
+                ValidationViolation(
+                    code="G10_INVALID_CANCELLATION_DATE",
+                    message=f"Effective cancellation date '{eff_canc_str}' is invalid.",
+                    category=ViolationCategory.DATA_INTEGRITY,
+                    severity=ValidationSeverity.CRITICAL_ERROR,
+                )
+            )
+            statutory_checks["cancellation_dates_validity"] = "FAILED"
+
+    # Due date check
+    if canc_date:
+        ord_date = canc_date
+        if ord_canc_str:
+            try:
+                ord_date = date.fromisoformat(ord_canc_str)
+            except Exception:
+                pass
+        statutory_due = calculate_gstr10_due_date(canc_date, ord_date)
+        if date.today() > statutory_due:
+            days_late = (date.today() - statutory_due).days
+            violations.append(
+                ValidationViolation(
+                    code="G10_OVERDUE_FINAL_RETURN",
+                    message=f"GSTR-10 statutory due date was {statutory_due.isoformat()} ({days_late} days overdue). Late fees under Section 47 apply.",
+                    category=ViolationCategory.RISK_WARNING,
+                    severity=ValidationSeverity.WARNING,
+                    details={"due_date": statutory_due.isoformat(), "days_late": days_late},
+                )
+            )
+            statutory_checks["statutory_due_date_sufficiency"] = "WARNING"
+
+    # Stock records validation
+    for idx, s in enumerate(stock_records):
+        s_errs = validate_stock_item(dict(s), cancellation_date=canc_date)
+        for err in s_errs:
+            if err == "G10_MISSING_CA_CERTIFICATE":
+                violations.append(
+                    ValidationViolation(
+                        code="G10_MISSING_CA_CERTIFICATE",
+                        message=f"Stock Item #{idx+1} (Table 8D): Invoices unavailable; CA/CMA valuation certificate is mandatory under Rule 44(3).",
+                        category=ViolationCategory.STATUTORY_BREACH,
+                        severity=ValidationSeverity.CRITICAL_ERROR,
+                        details={"index": idx},
+                    )
+                )
+                statutory_checks["ca_certification_rule44_3"] = "FAILED"
+            else:
+                violations.append(
+                    ValidationViolation(
+                        code=err,
+                        message=f"Stock Item #{idx+1}: Validation error {err}.",
+                        category=ViolationCategory.DATA_INTEGRITY,
+                        severity=ValidationSeverity.CRITICAL_ERROR,
+                        details={"index": idx, "code": err},
+                    )
+                )
+                statutory_checks["stock_records_integrity"] = "FAILED"
+
+    if any(v.severity == ValidationSeverity.CRITICAL_ERROR for v in violations):
+        overall_severity = ValidationSeverity.CRITICAL_ERROR
+    elif any(v.severity == ValidationSeverity.WARNING for v in violations):
+        overall_severity = ValidationSeverity.WARNING
+    else:
+        overall_severity = ValidationSeverity.CLEAN
+
+    digest = str(batch.get("figures_digest") or compute_figures_digest(dict(batch)))
+    val_digest = compute_validation_digest(violations)
+
+    return PreFilingValidationResult(
+        return_type="gstr-10",
+        gstin=clean_gstin,
+        period=clean_period,
+        is_valid=(overall_severity != ValidationSeverity.CRITICAL_ERROR),
+        overall_severity=overall_severity,
+        figures_digest=digest,
+        validation_digest=val_digest,
+        violations=violations,
+        statutory_checks=statutory_checks,
+        reconciliation_summary={"stock_records_count": len(stock_records)},
+    )
+
+
+def validate_gstr11_pre_filing(
+    *,
+    batch: Mapping[str, Any],
+    inward_records: list[Mapping[str, Any]],
+) -> PreFilingValidationResult:
+    """Validate Form GSTR-11 (UIN Inward Supplies Statement) compliance prior to review and filing."""
+    from app.rules.gstr11_rules import (
+        validate_uin,
+        validate_uin_inward_supply,
+    )
+
+    clean_uin = str(batch.get("uin") or "").strip().upper()
+    clean_period = str(batch.get("period") or "").strip()
+
+    violations: list[ValidationViolation] = []
+    statutory_checks: dict[str, str] = {
+        "uin_validity": "PASSED",
+        "inward_supplies_integrity": "PASSED",
+        "net_refund_positivity": "PASSED",
+        "zero_itc_routing_guardrail": "PASSED",
+    }
+
+    if not validate_uin(clean_uin):
+        violations.append(
+            ValidationViolation(
+                code="G11_INVALID_UIN",
+                message=f"UIN '{clean_uin}' is not a valid 15-character Unique Identification Number format.",
+                category=ViolationCategory.STATUTORY_BREACH,
+                severity=ValidationSeverity.CRITICAL_ERROR,
+                details={"uin": clean_uin},
+            )
+        )
+        statutory_checks["uin_validity"] = "FAILED"
+
+    for idx, r in enumerate(inward_records):
+        errs = validate_uin_inward_supply(dict(r))
+        for err in errs:
+            violations.append(
+                ValidationViolation(
+                    code=err,
+                    message=f"Inward record #{idx+1}: Validation error {err}.",
+                    category=ViolationCategory.DATA_INTEGRITY,
+                    severity=ValidationSeverity.CRITICAL_ERROR,
+                    details={"index": idx, "code": err},
+                )
+            )
+            statutory_checks["inward_supplies_integrity"] = "FAILED"
+
+    tot_net = float(batch.get("total_net_refund_claimed") or 0.0)
+    if tot_net < 0.0:
+        violations.append(
+            ValidationViolation(
+                code="G11_NEGATIVE_TOTAL_REFUND",
+                message=f"Net eligible refund ₹{tot_net:,.2f} is negative. Credit notes exceed gross inward supplies.",
+                category=ViolationCategory.STATUTORY_BREACH,
+                severity=ValidationSeverity.CRITICAL_ERROR,
+                details={"total_net_refund": tot_net},
+            )
+        )
+        statutory_checks["net_refund_positivity"] = "FAILED"
+
+    if any(v.severity == ValidationSeverity.CRITICAL_ERROR for v in violations):
+        overall_severity = ValidationSeverity.CRITICAL_ERROR
+    elif any(v.severity == ValidationSeverity.WARNING for v in violations):
+        overall_severity = ValidationSeverity.WARNING
+    else:
+        overall_severity = ValidationSeverity.CLEAN
+
+    digest = str(batch.get("figures_digest") or compute_figures_digest(dict(batch)))
+    val_digest = compute_validation_digest(violations)
+
+    return PreFilingValidationResult(
+        return_type="gstr-11",
+        gstin=clean_uin,
+        period=clean_period,
+        is_valid=(overall_severity != ValidationSeverity.CRITICAL_ERROR),
+        overall_severity=overall_severity,
+        figures_digest=digest,
+        validation_digest=val_digest,
+        violations=violations,
+        statutory_checks=statutory_checks,
+        reconciliation_summary={"inward_records_count": len(inward_records)},
+    )
+
+

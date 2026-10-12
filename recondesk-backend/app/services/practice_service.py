@@ -1149,6 +1149,32 @@ def compute_statutory_due_dates(
             note="Rule 64 of CGST Rules, 2017 - Due by 20th of succeeding month",
         ))
 
+    # 11. GSTR-10 (Final Return on Cancellation)
+    if not clean_freq or clean_freq in ("ALL", "FINAL", "CANCELLATION", "GSTR10"):
+        results.append(_make_item(
+            "GSTR-10",
+            "cancellation_final_return",
+            28,
+            "GSTR-10 Final Return on Cancellation / Surrender (Section 45)",
+            applicability="Registered persons whose GST registration has been cancelled or surrendered",
+            verification_status="STATUTORY_RULE",
+            is_verified=True,
+            note="Section 45 & Rule 81 of CGST Rules - Due within 3 months of cancellation date or cancellation order date",
+        ))
+
+    # 12. GSTR-11 (UIN Inward Supplies Statement)
+    if not clean_freq or clean_freq in ("ALL", "QUARTERLY", "UIN", "GSTR11"):
+        results.append(_make_item(
+            "GSTR-11",
+            "uin_inward_supplies",
+            28,
+            "GSTR-11 Inward Statement for UIN Holders & Embassies (Section 55)",
+            applicability="Specialized agencies of UNO, Embassies, Consulates, and notified UIN holders",
+            verification_status="STATUTORY_RULE",
+            is_verified=True,
+            note="Section 55 & Rule 82 of CGST Rules - Due by 28th of month following period / prior to RFD-10 refund",
+        ))
+
     return results
 
 

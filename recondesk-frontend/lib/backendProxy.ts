@@ -97,11 +97,14 @@ export async function proxyToBackend(
 }
 
 export function backendProxyHandlers(pathPrefix: string) {
-  type RouteContext = { params: { path: string[] } };
+  type RouteContext = { params?: { path?: string[] } };
 
-  async function handle(request: NextRequest, context: RouteContext) {
-    const segments = context.params.path ?? [];
-    const targetPath = `${pathPrefix}/${segments.map(encodeURIComponent).join("/")}`;
+  async function handle(request: NextRequest, context?: RouteContext) {
+    const segments = context?.params?.path ?? [];
+    const targetPath =
+      segments.length > 0
+        ? `${pathPrefix}/${segments.map(encodeURIComponent).join("/")}`
+        : pathPrefix;
     return proxyToBackend(request, targetPath);
   }
 
