@@ -61,6 +61,7 @@ from app.routers.gstr4 import router as gstr4_router
 from app.routers.gstr2a_delta import router as gstr2a_delta_router
 from app.routers.notices import router as notices_router
 from app.routers.practice import practice_router
+from app.routers.gstr1a import router as gstr1a_router
 from app.routers.vendor_followup import (
     router as vendor_followup_router,
     public_router as vendor_public_router,
@@ -72,6 +73,8 @@ from app.routers.billing import cdn as billing_cdn_router
 from app.routers.billing import ewaybill as billing_ewaybill_router
 from app.routers import work_items as work_items_router
 from app.routers.cognito_auth import router as cognito_auth_router
+from app.routers.admin_coupons import router as admin_coupons_router
+from app.routers.coupons import router as coupons_router
 from app.utils.rate_limit import limiter
 
 
@@ -609,6 +612,21 @@ app.include_router(
     tags=["Multi-Period Wizard"],
 )
 app.include_router(admin.router, prefix="/api/admin", tags=["Admin"])
+app.include_router(
+    admin_coupons_router,
+    prefix="/api/admin/coupons",
+    tags=["Admin Coupons"],
+)
+app.include_router(
+    coupons_router,
+    prefix="/api/coupons",
+    tags=["Coupons"],
+)
+app.include_router(
+    coupons_router,
+    prefix="/api/billing",
+    tags=["Coupons (Billing)"],
+)
 app.include_router(audit_logs.router, prefix="/api/audit-logs", tags=["Audit Logs"])
 app.include_router(
     audit_observations.router,
@@ -679,6 +697,16 @@ app.include_router(
     practice_router,
     prefix="/api/practice",
     tags=["Practice Management"],
+)
+app.include_router(
+    gstr1a_router,
+    prefix="/api/gstr1a",
+    tags=["GSTR-1A Amendments"],
+)
+app.include_router(
+    gstr1a_router,
+    prefix="/api/v1/gstr1a",
+    tags=["GSTR-1A Amendments"],
 )
 
 

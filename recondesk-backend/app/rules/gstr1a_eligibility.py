@@ -125,6 +125,20 @@ def _parse_period_yyyy_mm(period: str | None) -> tuple[int, int] | None:
     return None
 
 
+def gstr1_due_date_monthly(period_year: int, period_month: int) -> date:
+    """Statutory GSTR-1 due date for monthly filers: 11th of the following month (Section 37(1))."""
+    if period_month == 12:
+        return date(period_year + 1, 1, 11)
+    return date(period_year, period_month + 1, 11)
+
+
+def gstr1_due_date_qrmp(period_year: int, period_month: int) -> date:
+    """Statutory quarterly GSTR-1 / IFF due date for QRMP filers: 13th of succeeding month."""
+    if period_month == 12:
+        return date(period_year + 1, 1, 13)
+    return date(period_year, period_month + 1, 13)
+
+
 def gstr3b_due_date_monthly(period_year: int, period_month: int) -> date:
     """Statutory GSTR-3B due date for monthly filers: 20th of the following month."""
     if period_month == 12:
@@ -142,56 +156,73 @@ def compute_gstr1a_window(
 ) -> dict[str, Any]:
     """Compute GSTR-1A amendment-window status for a tax period.
 
-    The window opens after GSTR-1 is filed and closes when GSTR-3B is filed.
-    Until then, ``days_remaining`` counts down to the monthly GSTR-3B due date
-    (20th of the month following the return period).
-
-    Parameters
-    ----------
-    gstr1_filed_date
-        Date GSTR-1 was filed for the period. ``None`` → window not open yet.
-    gstr3b_filed_date
-        Date GSTR-3B was filed. When set, returns ``window_closed`` immediately.
-    period
-        Tax period as ``YYYY-MM`` or ``MMYYYY``. Required for due-date math.
-    as_of
-        Reference "today" (defaults to ``date.today()``).
-    filing_frequency
-        ``"monthly"`` (default) or ``"qrmp"``. QRMP due dates differ by state
-        (typically 22nd/24th after quarter-end) and are not auto-computed here.
-
-    Returns
-    -------
-    dict
-        ``status``, ``days_remaining``, ``gstr3b_due_date``, ``note``.
+    Statutory Invariants (Section 37 & Rule 59(1A)):
+    - Form GSTR-1A amends or adds outward supplies relative to Form GSTR-1.
+    - If GSTR-1 due date has passed but GSTR-1 remains unfiled, GSTR-1 is OVERDUE.
+      Under GST rules and actual GSTN API requirements, Form GSTR-1 must be furnished
+      before Form GSTR-1A can be opened, prepared, or filed.
+    - Once GSTR-1 is filed, GSTR-1A remains legally open until GSTR-3B is filed.
+    - Once GSTR-3B is filed, GSTR-1A is permanently closed for the period.
     """
     g1 = _parse_iso_date(gstr1_filed_date)
     g3 = _parse_iso_date(gstr3b_filed_date)
     today = as_of or date.today()
+    ym = _parse_period_yyyy_mm(period)
+
+    g1_due: date | None = None
+    if ym is not None:
+        g1_due = (
+            gstr1_due_date_qrmp(ym[0], ym[1])
+            if filing_frequency == "qrmp"
+            else gstr1_due_date_monthly(ym[0], ym[1])
+        )
 
     if g3 is not None:
         return {
             "status": Gstr1aWindowStatus.WINDOW_CLOSED.value,
+            "is_open": False,
+            "is_overdue": False,
+            "is_gstr1_overdue": False,
             "days_remaining": 0,
+            "gstr1_due_date": g1_due.isoformat() if g1_due else None,
             "gstr3b_due_date": None,
             "gstr1_filed_date": g1.isoformat() if g1 else None,
             "gstr3b_filed_date": g3.isoformat(),
-            "note": "GSTR-3B already filed; GSTR-1A window is closed.",
+            "note": "GSTR-3B already filed; GSTR-1A window is permanently closed for this period (Rule 59(1A)).",
         }
 
     if g1 is None:
+        is_g1_overdue = (g1_due is not None) and (today > g1_due)
+        if is_g1_overdue and g1_due:
+            note = (
+                f"GSTR-1 due date ({g1_due.isoformat()}) has passed and GSTR-1 remains unfiled. "
+                "Under GST rules and actual GSTN API requirements, Form GSTR-1 must be furnished "
+                "before Form GSTR-1A can be accessed or submitted."
+            )
+        elif g1_due:
+            note = f"GSTR-1 not yet filed (due on {g1_due.isoformat()}); Form GSTR-1A window opens once GSTR-1 is filed."
+        else:
+            note = "GSTR-1 not yet filed; GSTR-1A window has not opened."
+
         return {
             "status": Gstr1aWindowStatus.NOT_OPEN.value,
+            "is_open": False,
+            "is_overdue": False,
+            "is_gstr1_overdue": is_g1_overdue,
             "days_remaining": None,
+            "gstr1_due_date": g1_due.isoformat() if g1_due else None,
             "gstr3b_due_date": None,
             "gstr1_filed_date": None,
             "gstr3b_filed_date": None,
-            "note": "GSTR-1 not yet filed; GSTR-1A window has not opened.",
+            "note": note,
         }
+
 
     if filing_frequency == "qrmp":
         return {
             "status": Gstr1aWindowStatus.REVIEW_REQUIRED.value,
+            "is_open": True,
+            "is_overdue": False,
             "days_remaining": None,
             "gstr3b_due_date": None,
             "gstr1_filed_date": g1.isoformat(),
@@ -208,6 +239,8 @@ def compute_gstr1a_window(
     if ym is None:
         return {
             "status": Gstr1aWindowStatus.REVIEW_REQUIRED.value,
+            "is_open": False,
+            "is_overdue": False,
             "days_remaining": None,
             "gstr3b_due_date": None,
             "gstr1_filed_date": g1.isoformat(),
@@ -217,16 +250,22 @@ def compute_gstr1a_window(
 
     due = gstr3b_due_date_monthly(ym[0], ym[1])
     days_remaining = (due - today).days
-    status = (
-        Gstr1aWindowStatus.EXPIRED.value
-        if days_remaining < 0
-        else Gstr1aWindowStatus.OPEN.value
+    is_overdue = days_remaining < 0
+
+    note = (
+        f"GSTR-3B due date ({due.isoformat()}) has passed, but Form GSTR-1A remains legally open under Rule 59(1A) until GSTR-3B is filed."
+        if is_overdue
+        else None
     )
+
     return {
-        "status": status,
+        "status": Gstr1aWindowStatus.OPEN.value,
+        "is_open": True,
+        "is_overdue": is_overdue,
         "days_remaining": days_remaining,
         "gstr3b_due_date": due.isoformat(),
         "gstr1_filed_date": g1.isoformat(),
         "gstr3b_filed_date": None,
-        "note": None,
+        "note": note,
     }
+

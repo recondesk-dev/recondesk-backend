@@ -26,6 +26,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 from dataclasses import dataclass, field
 from decimal import Decimal
 from enum import Enum
@@ -560,4 +561,131 @@ def validate_gstr1_pre_filing(
         violations=violations,
         statutory_checks=statutory_checks,
         reconciliation_summary=recon_summary,
+    )
+
+
+def validate_gstr1a_pre_filing(
+    *,
+    gstin: str,
+    period: str,
+    batch: Mapping[str, Any],
+    items: Sequence[Mapping[str, Any]],
+    gstr1_filed: bool = True,
+    gstr3b_filed: bool = False,
+) -> PreFilingValidationResult:
+    """Validate GSTR-1A amendment batch against Rule 59(1A) and GST rules.
+
+    Checks:
+    1. Rule 59(1A) eligibility (GSTR-1 filed, GSTR-3B NOT filed).
+    2. Batch has at least 1 item.
+    3. Valid recipient GSTINs on B2B additions/amendments.
+    4. POS vs IGST/CGST/SGST alignment.
+    5. Figures digest binding.
+    """
+    clean_gstin = (gstin or "").strip().upper()
+    clean_period = (period or "").strip()
+    violations: list[ValidationViolation] = []
+    statutory_checks: dict[str, Any] = {
+        "rule_59_1a_window": "PASSED",
+        "recipient_gstin_validity": "PASSED",
+        "pos_tax_alignment": "PASSED",
+    }
+
+    # 1. Rule 59(1A) Window
+    if not gstr1_filed:
+        violations.append(
+            ValidationViolation(
+                code="G1A_GSTR1_NOT_FILED",
+                message="GSTR-1 must be filed before Form GSTR-1A can be submitted (Rule 59(1A)).",
+                category=ViolationCategory.STATUTORY_BREACH,
+                severity=ValidationSeverity.CRITICAL_ERROR,
+            )
+        )
+        statutory_checks["rule_59_1a_window"] = "FAILED"
+
+    if gstr3b_filed:
+        violations.append(
+            ValidationViolation(
+                code="G1A_GSTR3B_ALREADY_FILED",
+                message="GSTR-3B has already been filed for this period; Form GSTR-1A is permanently closed (Rule 59(1A)).",
+                category=ViolationCategory.STATUTORY_BREACH,
+                severity=ValidationSeverity.CRITICAL_ERROR,
+            )
+        )
+        statutory_checks["rule_59_1a_window"] = "FAILED"
+
+    # 2. Batch content
+    if not items:
+        violations.append(
+            ValidationViolation(
+                code="G1A_EMPTY_BATCH",
+                message="GSTR-1A amendment batch has no invoice additions or amendments.",
+                category=ViolationCategory.INTERNAL_POLICY,
+                severity=ValidationSeverity.WARNING,
+            )
+        )
+
+    # 3. Item-level validation
+    gstin_regex = re.compile(r"^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$")
+    supplier_state = clean_gstin[:2] if len(clean_gstin) >= 2 else ""
+
+    for idx, it in enumerate(items, 1):
+        tbl = str(it.get("table_name") or "").upper()
+        recip = str(it.get("recipient_gstin") or "").strip().upper()
+        if ("B2B" in tbl or "4" in tbl or "CDNR" in tbl) and recip:
+            if not gstin_regex.match(recip):
+                violations.append(
+                    ValidationViolation(
+                        code="G1A_INVALID_RECIPIENT_GSTIN",
+                        message=f"Invalid recipient GSTIN format '{recip}' in {tbl}.",
+                        category=ViolationCategory.STATUTORY_BREACH,
+                        severity=ValidationSeverity.CRITICAL_ERROR,
+                        details={"item_index": idx, "recipient_gstin": recip},
+                    )
+                )
+                statutory_checks["recipient_gstin_validity"] = "FAILED"
+
+        pos = str(it.get("pos") or "").strip()
+        d_igst = float(it.get("delta_igst") or 0)
+        d_cgst = float(it.get("delta_cgst") or 0)
+        d_sgst = float(it.get("delta_sgst") or 0)
+        if supplier_state and pos and supplier_state == pos:
+            # Intra-state: should have CGST+SGST, not IGST alone
+            if abs(d_igst) > 0 and abs(d_cgst) == 0 and abs(d_sgst) == 0:
+                violations.append(
+                    ValidationViolation(
+                        code="G1A_POS_TAX_MISMATCH",
+                        message=f"Intra-state supply (POS {pos} matches supplier state {supplier_state}) declared with IGST instead of CGST/SGST.",
+                        category=ViolationCategory.RISK_WARNING,
+                        severity=ValidationSeverity.WARNING,
+                        details={"item_index": idx, "pos": pos, "delta_igst": d_igst},
+                    )
+                )
+                statutory_checks["pos_tax_alignment"] = "WARNING"
+
+    if any(v.severity == ValidationSeverity.CRITICAL_ERROR for v in violations):
+        overall_severity = ValidationSeverity.CRITICAL_ERROR
+    elif any(v.severity == ValidationSeverity.WARNING for v in violations):
+        overall_severity = ValidationSeverity.WARNING
+    elif any(v.severity == ValidationSeverity.INFO for v in violations):
+        overall_severity = ValidationSeverity.INFO
+    else:
+        overall_severity = ValidationSeverity.CLEAN
+
+    is_valid = overall_severity not in (ValidationSeverity.CRITICAL_ERROR,)
+
+    digest = str(batch.get("figures_digest") or compute_figures_digest(dict(batch)))
+    val_digest = compute_validation_digest(violations)
+
+    return PreFilingValidationResult(
+        return_type="gstr-1a",
+        gstin=clean_gstin,
+        period=clean_period,
+        is_valid=is_valid,
+        overall_severity=overall_severity,
+        figures_digest=digest,
+        validation_digest=val_digest,
+        violations=violations,
+        statutory_checks=statutory_checks,
+        reconciliation_summary={"items_count": len(items)},
     )

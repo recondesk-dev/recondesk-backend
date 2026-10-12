@@ -5,7 +5,9 @@ import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 
 import { Gstr1aPeriodSummaryView } from "@/components/reconcile/Gstr1aPeriodSummaryView";
+import { Gstr1aWorkbench } from "@/components/reconcile/Gstr1aWorkbench";
 import {
+  gstr1RunPeriodLabel,
   loadGstr1Result,
   loadGstr1ResultByRunId,
   loadGstr1RunId,
@@ -16,6 +18,14 @@ import { useAccessToken } from "@/lib/hooks/useAccessToken";
 function Gstr1aSummaryContent() {
   const searchParams = useSearchParams();
   const queryRunId = searchParams.get("run_id")?.trim() || null;
+  const queryClientId = searchParams.get("client_gstin_id")?.trim() || searchParams.get("client_id")?.trim() || null;
+  const queryPeriod = searchParams.get("period")?.trim() || null;
+  const queryGstin = searchParams.get("gstin")?.trim() || null;
+
+  const [activeTab, setActiveTab] = useState<"workbench" | "mismatches">(
+    queryClientId && queryPeriod ? "workbench" : "mismatches"
+  );
+
   const tokenState = useAccessToken();
   const token =
     typeof tokenState === "string" && tokenState.length > 0 ? tokenState : null;
@@ -77,6 +87,10 @@ function Gstr1aSummaryContent() {
     };
   }, [queryRunId, token, tokenPending]);
 
+  const clientGstinId = queryClientId || (result as any)?.client_gstin_id || null;
+  const period = queryPeriod || (result ? gstr1RunPeriodLabel(result) : null) || null;
+  const gstin = queryGstin || (result as any)?.parse_diagnostics?.gstr1?.filing_gstin || "Client GSTIN";
+
   if (result === undefined || (queryRunId && tokenPending)) {
     return (
       <div className="flex min-h-[40vh] items-center justify-center px-8">
@@ -85,14 +99,14 @@ function Gstr1aSummaryContent() {
     );
   }
 
-  if (!result) {
+  if (!result && !(clientGstinId && period)) {
     return (
       <div className="mx-auto flex min-h-[50vh] w-full max-w-lg flex-col items-center justify-center px-8 text-center">
         <h1 className="text-xl font-semibold tracking-tight text-[var(--ink)]">
           No GSTR-1 run loaded
         </h1>
         <p className="mt-2 text-[14px] text-gray-500">
-          Open this summary from a completed GSTR-1 reconciliation result.
+          Open this summary from a completed GSTR-1 reconciliation result or practice dashboard.
         </p>
         <Link
           href="/reconcile/gstr1/new"
@@ -104,17 +118,62 @@ function Gstr1aSummaryContent() {
     );
   }
 
-  const effectiveRunId = result.run_id ?? resolvedRunId ?? null;
+  const effectiveRunId = result?.run_id ?? resolvedRunId ?? null;
   const backHref = effectiveRunId
     ? `/reconcile/gstr1/results?run_id=${encodeURIComponent(effectiveRunId)}`
     : "/reconcile/gstr1/results";
 
   return (
-    <Gstr1aPeriodSummaryView
-      result={result}
-      backHref={backHref}
-      token={token}
-    />
+    <div className="space-y-4">
+      {clientGstinId && period && result && (
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 pt-4">
+          <div className="flex items-center gap-4 border-b pb-2 text-xs font-medium text-gray-500">
+            <button
+              type="button"
+              onClick={() => setActiveTab("workbench")}
+              className={`pb-2 border-b-2 font-semibold ${
+                activeTab === "workbench"
+                  ? "border-indigo-600 text-indigo-600"
+                  : "border-transparent hover:text-gray-900"
+              }`}
+            >
+              Amendment Workbench
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab("mismatches")}
+              className={`pb-2 border-b-2 font-semibold ${
+                activeTab === "mismatches"
+                  ? "border-indigo-600 text-indigo-600"
+                  : "border-transparent hover:text-gray-900"
+              }`}
+            >
+              Reconciliation Mismatches ({result.mismatches?.length || 0})
+            </button>
+          </div>
+        </div>
+      )}
+
+      {clientGstinId && period && token && activeTab === "workbench" ? (
+        <Gstr1aWorkbench
+          clientGstinId={clientGstinId}
+          gstin={gstin}
+          period={period}
+          token={token}
+          backHref={backHref}
+        />
+      ) : result ? (
+        <Gstr1aPeriodSummaryView
+          result={result}
+          backHref={backHref}
+          token={token}
+        />
+      ) : (
+        <div className="p-8 text-center text-xs text-gray-500">
+          No reconciliation data available.
+        </div>
+      )}
+    </div>
   );
 }
 

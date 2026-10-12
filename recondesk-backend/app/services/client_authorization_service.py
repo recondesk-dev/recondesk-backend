@@ -65,6 +65,8 @@ def normalize_return_type(rt: str) -> str:
     raw = (rt or "").strip().upper()
     if raw in ("GSTR-1", "GSTR1", "GSTR_1"):
         return "GSTR-1"
+    if raw in ("GSTR-1A", "GSTR1A", "GSTR_1A"):
+        return "GSTR-1A"
     if raw in ("GSTR-3B", "GSTR3B", "GSTR_3B"):
         return "GSTR-3B"
     if raw in ("GSTR-4", "GSTR4", "GSTR_4"):

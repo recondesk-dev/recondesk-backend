@@ -64,6 +64,7 @@ export type BillingDetails = {
   firmGstin?: string;
   city?: string;
   stateCode?: string;
+  couponCode?: string;
 };
 
 export async function startPlanCheckout(
@@ -94,6 +95,7 @@ export async function startPlanCheckout(
       customer_trade_name: opts?.billingDetails?.firmName,
       customer_city: opts?.billingDetails?.city,
       customer_state_code: opts?.billingDetails?.stateCode,
+      coupon_code: opts?.billingDetails?.couponCode,
     }),
   });
   const orderBody = (await orderRes.json().catch(() => ({}))) as {
@@ -154,6 +156,7 @@ export async function startPlanCheckout(
                 razorpay_order_id: response.razorpay_order_id,
                 razorpay_payment_id: response.razorpay_payment_id,
                 razorpay_signature: response.razorpay_signature,
+                coupon_code: opts?.billingDetails?.couponCode,
               }),
             });
             const verifyBody = (await verifyRes.json().catch(() => ({}))) as {

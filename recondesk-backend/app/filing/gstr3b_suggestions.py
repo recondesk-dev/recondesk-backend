@@ -223,14 +223,92 @@ def load_osup_det_suggestion(
             "record_count": 0,
         }
 
-    return {
+    osup = osup_det_from_gstr1_aggregate(gstr1)
+    gstr1a_applied = False
+    gstr1a_meta: dict[str, Any] = {}
+    try:
+        norm_p = normalize_period_yyyy_mm(period) or period
+        # Prevent double-counting if the baseline reconcile run already incorporated GSTR-1A adjustments
+        already_incorporated = bool(
+            tie_out.get("gstr1a_applied")
+            or gstr1.get("gstr1a_applied")
+            or (run.get("result_payload") or {}).get("gstr1a_applied")
+            or run.get("gstr1a_applied")
+        )
+        if already_incorporated:
+            _log.info(
+                "Baseline GSTR-1 reconcile run %s already includes GSTR-1A deltas; skipping batch delta addition to prevent double-counting.",
+                run.get("id"),
+            )
+            gstr1a_applied = True
+            gstr1a_meta = {"already_incorporated_in_baseline": True, "source_run_id": run.get("id")}
+        else:
+            b_res = (
+                sb.table("gstr1a_amendment_batches")
+                .select("id, status, delta_taxable_value, delta_igst, delta_cgst, delta_sgst, delta_cess, total_additions, total_amendments, figures_digest")
+                .eq("client_gstin_id", client_gstin_id)
+                .eq("period", norm_p)
+                .execute()
+            )
+            eligible_statuses = {"APPROVED", "SAVED", "FILED"}
+            if b_res.data and len(b_res.data) > 0:
+                priority_order = {"FILED": 3, "SAVED": 2, "APPROVED": 1}
+                eligible_batches = [
+                    b for b in b_res.data
+                    if str(b.get("status") or "").upper() in eligible_statuses
+                ]
+                if eligible_batches:
+                    eligible_batches.sort(
+                        key=lambda b: priority_order.get(str(b.get("status") or "").upper(), 0),
+                        reverse=True,
+                    )
+                    batch = eligible_batches[0]
+                    d_txval = float(batch.get("delta_taxable_value") or 0)
+                    d_igst = float(batch.get("delta_igst") or 0)
+                    d_cgst = float(batch.get("delta_cgst") or 0)
+                    d_sgst = float(batch.get("delta_sgst") or 0)
+                    d_cess = float(batch.get("delta_cess") or 0)
+
+                    osup["txval"] = _round_rupees(osup["txval"] + d_txval)
+                    osup["iamt"] = _round_rupees(osup["iamt"] + d_igst)
+                    osup["camt"] = _round_rupees(osup["camt"] + d_cgst)
+                    osup["samt"] = _round_rupees(osup["samt"] + d_sgst)
+                    osup["csamt"] = _round_rupees(osup["csamt"] + d_cess)
+                    gstr1a_applied = True
+                    gstr1a_meta = {
+                        "batch_id": batch.get("id"),
+                        "status": batch.get("status"),
+                        "figures_digest": batch.get("figures_digest"),
+                        "delta_taxable_value": d_txval,
+                        "delta_igst": d_igst,
+                        "delta_cgst": d_cgst,
+                        "delta_sgst": d_sgst,
+                        "delta_cess": d_cess,
+                    }
+                    source = f"{source} + GSTR-1A adjustments"
+                else:
+                    _log.info(
+                        "Found GSTR-1A batch(es) for period %s but none in eligible status (%s); Table 3.1 unchanged.",
+                        norm_p,
+                        eligible_statuses,
+                    )
+    except Exception as exc:
+        _log.warning("Could not apply GSTR-1A adjustments to GSTR-3B osup_det: %s", exc)
+
+
+
+    ret = {
         "available": True,
         "source": source,
         "period": normalize_period_yyyy_mm(period) or period,
         "run_id": str(run.get("id") or "") or None,
         "record_count": record_count,
-        "osup_det": osup_det_from_gstr1_aggregate(gstr1),
+        "osup_det": osup,
     }
+    if gstr1a_applied:
+        ret["gstr1a_applied"] = True
+        ret["gstr1a"] = gstr1a_meta
+    return ret
 
 
 def load_itc_oth_suggestion(

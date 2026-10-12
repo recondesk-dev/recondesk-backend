@@ -5625,5 +5625,331 @@ export const ewaybillApi = {
     `/api/ewaybill/export-bulk-json?client_gstin_id=${encodeURIComponent(clientGstinId)}${status ? `&status=${encodeURIComponent(status)}` : ""}`,
 };
 
+export type CouponRecord = {
+  id: string;
+  code: string;
+  discount_percentage: number;
+  eligible_plans: string[];
+  is_active: boolean;
+  expires_at?: string | null;
+  max_redemptions?: number | null;
+  redemptions_count: number;
+  max_per_customer: number;
+  restricted_to_tenant_id?: string | null;
+  restricted_to_email?: string | null;
+  is_acquisition_only: boolean;
+  created_by?: string | null;
+  founder_approved: boolean;
+  founder_approved_by?: string | null;
+  founder_approval_notes?: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type CouponCreateInput = {
+  code: string;
+  discount_percentage: number;
+  eligible_plans: string[];
+  expires_at?: string | null;
+  max_redemptions?: number | null;
+  max_per_customer?: number;
+  restricted_to_tenant_id?: string | null;
+  restricted_to_email?: string | null;
+  is_acquisition_only?: boolean;
+  founder_approved?: boolean;
+  founder_approved_by?: string | null;
+  founder_approval_notes?: string | null;
+};
+
+export type CouponRedemptionRecord = {
+  id: string;
+  coupon_id: string;
+  tenant_id: string;
+  user_id: string;
+  payment_id?: string | null;
+  razorpay_order_id: string;
+  razorpay_payment_id?: string | null;
+  original_base_amount_paise: number;
+  discount_amount_paise: number;
+  final_base_amount_paise: number;
+  gst_amount_paise: number;
+  total_amount_paise: number;
+  plan: string;
+  billing_cycle: string;
+  status: string;
+  created_at: string;
+};
+
+export type CouponAnalyticsResponse = {
+  total_coupons: number;
+  active_coupons: number;
+  total_redemptions: number;
+  total_discount_given_paise: number;
+  total_revenue_realized_paise: number;
+  discount_breakdown: Record<string, number>;
+};
+
+export const couponsAdminApi = {
+  list: (token: string) =>
+    apiFetch<CouponRecord[]>("/api/admin/coupons", { token }),
+
+  create: (token: string, data: CouponCreateInput) =>
+    apiFetch<CouponRecord>("/api/admin/coupons", {
+      method: "POST",
+      body: JSON.stringify(data),
+      token,
+    }),
+
+  toggleStatus: (token: string, couponId: string, isActive: boolean) =>
+    apiFetch<CouponRecord>(`/api/admin/coupons/${encodeURIComponent(couponId)}/status`, {
+      method: "PATCH",
+      body: JSON.stringify({ is_active: isActive }),
+      token,
+    }),
+
+  listRedemptions: (token: string, couponId?: string) =>
+    apiFetch<CouponRedemptionRecord[]>(
+      `/api/admin/coupons/redemptions${couponId ? `?coupon_id=${encodeURIComponent(couponId)}` : ""}`,
+      { token }
+    ),
+
+  getAnalytics: (token: string) =>
+    apiFetch<CouponAnalyticsResponse>("/api/admin/coupons/analytics", { token }),
+};
+
+// ─── Phase 4.1 GSTR-1A Amendments API ───────────────────────────────────────
+
+export interface Gstr1aBatch {
+  id: string;
+  firm_id: string;
+  client_gstin_id: string;
+  gstin: string;
+  period: string;
+  status: "DRAFT" | "PREPARED" | "UNDER_REVIEW" | "APPROVED" | "REJECTED" | "SAVED" | "FILED";
+  figures_digest: string;
+  total_additions: number;
+  total_amendments: number;
+  delta_taxable_value: number;
+  delta_igst: number;
+  delta_cgst: number;
+  delta_sgst: number;
+  delta_cess: number;
+  gstn_reference_id?: string | null;
+  gstn_status?: string | null;
+  arn?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Gstr1aItem {
+  id: string;
+  batch_id: string;
+  period: string;
+  table_name: string;
+  action_type: "ADDITION" | "AMENDMENT" | "DELETE";
+  original_invoice_number?: string | null;
+  original_invoice_date?: string | null;
+  amended_invoice_number?: string | null;
+  amended_invoice_date?: string | null;
+  recipient_gstin?: string | null;
+  pos?: string | null;
+  supply_type?: string | null;
+  original_payload: Record<string, unknown>;
+  amended_payload: Record<string, unknown>;
+  diff_summary: Record<string, { original: unknown; amended: unknown }>;
+  delta_taxable_value: number;
+  delta_igst: number;
+  delta_cgst: number;
+  delta_sgst: number;
+  delta_cess: number;
+  item_digest: string;
+  source_note?: string | null;
+  created_at: string;
+}
+
+export interface Gstr1aLiabilityImpact {
+  has_gstr1a: boolean;
+  batch_id?: string;
+  status?: string;
+  period: string;
+  figures_digest?: string;
+  total_additions: number;
+  total_amendments: number;
+  delta_taxable_value: number;
+  delta_igst: number;
+  delta_cgst: number;
+  delta_sgst: number;
+  delta_cess: number;
+  table_3_1_impact: {
+    osup_det: {
+      txval: number;
+      iamt: number;
+      camt: number;
+      samt: number;
+      csamt: number;
+    };
+  };
+}
+
+export const gstr1aApi = {
+  getWindow: (token: string, clientGstinId: string, period: string) =>
+    apiFetch<{
+      client_gstin_id: string;
+      gstin: string;
+      period: string;
+      window: {
+        status: string;
+        days_remaining: number | null;
+        gstr3b_due_date: string | null;
+        gstr1_filed_date: string | null;
+        gstr3b_filed_date: string | null;
+        note: string | null;
+        filing_frequency: string;
+      };
+    }>(
+      `/api/gstr1a/${encodeURIComponent(clientGstinId)}/${encodeURIComponent(period)}/window`,
+      { token, cache: "no-store" }
+    ),
+
+  getBatch: (token: string, clientGstinId: string, period: string) =>
+    apiFetch<{
+      batch: Gstr1aBatch;
+      items: Gstr1aItem[];
+      approval: ReturnApproval | null;
+      client_authorization: ClientFilingAuthorization | null;
+    }>(
+      `/api/gstr1a/${encodeURIComponent(clientGstinId)}/${encodeURIComponent(period)}/batch`,
+      { token, cache: "no-store" }
+    ),
+
+  addItem: (
+    token: string,
+    clientGstinId: string,
+    period: string,
+    body: {
+      table_name: string;
+      action_type: string;
+      original_invoice_number?: string | null;
+      original_invoice_date?: string | null;
+      amended_invoice_number?: string | null;
+      amended_invoice_date?: string | null;
+      recipient_gstin?: string | null;
+      pos?: string | null;
+      supply_type?: string | null;
+      original_payload?: Record<string, unknown>;
+      amended_payload: Record<string, unknown>;
+      source_note?: string;
+      skip_window_check?: boolean;
+    }
+  ) =>
+    apiFetch<{ success: boolean; item: Gstr1aItem }>(
+      `/api/gstr1a/${encodeURIComponent(clientGstinId)}/${encodeURIComponent(period)}/items`,
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+        token,
+      }
+    ),
+
+  deleteItem: (token: string, clientGstinId: string, period: string, itemId: string) =>
+    apiFetch<{ success: boolean; deleted: boolean; item_id: string }>(
+      `/api/gstr1a/${encodeURIComponent(clientGstinId)}/${encodeURIComponent(period)}/items/${encodeURIComponent(itemId)}`,
+      {
+        method: "DELETE",
+        token,
+      }
+    ),
+
+  getLiabilityImpact: (token: string, clientGstinId: string, period: string) =>
+    apiFetch<Gstr1aLiabilityImpact>(
+      `/api/gstr1a/${encodeURIComponent(clientGstinId)}/${encodeURIComponent(period)}/liability-impact`,
+      { token, cache: "no-store" }
+    ),
+
+  exportJson: (token: string, clientGstinId: string, period: string) =>
+    apiFetch<{
+      filename: string;
+      payload: Record<string, unknown>;
+      figures_digest: string;
+    }>(
+      `/api/gstr1a/${encodeURIComponent(clientGstinId)}/${encodeURIComponent(period)}/export-json`,
+      {
+        method: "POST",
+        token,
+      }
+    ),
+
+  prepare: (token: string, clientGstinId: string, period: string, notes?: string) =>
+    apiFetch<{ success: boolean; approval: ReturnApproval; validation: Record<string, unknown> }>(
+      `/api/gstr1a/${encodeURIComponent(clientGstinId)}/${encodeURIComponent(period)}/prepare`,
+      {
+        method: "POST",
+        body: JSON.stringify({ notes }),
+        token,
+      }
+    ),
+
+  submitReview: (token: string, clientGstinId: string, period: string, notes?: string) =>
+    apiFetch<{ success: boolean; approval: ReturnApproval }>(
+      `/api/gstr1a/${encodeURIComponent(clientGstinId)}/${encodeURIComponent(period)}/submit-review`,
+      {
+        method: "POST",
+        body: JSON.stringify({ notes }),
+        token,
+      }
+    ),
+
+  approve: (token: string, clientGstinId: string, period: string, notes?: string) =>
+    apiFetch<{ success: boolean; approval: ReturnApproval }>(
+      `/api/gstr1a/${encodeURIComponent(clientGstinId)}/${encodeURIComponent(period)}/approve`,
+      {
+        method: "POST",
+        body: JSON.stringify({ notes }),
+        token,
+      }
+    ),
+
+  reject: (token: string, clientGstinId: string, period: string, reason: string) =>
+    apiFetch<{ success: boolean; approval: ReturnApproval }>(
+      `/api/gstr1a/${encodeURIComponent(clientGstinId)}/${encodeURIComponent(period)}/reject`,
+      {
+        method: "POST",
+        body: JSON.stringify({ reason }),
+        token,
+      }
+    ),
+
+  saveToGstn: (token: string, clientGstinId: string, period: string, sessionId: string) =>
+    apiFetch<{ success: boolean; reference_id: string; status: string }>(
+      `/api/gstr1a/${encodeURIComponent(clientGstinId)}/${encodeURIComponent(period)}/save`,
+      {
+        method: "POST",
+        body: JSON.stringify({ session_id: sessionId }),
+        token,
+      }
+    ),
+
+  fileOnGstn: (
+    token: string,
+    clientGstinId: string,
+    period: string,
+    body: {
+      session_id: string;
+      pan: string;
+      signing_method?: string;
+      otp?: string;
+      signature?: string;
+    }
+  ) =>
+    apiFetch<{ success: boolean; arn: string; status: string }>(
+      `/api/gstr1a/${encodeURIComponent(clientGstinId)}/${encodeURIComponent(period)}/file`,
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+        token,
+      }
+    ),
+};
+
 
 

@@ -10,6 +10,7 @@ import {
   CreditCard,
   Link2,
   SlidersHorizontal,
+  Tag,
   UserCircle,
   Users,
 } from "lucide-react";
@@ -157,6 +158,16 @@ export default function SettingsHubPage() {
       description: "Plans, invoices, and payment methods.",
       Icon: CreditCard,
     },
+    ...(isAdmin
+      ? [
+          {
+            href: "/settings/coupons",
+            title: "Coupons",
+            description: "Promotional discount codes for annual subscriptions.",
+            Icon: Tag,
+          },
+        ]
+      : []),
     {
       href: "/settings/profile",
       title: "Profile",

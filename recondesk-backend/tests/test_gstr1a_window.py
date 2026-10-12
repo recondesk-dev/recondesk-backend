@@ -40,21 +40,55 @@ def test_days_remaining_until_20th():
     assert out["days_remaining"] == 10
 
 
-def test_expired_after_due_date():
+def test_open_overdue_after_due_date_until_gstr3b_filed():
+    """Rule 59(1A): Passing the 20th does not close GSTR-1A if GSTR-3B is unfiled."""
     out = compute_gstr1a_window(
         date(2025, 5, 5),
         None,
         period="042025",
         as_of=date(2025, 5, 25),
     )
-    assert out["status"] == Gstr1aWindowStatus.EXPIRED.value
+    assert out["status"] == Gstr1aWindowStatus.OPEN.value
+    assert out["is_open"] is True
+    assert out["is_overdue"] is True
     assert out["days_remaining"] == -5
+    assert "Rule 59(1A)" in (out["note"] or "")
+
+
+def test_late_gstr3b_filing_closes_window_permanently():
+    """Rule 59(1A): Once late GSTR-3B is filed (e.g. on 28th), window is permanently closed."""
+    out = compute_gstr1a_window(
+        date(2025, 5, 5),
+        date(2025, 5, 28),
+        period="042025",
+        as_of=date(2025, 5, 29),
+    )
+    assert out["status"] == Gstr1aWindowStatus.WINDOW_CLOSED.value
+    assert out["is_open"] is False
+    assert out["is_overdue"] is False
+    assert out["days_remaining"] == 0
+    assert "already filed" in (out["note"] or "").lower()
+
 
 
 def test_not_open_without_gstr1_filed_date():
     out = compute_gstr1a_window(None, period="2025-04", as_of=date(2025, 5, 10))
     assert out["status"] == Gstr1aWindowStatus.NOT_OPEN.value
     assert out["days_remaining"] is None
+    assert out["gstr1_due_date"] == "2025-05-11"
+    assert out["is_gstr1_overdue"] is False
+
+
+def test_unfiled_gstr1_when_due_date_has_passed_fails_gstn_api_readiness():
+    """When GSTR-1 due date (11th) has passed and GSTR-1 is unfiled, GSTR-1 is overdue and GSTR-1A is not open."""
+    out = compute_gstr1a_window(None, period="2025-04", as_of=date(2025, 5, 15))
+    assert out["status"] == Gstr1aWindowStatus.NOT_OPEN.value
+    assert out["is_open"] is False
+    assert out["is_gstr1_overdue"] is True
+    assert out["gstr1_due_date"] == "2025-05-11"
+    assert "GSTN API requirements" in out["note"]
+    assert "must be furnished before Form GSTR-1A" in out["note"]
+
 
 
 def test_qrmp_requires_manual_review():

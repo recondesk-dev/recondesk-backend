@@ -254,17 +254,54 @@ def build_tax_invoice_pdf(payment: dict[str, Any], bill_to: dict[str, str]) -> b
 
     desc_content = f"<b>{plan_title} Plan — {cycle_label} Subscription</b><br/><font color='#64748B'>Full access · Capacity: {gstin_limit} GSTINs · Zero feature gating</font>"
 
-    data = [
-        ["#", "Item Description", "SAC", "Taxable (₹)", "Rate", "Amount (₹)"],
-        [
-            "1",
-            Paragraph(desc_content, p_desc),
-            sac_code,
-            _fmt_money_paise(base),
-            "18%",
-            _fmt_money_paise(base),
-        ],
-    ]
+    discount_amount = int(payment.get("discount_amount_paise") or 0)
+    coupon_code = payment.get("coupon_code")
+    discount_pct = payment.get("discount_percentage")
+
+    if discount_amount > 0 and coupon_code:
+        orig_base = base + discount_amount
+        disc_text = f"Promotional Discount: {coupon_code}"
+        if discount_pct:
+            disc_text += f" ({discount_pct}% OFF)"
+        data = [
+            ["#", "Item Description", "SAC", "Taxable (₹)", "Rate", "Amount (₹)"],
+            [
+                "1",
+                Paragraph(desc_content, p_desc),
+                sac_code,
+                _fmt_money_paise(orig_base),
+                "18%",
+                _fmt_money_paise(orig_base),
+            ],
+            [
+                "",
+                Paragraph(f"<font color='#047857'><b>{disc_text}</b></font>", p_desc),
+                "",
+                f"-{_fmt_money_paise(discount_amount)}",
+                "",
+                f"-{_fmt_money_paise(discount_amount)}",
+            ],
+            [
+                "",
+                "Net Taxable Value",
+                "",
+                _fmt_money_paise(base),
+                "",
+                _fmt_money_paise(base),
+            ],
+        ]
+    else:
+        data = [
+            ["#", "Item Description", "SAC", "Taxable (₹)", "Rate", "Amount (₹)"],
+            [
+                "1",
+                Paragraph(desc_content, p_desc),
+                sac_code,
+                _fmt_money_paise(base),
+                "18%",
+                _fmt_money_paise(base),
+            ],
+        ]
 
     if is_interstate:
         data.extend([

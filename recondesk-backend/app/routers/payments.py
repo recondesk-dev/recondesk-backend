@@ -45,6 +45,8 @@ from app.utils.audit import log_action
 from app.utils.rate_limit import limiter
 from app.services.payment_webhook_service import (
     fulfill_razorpay_payment_captured,
+    handle_razorpay_refund_failed,
+    handle_razorpay_refund_processed,
     mark_webhook_status,
     record_webhook_event,
 )
@@ -77,6 +79,7 @@ class CreateOrderBody(BaseModel):
     customer_trade_name: str | None = None
     customer_city: str | None = None
     customer_state_code: str | None = None
+    coupon_code: str | None = None
 
 
 class VerifyBody(BaseModel):
@@ -96,6 +99,7 @@ class VerifyBody(BaseModel):
     customer_trade_name: str | None = None
     customer_city: str | None = None
     customer_state_code: str | None = None
+    coupon_code: str | None = None
 
 
 def _parse_uuid(run_id: str, field: str = "run_id") -> str:
@@ -147,6 +151,23 @@ async def payments_create_order(
             }
 
     details = get_plan_details(plan, billing_period, payload.custom_gstin_limit)
+
+    coupon_breakdown = None
+    if payload.coupon_code and payload.coupon_code.strip():
+        from app.services.coupon_service import validate_coupon_for_checkout
+        coupon_breakdown = validate_coupon_for_checkout(
+            db,
+            code=payload.coupon_code.strip(),
+            plan=plan,
+            billing_cycle=billing_period,
+            firm_owner_id=firm_owner,
+            user_email=current_user.get("email"),
+        )
+
+    base_paise = coupon_breakdown["discounted_base_paise"] if coupon_breakdown else int(details["base_paise"])
+    gst_paise = coupon_breakdown["gst_paise"] if coupon_breakdown else int(details["gst_paise"])
+    total_paise = coupon_breakdown["total_paise"] if coupon_breakdown else int(details["total_paise"])
+
     try:
         notes: dict[str, str] = {
             "user_id": firm_owner,
@@ -163,10 +184,16 @@ async def payments_create_order(
         }
         if run_id:
             notes["run_id"] = run_id
+        if coupon_breakdown:
+            notes["coupon_id"] = str(coupon_breakdown["coupon_id"])
+            notes["coupon_code"] = str(coupon_breakdown["code"])
+            notes["discount_percentage"] = str(coupon_breakdown["discount_percentage"])
+            notes["discount_amount_paise"] = str(coupon_breakdown["discount_amount_paise"])
+            notes["original_base_paise"] = str(coupon_breakdown["original_base_paise"])
 
         order = _client.order.create(
             {
-                "amount": int(details["total_paise"]),
+                "amount": total_paise,
                 "currency": "INR",
                 "payment_capture": 1,
                 "receipt": receipt[:8],
@@ -185,45 +212,78 @@ async def payments_create_order(
         pending_payment = {
             "firm_owner_id": firm_owner,
             "razorpay_order_id": order["id"],
-            "amount_paise": int(details["total_paise"]),
+            "amount_paise": total_paise,
             "status": "created",
             "plan": details["plan"],
             "plan_version": 2,
             "billing_cycle": details["billing_period"],
             "gstin_limit": int(details["gstin_limit"]),
             "runs_purchased": 0,
-            "base_amount_paise": int(details["base_paise"]),
-            "gst_paise": int(details["gst_paise"]),
-            "total_amount_paise": int(details["total_paise"]),
+            "base_amount_paise": base_paise,
+            "gst_paise": gst_paise,
+            "total_amount_paise": total_paise,
         }
+        if coupon_breakdown:
+            pending_payment["coupon_id"] = coupon_breakdown["coupon_id"]
+            pending_payment["coupon_code"] = coupon_breakdown["code"]
+            pending_payment["discount_percentage"] = coupon_breakdown["discount_percentage"]
+            pending_payment["discount_amount_paise"] = coupon_breakdown["discount_amount_paise"]
         if run_id:
             pending_payment["run_id"] = run_id
         db.table("payments").insert(pending_payment).execute()
     except Exception as exc:
         _log.warning("Could not pre-insert pending payment: %s", exc)
 
+    if coupon_breakdown:
+        try:
+            from app.services.coupon_service import record_pending_redemption
+            record_pending_redemption(
+                db,
+                coupon_id=coupon_breakdown["coupon_id"],
+                tenant_id=firm_owner,
+                user_id=str(current_user.get("id")),
+                razorpay_order_id=order["id"],
+                pricing=coupon_breakdown,
+                plan=details["plan"],
+                billing_cycle=details["billing_period"],
+            )
+        except Exception as exc:
+            _log.warning("Could not record pending coupon redemption: %s", exc)
+
     await log_action(
         str(current_user.get("id")),
         "PAYMENT_ORDER_CREATED",
         "razorpay_order",
         str(order.get("id")),
-        {"plan": details["plan"], "amount": int(details["total_paise"]), "run_id": run_id},
+        {
+            "plan": details["plan"],
+            "amount": total_paise,
+            "run_id": run_id,
+            "coupon_code": coupon_breakdown["code"] if coupon_breakdown else None,
+        },
         ip_address=(request.client.host if request.client else None),
     )
 
-    return {
+    resp_payload = {
         "order_id": order["id"],
-        "amount": int(details["total_paise"]),
+        "amount": total_paise,
         "currency": order.get("currency", "INR"),
         "key": settings.RAZORPAY_KEY_ID,
         "plan": details["plan"],
         "billing_period": details["billing_period"],
         "gstin_limit": int(details["gstin_limit"]),
         "period_days": int(details["period_days"]),
-        "base": int(details["base_paise"]),
-        "gst": int(details["gst_paise"]),
+        "base": base_paise,
+        "gst": gst_paise,
         "overage_gstins": int(details["overage_gstins"]),
     }
+    if coupon_breakdown:
+        resp_payload["coupon_code"] = coupon_breakdown["code"]
+        resp_payload["discount_percentage"] = coupon_breakdown["discount_percentage"]
+        resp_payload["discount_amount_paise"] = coupon_breakdown["discount_amount_paise"]
+        resp_payload["original_base_paise"] = coupon_breakdown["original_base_paise"]
+
+    return resp_payload
 
 
 @payments_router.post("/verify")
@@ -260,6 +320,14 @@ async def payments_verify(
         .limit(1)
         .execute()
     )
+    if existing.data and existing.data[0].get("status") in ("refunded", "refund_pending", "refund_failed"):
+        st = existing.data[0].get("status")
+        msg = "Coupon usage limit was reached during checkout. Your payment has been automatically refunded in full. Please try again."
+        if st == "refund_pending":
+            msg = "Coupon usage limit was reached during checkout. Your payment refund has been initiated and is pending gateway processing."
+        elif st == "refund_failed":
+            msg = "Coupon usage limit was reached during checkout. Automatic refund encountered an error and has been queued for reconciliation."
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=msg)
     if existing.data and existing.data[0].get("status") == "paid":
         owner_for_bal = str(existing.data[0].get("firm_owner_id") or "").strip()
         if owner_for_bal and not user_can_access_firm(db, current_user, owner_for_bal):
@@ -287,22 +355,75 @@ async def payments_verify(
     plan = (payload.plan or payload.plan_name or "").strip().lower()
     billing_period = (payload.billing_cycle or payload.billing_period or "yearly").strip().lower()
 
-    if not plan:
-        # Check order row in payments table
-        pending = (
+    pending_row = None
+    try:
+        pending_res = (
             db.table("payments")
-            .select("plan, billing_cycle, gstin_limit")
+            .select("*")
             .eq("razorpay_order_id", order_id)
             .limit(1)
             .execute()
         )
-        if pending.data:
-            plan = (pending.data[0].get("plan") or "firm").lower()
-            billing_period = (pending.data[0].get("billing_cycle") or billing_period).lower()
-        else:
-            plan = "firm"
+        if pending_res.data:
+            pending_row = pending_res.data[0]
+            st = pending_row.get("status")
+            if st in ("refunded", "refund_pending", "refund_failed"):
+                msg = "Coupon usage limit was reached during checkout. Your payment has been automatically refunded in full. Please try again."
+                if st == "refund_pending":
+                    msg = "Coupon usage limit was reached during checkout. Your payment refund has been initiated and is pending gateway processing."
+                elif st == "refund_failed":
+                    msg = "Coupon usage limit was reached during checkout. Automatic refund encountered an error and has been queued for reconciliation."
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=msg)
+            if not plan:
+                plan = (pending_row.get("plan") or "firm").lower()
+                billing_period = (pending_row.get("billing_cycle") or billing_period).lower()
+    except Exception as exc:
+        _log.warning("Could not read pending payment for order %s: %s", order_id, exc)
+
+    if not plan:
+        plan = "firm"
 
     details = get_plan_details(plan, billing_period, payload.custom_gstin_limit)
+
+    coupon_id = None
+    coupon_code = None
+    discount_percentage = None
+    discount_amount_paise = 0
+
+    if pending_row and pending_row.get("coupon_code"):
+        coupon_id = pending_row.get("coupon_id")
+        coupon_code = pending_row.get("coupon_code")
+        discount_percentage = pending_row.get("discount_percentage")
+        discount_amount_paise = int(pending_row.get("discount_amount_paise") or 0)
+        base_amount_paise = int(pending_row.get("base_amount_paise") or details["base_paise"])
+        gst_val = int(pending_row.get("gst_paise") or details["gst_paise"])
+        total_amount_paise = int(pending_row.get("total_amount_paise") or details["total_paise"])
+    else:
+        # Check coupon_redemptions table for pending redemption by razorpay_order_id
+        redemption_res = None
+        try:
+            redemption_res = (
+                db.table("coupon_redemptions")
+                .select("*")
+                .eq("razorpay_order_id", order_id)
+                .limit(1)
+                .execute()
+            )
+        except Exception:
+            pass
+
+        if redemption_res and redemption_res.data:
+            rdata = redemption_res.data[0]
+            coupon_id = rdata.get("coupon_id")
+            coupon_code = rdata.get("coupon_code")
+            discount_amount_paise = int(rdata.get("discount_amount_paise") or 0)
+            base_amount_paise = int(rdata.get("final_base_amount_paise") or details["base_paise"])
+            gst_val = int(rdata.get("gst_amount_paise") or details["gst_paise"])
+            total_amount_paise = int(rdata.get("total_amount_paise") or details["total_paise"])
+        else:
+            base_amount_paise = int(details["base_paise"])
+            gst_val = int(details["gst_paise"])
+            total_amount_paise = int(details["total_paise"])
 
     seller_state_code = (getattr(settings, "SELLER_STATE_CODE", "") or "27").strip()
     cust_gstin = (payload.customer_gstin or "").strip().upper() or None
@@ -316,7 +437,6 @@ async def payments_verify(
 
     is_inter = cust_state_code != seller_state_code
     tax_type = "inter" if is_inter else "intra"
-    gst_val = int(details["gst_paise"])
     if is_inter:
         igst_paise = gst_val
         cgst_paise = 0
@@ -330,7 +450,7 @@ async def payments_verify(
         "firm_owner_id": firm_owner,
         "razorpay_order_id": order_id,
         "razorpay_payment_id": pay_id,
-        "amount_paise": int(details["total_paise"]),
+        "amount_paise": total_amount_paise,
         "status": "paid",
         "plan": details["plan"],
         "plan_version": 2,
@@ -339,9 +459,13 @@ async def payments_verify(
         "overage_gstins": int(details["overage_gstins"]),
         "overage_rate_paise": int(details["overage_rate_paise"]),
         "runs_purchased": 0,
-        "base_amount_paise": int(details["base_paise"]),
+        "base_amount_paise": base_amount_paise,
         "gst_paise": gst_val,
-        "total_amount_paise": int(details["total_paise"]),
+        "total_amount_paise": total_amount_paise,
+        "coupon_id": coupon_id,
+        "coupon_code": coupon_code,
+        "discount_percentage": discount_percentage,
+        "discount_amount_paise": discount_amount_paise,
         "customer_gstin": cust_gstin,
         "customer_trade_name": cust_name,
         "customer_city": cust_city,
@@ -354,28 +478,146 @@ async def payments_verify(
     if run_id:
         pay_row["run_id"] = run_id
 
-    try:
-        ins = db.table("payments").insert(pay_row).execute()
-    except Exception as exc:
-        _log.warning("payments insert with v2 fields failed, falling back: %s", exc)
-        fallback_row = {
-            "firm_owner_id": firm_owner,
-            "razorpay_order_id": order_id,
-            "razorpay_payment_id": pay_id,
-            "amount_paise": int(details["total_paise"]),
-            "status": "paid",
-            "plan": details["plan"],
-            "runs_purchased": 0,
-            "base_amount_paise": int(details["base_paise"]),
-            "gst_paise": gst_val,
-            "total_amount_paise": int(details["total_paise"]),
-        }
-        if run_id:
-            fallback_row["run_id"] = run_id
-        ins = db.table("payments").insert(fallback_row).execute()
+    payment_rec = None
+    if pending_row and pending_row.get("id"):
+        try:
+            up = db.table("payments").update(pay_row).eq("id", str(pending_row["id"])).execute()
+            if up.data and len(up.data) > 0:
+                payment_rec = up.data[0]
+        except Exception as exc:
+            _log.warning("payments update with v2 fields failed, falling back: %s", exc)
+            try:
+                up = db.table("payments").update({
+                    "razorpay_payment_id": pay_id,
+                    "status": "paid",
+                    "amount_paise": total_amount_paise,
+                    "total_amount_paise": total_amount_paise,
+                }).eq("id", str(pending_row["id"])).execute()
+                if up.data and len(up.data) > 0:
+                    payment_rec = up.data[0]
+            except Exception as exc2:
+                _log.warning("payments fallback update failed: %s", exc2)
 
-    payment_rec = (ins.data or [{}])[0]
+    if not payment_rec:
+        try:
+            check_exist = db.table("payments").select("*").eq("razorpay_order_id", order_id).limit(1).execute()
+            if check_exist.data and len(check_exist.data) > 0:
+                up = db.table("payments").update(pay_row).eq("id", str(check_exist.data[0]["id"])).execute()
+                payment_rec = (up.data or [check_exist.data[0]])[0]
+            else:
+                ins = db.table("payments").insert(pay_row).execute()
+                payment_rec = (ins.data or [{}])[0]
+        except Exception as exc:
+            _log.warning("payments insert with v2 fields failed, falling back: %s", exc)
+            fallback_row = {
+                "firm_owner_id": firm_owner,
+                "razorpay_order_id": order_id,
+                "razorpay_payment_id": pay_id,
+                "amount_paise": total_amount_paise,
+                "status": "paid",
+                "plan": details["plan"],
+                "runs_purchased": 0,
+                "base_amount_paise": base_amount_paise,
+                "gst_paise": gst_val,
+                "total_amount_paise": total_amount_paise,
+            }
+            if run_id:
+                fallback_row["run_id"] = run_id
+            ins = db.table("payments").insert(fallback_row).execute()
+            payment_rec = (ins.data or [{}])[0]
+
     payment_uuid = str(payment_rec.get("id", ""))
+
+    fulfilled_red = None
+    try:
+        from app.services.coupon_service import fulfill_coupon_redemption
+        fulfilled_red = fulfill_coupon_redemption(
+            db,
+            razorpay_order_id=order_id,
+            payment_id=payment_uuid if payment_uuid else None,
+            razorpay_payment_id=pay_id,
+        )
+    except Exception as exc:
+        _log.warning("Exception during coupon fulfillment: %s", exc)
+
+    if fulfilled_red is None:
+        # Check if this order actually had a coupon redemption record that exceeded limits
+        red_chk = None
+        try:
+            red_chk = (
+                db.table("coupon_redemptions")
+                .select("status")
+                .eq("razorpay_order_id", order_id)
+                .limit(1)
+                .execute()
+            )
+        except Exception:
+            pass
+
+        if red_chk and red_chk.data and red_chk.data[0].get("status") == "limit_exceeded":
+            _log.warning(
+                "Coupon quota exceeded during checkout for order %s (payment %s). Triggering automatic refund.",
+                order_id, pay_id,
+            )
+            rfnd = None
+            ref_err = None
+            try:
+                rfnd = _client.payment.refund(
+                    pay_id,
+                    {
+                        "amount": total_amount_paise,
+                        "notes": {
+                            "reason": "coupon_quota_exceeded",
+                            "order_id": order_id,
+                        },
+                    },
+                )
+                _log.info("Automatic refund request dispatched for payment %s on order %s", pay_id, order_id)
+            except Exception as exc:
+                ref_err = exc
+                _log.error("Automatic refund call failed for payment %s: %s", pay_id, exc)
+
+            if ref_err:
+                payment_status = "refund_failed"
+                refund_status = "failed"
+                refund_id = None
+                detail_msg = "Coupon usage limit was reached during checkout. Automatic refund encountered an error and has been queued for reconciliation. Please contact support."
+            else:
+                rfnd_status = str(rfnd.get("status") or "").lower() if isinstance(rfnd, dict) else "pending"
+                refund_id = str(rfnd.get("id") or "") if isinstance(rfnd, dict) else None
+                if rfnd_status == "processed":
+                    payment_status = "refunded"
+                    refund_status = "processed"
+                    detail_msg = "Coupon usage limit was reached during checkout. Your payment has been automatically refunded in full. Please try again."
+                else:
+                    payment_status = "refund_pending"
+                    refund_status = "pending"
+                    detail_msg = "Coupon usage limit was reached during checkout. Your payment refund has been initiated and is pending gateway processing."
+
+            up_pay = {
+                "status": payment_status,
+                "refund_status": refund_status,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
+            if refund_id:
+                up_pay["refund_id"] = refund_id
+            if ref_err:
+                up_pay["refund_error"] = str(ref_err)
+
+            if payment_uuid:
+                try:
+                    db.table("payments").update(up_pay).eq("id", payment_uuid).execute()
+                except Exception as up_err:
+                    _log.warning("Failed updating payment status in DB: %s", up_err)
+            try:
+                db.table("payments").update(up_pay).eq("razorpay_order_id", order_id).execute()
+            except Exception:
+                pass
+
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=detail_msg,
+            )
 
     try:
         prof_updates: dict[str, Any] = {}
@@ -483,7 +725,12 @@ async def payments_webhook(
         .get("payment", {})
         .get("entity", {})
     ) or {}
-    event_id = str(payload.get("id") or ent.get("id") or "").strip()
+    refund_ent = (
+        payload.get("payload", {})
+        .get("refund", {})
+        .get("entity", {})
+    ) or {}
+    event_id = str(payload.get("id") or refund_ent.get("id") or ent.get("id") or "").strip()
 
     # Deduplicate event
     is_new, event_status = record_webhook_event(
@@ -502,7 +749,7 @@ async def payments_webhook(
         "RAZORPAY_WEBHOOK",
         "webhook",
         str(event or ""),
-        {"event": event, "id": ent.get("id")},
+        {"event": event, "id": refund_ent.get("id") or ent.get("id")},
     )
 
     try:
@@ -523,6 +770,30 @@ async def payments_webhook(
                 "payment",
                 str(ent.get("id") or ""),
                 {"order_id": ent.get("order_id"), "error": ent.get("error_description")},
+            )
+            mark_webhook_status(db, provider="razorpay", event_id=event_id, status="processed")
+        elif event == "refund.processed":
+            handle_razorpay_refund_processed(db, payload)
+            await log_action(
+                None,
+                "REFUND_PROCESSED_WEBHOOK",
+                "payment",
+                str(refund_ent.get("payment_id") or ent.get("id") or ""),
+                {"refund_id": refund_ent.get("id"), "payment_id": refund_ent.get("payment_id")},
+            )
+            mark_webhook_status(db, provider="razorpay", event_id=event_id, status="processed")
+        elif event == "refund.failed":
+            handle_razorpay_refund_failed(db, payload)
+            await log_action(
+                None,
+                "REFUND_FAILED_WEBHOOK",
+                "payment",
+                str(refund_ent.get("payment_id") or ent.get("id") or ""),
+                {
+                    "refund_id": refund_ent.get("id"),
+                    "payment_id": refund_ent.get("payment_id"),
+                    "error": refund_ent.get("error_description"),
+                },
             )
             mark_webhook_status(db, provider="razorpay", event_id=event_id, status="processed")
         else:

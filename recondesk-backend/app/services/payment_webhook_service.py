@@ -134,9 +134,16 @@ async def fulfill_razorpay_payment_captured(sb: Client, payload: dict[str, Any])
             .limit(1)
             .execute()
         )
-        if existing_pay.data and existing_pay.data[0].get("status") == "paid":
-            _log.info("Payment %s already fulfilled in payments table", payment_id)
-            return {"status": "already_fulfilled", "payment_id": payment_id}
+        if existing_pay.data and existing_pay.data[0].get("status") in ("paid", "refunded", "refund_pending", "refund_failed"):
+            st = existing_pay.data[0].get("status")
+            _log.info("Payment %s already handled in payments table (status: %s)", payment_id, st)
+            return {"status": f"already_{st}", "payment_id": payment_id}
+        if order_id:
+            ord_chk = sb.table("payments").select("id, status").eq("razorpay_order_id", order_id).limit(1).execute()
+            if ord_chk.data and ord_chk.data[0].get("status") in ("refunded", "refund_pending", "refund_failed"):
+                st = ord_chk.data[0].get("status")
+                _log.info("Order %s already marked %s, skipping fulfillment", order_id, st)
+                return {"status": f"already_{st}", "order_id": order_id}
     except Exception as exc:
         _log.warning("Failed checking existing payment: %s", exc)
 
@@ -151,7 +158,16 @@ async def fulfill_razorpay_payment_captured(sb: Client, payload: dict[str, Any])
             pass
 
     run_id = str(notes.get("run_id") or "").strip() or None
-    firm_owner_id = str(notes.get("user_id") or "").strip()
+    firm_owner_id = str(notes.get("user_id") or notes.get("firm_owner_id") or "").strip()
+
+    # If firm_owner_id missing from notes, check existing payment record for this order
+    if not firm_owner_id and order_id:
+        try:
+            pres = sb.table("payments").select("firm_owner_id").eq("razorpay_order_id", order_id).limit(1).execute()
+            if pres.data and pres.data[0].get("firm_owner_id"):
+                firm_owner_id = str(pres.data[0]["firm_owner_id"]).strip()
+        except Exception:
+            pass
 
     # If firm_owner_id missing from notes, attempt resolution from run
     if not firm_owner_id and run_id:
@@ -172,6 +188,37 @@ async def fulfill_razorpay_payment_captured(sb: Client, payload: dict[str, Any])
     details = get_plan_details(plan, billing_period, custom_gstin_limit)
     amount_paise = int(payment.get("amount") or details["total_paise"])
 
+    # Check for coupon applied to this order
+    coupon_id = None
+    coupon_code = None
+    discount_percentage = None
+    discount_amount_paise = 0
+    base_amount_paise = int(details["base_paise"])
+    gst_paise = int(details["gst_paise"])
+
+    if order_id:
+        try:
+            pres = sb.table("payments").select("*").eq("razorpay_order_id", order_id).limit(1).execute()
+            if pres.data and pres.data[0].get("coupon_code"):
+                p_item = pres.data[0]
+                coupon_id = p_item.get("coupon_id")
+                coupon_code = p_item.get("coupon_code")
+                discount_percentage = p_item.get("discount_percentage")
+                discount_amount_paise = int(p_item.get("discount_amount_paise") or 0)
+                base_amount_paise = int(p_item.get("base_amount_paise") or details["base_paise"])
+                gst_paise = int(p_item.get("gst_paise") or details["gst_paise"])
+            else:
+                rres = sb.table("coupon_redemptions").select("*").eq("razorpay_order_id", order_id).limit(1).execute()
+                if rres.data:
+                    ritem = rres.data[0]
+                    coupon_id = ritem.get("coupon_id")
+                    coupon_code = ritem.get("coupon_code")
+                    discount_amount_paise = int(ritem.get("discount_amount_paise") or 0)
+                    base_amount_paise = int(ritem.get("final_base_amount_paise") or details["base_paise"])
+                    gst_paise = int(ritem.get("gst_amount_paise") or details["gst_paise"])
+        except Exception as exc:
+            _log.warning("Webhook could not query pending coupon details for order %s: %s", order_id, exc)
+
     # 3. Insert or update payments record
     pay_row = {
         "firm_owner_id": firm_owner_id,
@@ -187,26 +234,122 @@ async def fulfill_razorpay_payment_captured(sb: Client, payload: dict[str, Any])
         "overage_gstins": int(details["overage_gstins"]),
         "overage_rate_paise": int(details["overage_rate_paise"]),
         "runs_purchased": 0,
-        "base_amount_paise": int(details["base_paise"]),
-        "gst_paise": int(details["gst_paise"]),
+        "base_amount_paise": base_amount_paise,
+        "gst_paise": gst_paise,
         "total_amount_paise": amount_paise,
+        "coupon_id": coupon_id,
+        "coupon_code": coupon_code,
+        "discount_percentage": discount_percentage,
+        "discount_amount_paise": discount_amount_paise,
     }
 
     payment_uuid: Optional[str] = None
-    try:
-        ins = sb.table("payments").insert(pay_row).execute()
-        if ins.data:
-            payment_uuid = str(ins.data[0].get("id") or "")
-    except Exception as exc:
-        _log.warning("Failed inserting payment record, attempting update: %s", exc)
+    updated = False
+    if order_id:
         try:
-            up = sb.table("payments").update({"status": "paid"}).eq("razorpay_payment_id", payment_id).execute()
-            if up.data:
+            up = sb.table("payments").update(pay_row).eq("razorpay_order_id", order_id).execute()
+            if up.data and len(up.data) > 0:
                 payment_uuid = str(up.data[0].get("id") or "")
-        except Exception:
-            pass
+                updated = True
+        except Exception as exc:
+            _log.warning("Failed updating existing order payment record in webhook: %s", exc)
 
-    # 4. Activate subscription
+    if not updated:
+        try:
+            ins = sb.table("payments").insert(pay_row).execute()
+            if ins.data:
+                payment_uuid = str(ins.data[0].get("id") or "")
+        except Exception as exc:
+            _log.warning("Failed inserting payment record, attempting update: %s", exc)
+            try:
+                up = sb.table("payments").update({"status": "paid", "razorpay_payment_id": payment_id}).eq("razorpay_payment_id", payment_id).execute()
+                if up.data:
+                    payment_uuid = str(up.data[0].get("id") or "")
+            except Exception:
+                pass
+
+    # 4. Fulfill coupon redemption BEFORE subscription activation
+    if coupon_id or coupon_code or order_id:
+        from app.services.coupon_service import fulfill_coupon_redemption
+        fulfilled_red = None
+        try:
+            fulfilled_red = fulfill_coupon_redemption(
+                sb,
+                razorpay_order_id=order_id,
+                payment_id=payment_uuid,
+                razorpay_payment_id=payment_id,
+            )
+        except Exception as exc:
+            _log.warning("Webhook failed to fulfill coupon redemption: %s", exc)
+
+        if fulfilled_red is None:
+            # Check if this order actually had a coupon redemption reservation
+            red_chk = sb.table("coupon_redemptions").select("status").eq("razorpay_order_id", order_id).limit(1).execute()
+            if red_chk.data and red_chk.data[0].get("status") == "limit_exceeded":
+                _log.warning(
+                    "Webhook: Coupon limit exceeded for order %s (payment %s). Initiating automatic refund.",
+                    order_id, payment_id
+                )
+                rfnd = None
+                ref_err = None
+                try:
+                    from app.routers.payments import _client as rzp_client
+                    rfnd = rzp_client.payment.refund(
+                        payment_id,
+                        {
+                            "amount": amount_paise,
+                            "notes": {
+                                "reason": "coupon_quota_exceeded",
+                                "order_id": order_id,
+                            },
+                        },
+                    )
+                    _log.info("Webhook automatic refund request dispatched for payment %s", payment_id)
+                except Exception as exc:
+                    ref_err = exc
+                    _log.error("Webhook automatic refund call failed for payment %s: %s", payment_id, exc)
+
+                if ref_err:
+                    payment_status = "refund_failed"
+                    refund_status = "failed"
+                    refund_id = None
+                    refund_error = str(ref_err)
+                else:
+                    rfnd_status = str(rfnd.get("status") or "").lower() if isinstance(rfnd, dict) else "pending"
+                    refund_id = str(rfnd.get("id") or "") if isinstance(rfnd, dict) else None
+                    if rfnd_status == "processed":
+                        payment_status = "refunded"
+                        refund_status = "processed"
+                    else:
+                        payment_status = "refund_pending"
+                        refund_status = "pending"
+                    refund_error = None
+
+                up_pay = {
+                    "status": payment_status,
+                    "refund_status": refund_status,
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                }
+                if refund_id:
+                    up_pay["refund_id"] = refund_id
+                if refund_error:
+                    up_pay["refund_error"] = refund_error
+
+                try:
+                    if payment_uuid:
+                        sb.table("payments").update(up_pay).eq("id", payment_uuid).execute()
+                    sb.table("payments").update(up_pay).eq("razorpay_order_id", order_id).execute()
+                except Exception as up_err:
+                    _log.warning("Failed marking payment refund status in webhook: %s", up_err)
+
+                return {
+                    "status": payment_status,
+                    "reason": "coupon_quota_exceeded",
+                    "refund_id": refund_id,
+                    "refund_status": refund_status,
+                }
+
+    # 5. Activate subscription
     try:
         await activate_subscription(
             firm_owner_id,
@@ -232,3 +375,153 @@ async def fulfill_razorpay_payment_captured(sb: Client, payload: dict[str, Any])
     invalidate_user_dashboard(firm_owner_id)
 
     return {"status": "fulfilled", "payment_id": payment_id, "firm_owner_id": firm_owner_id}
+
+
+def handle_razorpay_refund_processed(sb: Client, payload: dict[str, Any]) -> dict[str, Any]:
+    """Handles refund.processed webhook event from Razorpay."""
+    refund_ent = (
+        payload.get("payload", {})
+        .get("refund", {})
+        .get("entity", {})
+    ) or {}
+    refund_id = str(refund_ent.get("id") or "").strip()
+    payment_id = str(refund_ent.get("payment_id") or "").strip()
+
+    if not payment_id and not refund_id:
+        return {"status": "skipped", "reason": "missing_identifiers"}
+
+    updates: dict[str, Any] = {
+        "status": "refunded",
+        "refund_status": "processed",
+        "refund_id": refund_id,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    if payment_id:
+        sb.table("payments").update(updates).eq("razorpay_payment_id", payment_id).execute()
+    elif refund_id:
+        sb.table("payments").update(updates).eq("refund_id", refund_id).execute()
+
+    _log.info("Successfully recorded refund.processed for payment %s (refund %s)", payment_id, refund_id)
+    return {"status": "processed", "refund_id": refund_id}
+
+
+def handle_razorpay_refund_failed(sb: Client, payload: dict[str, Any]) -> dict[str, Any]:
+    """Handles refund.failed webhook event from Razorpay."""
+    refund_ent = (
+        payload.get("payload", {})
+        .get("refund", {})
+        .get("entity", {})
+    ) or {}
+    refund_id = str(refund_ent.get("id") or "").strip()
+    payment_id = str(refund_ent.get("payment_id") or "").strip()
+    err_desc = str(refund_ent.get("error_description") or "Refund failed on gateway").strip()
+
+    if not payment_id and not refund_id:
+        return {"status": "skipped", "reason": "missing_identifiers"}
+
+    updates: dict[str, Any] = {
+        "status": "refund_failed",
+        "refund_status": "failed",
+        "refund_error": err_desc,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    if refund_id:
+        updates["refund_id"] = refund_id
+    if payment_id:
+        sb.table("payments").update(updates).eq("razorpay_payment_id", payment_id).execute()
+    elif refund_id:
+        sb.table("payments").update(updates).eq("refund_id", refund_id).execute()
+
+    _log.warning("Recorded refund.failed for payment %s (refund %s): %s", payment_id, refund_id, err_desc)
+    return {"status": "failed", "refund_id": refund_id, "error": err_desc}
+
+
+def reconcile_or_retry_refund(
+    db: Client,
+    razorpay_order_id: str,
+    razorpay_payment_id: Optional[str] = None,
+) -> dict[str, Any]:
+    """Reconciles pending or failed refunds with Razorpay gateway, retrying if necessary.
+
+    Ensures idempotency: if already marked 'refunded', does nothing.
+    """
+    from app.routers.payments import _client as rzp_client
+
+    q = db.table("payments").select("*")
+    if razorpay_payment_id:
+        q = q.eq("razorpay_payment_id", razorpay_payment_id)
+    else:
+        q = q.eq("razorpay_order_id", razorpay_order_id)
+    res = q.limit(1).execute()
+    if not res.data:
+        return {"status": "not_found"}
+
+    pay = res.data[0]
+    current_status = pay.get("status")
+    existing_refund_id = pay.get("refund_id")
+    pay_id = pay.get("razorpay_payment_id") or razorpay_payment_id
+    amount_paise = int(pay.get("total_amount_paise") or pay.get("amount_paise") or 0)
+
+    # 1. Idempotency: already processed
+    if current_status == "refunded":
+        return {
+            "status": "already_refunded",
+            "refund_id": existing_refund_id,
+            "refund_status": "processed",
+        }
+
+    # 2. Check gateway if refund_id exists
+    if existing_refund_id:
+        try:
+            rfnd = rzp_client.refund.fetch(existing_refund_id)
+            gate_status = str(rfnd.get("status") or "").lower()
+            if gate_status == "processed":
+                db.table("payments").update({
+                    "status": "refunded",
+                    "refund_status": "processed",
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                }).eq("id", pay["id"]).execute()
+                return {"status": "refunded", "refund_id": existing_refund_id, "reconciled": True}
+            elif gate_status == "failed":
+                db.table("payments").update({
+                    "status": "refund_failed",
+                    "refund_status": "failed",
+                    "refund_error": str(rfnd.get("error_description") or "Gateway refund failed"),
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                }).eq("id", pay["id"]).execute()
+            else:
+                return {"status": "refund_pending", "refund_id": existing_refund_id, "gateway_status": gate_status}
+        except Exception as f_err:
+            _log.warning("Failed fetching refund %s from Razorpay: %s", existing_refund_id, f_err)
+
+    # 3. Retry initiating refund
+    if pay_id:
+        try:
+            rfnd = rzp_client.payment.refund(
+                pay_id,
+                {
+                    "amount": amount_paise,
+                    "notes": {"reason": "coupon_quota_exceeded_retry", "order_id": razorpay_order_id},
+                },
+            )
+            rfnd_status = str(rfnd.get("status") or "").lower() if isinstance(rfnd, dict) else "pending"
+            rfnd_id = str(rfnd.get("id") or "") if isinstance(rfnd, dict) else None
+            p_st = "refunded" if rfnd_status == "processed" else "refund_pending"
+            r_st = "processed" if rfnd_status == "processed" else "pending"
+            db.table("payments").update({
+                "status": p_st,
+                "refund_status": r_st,
+                "refund_id": rfnd_id,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }).eq("id", pay["id"]).execute()
+            return {"status": p_st, "refund_status": r_st, "refund_id": rfnd_id}
+        except Exception as r_err:
+            db.table("payments").update({
+                "status": "refund_failed",
+                "refund_status": "failed",
+                "refund_error": str(r_err),
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }).eq("id", pay["id"]).execute()
+            return {"status": "refund_failed", "error": str(r_err)}
+
+    return {"status": "cannot_retry", "reason": "missing_payment_id"}

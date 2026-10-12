@@ -155,6 +155,10 @@ class Settings(BaseSettings):
     # Sentry / admin
     SENTRY_DSN: Optional[str] = None
     ADMIN_USER_ID: Optional[str] = None
+    ADMIN_USER_IDS: Optional[str] = None
+    ADMIN_EMAILS: Optional[str] = None
+    FOUNDER_USER_IDS: Optional[str] = None
+    FOUNDER_EMAILS: Optional[str] = None
 
     # Sandbox.co.in GST API
     SANDBOX_API_KEY: str = ""

@@ -809,6 +809,93 @@ async def require_admin_user(
     return current_user
 
 
+def is_platform_admin_user(user: dict) -> bool:
+    """True if user is an authorized internal ReconDesk platform administrator.
+
+    Firm admins / CA tenant users are NOT platform admins.
+    """
+    uid = str(user.get("id") or "").strip()
+    email = str(user.get("email") or "").strip().lower()
+    if user.get("is_platform_admin") is True or user.get("is_superuser") is True:
+        return True
+
+    aid = (settings.ADMIN_USER_ID or "").strip()
+    if aid and uid == aid:
+        return True
+
+    aids = [x.strip() for x in (getattr(settings, "ADMIN_USER_IDS", "") or "").split(",") if x.strip()]
+    if uid and uid in aids:
+        return True
+
+    aemails = [x.strip().lower() for x in (getattr(settings, "ADMIN_EMAILS", "") or "").split(",") if x.strip()]
+    if email and email in aemails:
+        return True
+
+    return False
+
+
+async def require_platform_admin(
+    current_user: dict = Depends(get_current_active_user),
+) -> dict:
+    """Enforce that the authenticated user is an internal platform administrator.
+
+    Rejects tenant admins, CA firm users, and unauthorized actors with 403 Forbidden.
+    """
+    if not is_platform_admin_user(current_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Platform administrator access required",
+        )
+    return current_user
+
+
+def is_founder_user(user: dict) -> bool:
+    """True if user is an authorized founder of ReconDesk.
+
+    Used strictly for sensitive actions such as approving/issuing 30% discount coupons.
+    Cannot be self-assigned via user profiles or client tokens.
+    """
+    if not is_platform_admin_user(user):
+        return False
+
+    uid = str(user.get("id") or "").strip()
+    email = str(user.get("email") or "").strip().lower()
+
+    fids = [x.strip() for x in (getattr(settings, "FOUNDER_USER_IDS", "") or "").split(",") if x.strip()]
+    if uid and uid in fids:
+        return True
+
+    femails = [x.strip().lower() for x in (getattr(settings, "FOUNDER_EMAILS", "") or "").split(",") if x.strip()]
+    if email and email in femails:
+        return True
+
+    # If neither FOUNDER_USER_IDS nor FOUNDER_EMAILS is set, fallback to primary ADMIN_USER_ID or first ADMIN_EMAIL
+    if not fids and not femails:
+        aid = (settings.ADMIN_USER_ID or "").strip()
+        if aid and uid == aid:
+            return True
+        aemails = [x.strip().lower() for x in (getattr(settings, "ADMIN_EMAILS", "") or "").split(",") if x.strip()]
+        if aemails and email == aemails[0]:
+            return True
+
+    return False
+
+
+async def require_founder_user(
+    current_user: dict = Depends(require_platform_admin),
+) -> dict:
+    """Enforce that the authenticated user is an authorized founder.
+
+    Rejects non-founder platform admins and other actors with 403 Forbidden.
+    """
+    if not is_founder_user(current_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Founder-level authorization required for this action.",
+        )
+    return current_user
+
+
 
 async def require_manager_user(
     current_user: dict = Depends(get_current_active_user),
