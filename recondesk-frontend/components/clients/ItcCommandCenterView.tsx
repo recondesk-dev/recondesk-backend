@@ -229,19 +229,21 @@ export function ItcCommandCenterView({
       />
 
       {/* 3. Statutory Compliance Countdown & Cumulative Net Position Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-        <div className="lg:col-span-7">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-stretch">
+        <div className="lg:col-span-7 flex flex-col">
           <StatutoryCountdownCard
             selectedPeriod={data.selected_period}
             isLocked={is_locked}
             finalizedAt={finalized_at}
+            className="h-full"
           />
         </div>
-        <div className="lg:col-span-5">
+        <div className="lg:col-span-5 flex flex-col">
           <CumulativeItcExposureCard
             kpis={kpis}
             totalRunsCount={periods.length}
             finalizedRunsCount={periods.filter((p) => p.is_locked).length}
+            className="h-full"
           />
         </div>
       </div>

@@ -66,7 +66,7 @@ export function StatutoryCountdownCard({
   };
 
   return (
-    <div className={`rounded-2xl border border-gray-200 bg-white p-5 shadow-xs space-y-4 ${className}`}>
+    <div className={`rounded-2xl border border-gray-200 bg-white p-5 shadow-xs flex flex-col justify-between gap-4 ${className}`}>
       {/* Top Banner: Cycle Phase & Selected Period Status */}
       <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-gray-100">
         <div className="flex items-center gap-2.5">
