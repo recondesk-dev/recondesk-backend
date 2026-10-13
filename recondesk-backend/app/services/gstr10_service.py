@@ -503,7 +503,11 @@ def build_gstr10_offline_json(
 
 
 def _batch_to_dict(b: Gstr10BatchData) -> dict[str, Any]:
-    return copy.deepcopy(b.__dict__)
+    d = copy.deepcopy(b.__dict__)
+    for k in ("cancellation_order_date", "effective_cancellation_date", "cancellation_arn_date", "statutory_due_date"):
+        if d.get(k) == "":
+            d[k] = None
+    return d
 
 
 def _stock_to_dict(s: Gstr10StockRecordData) -> dict[str, Any]:

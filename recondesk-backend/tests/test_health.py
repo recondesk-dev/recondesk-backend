@@ -40,3 +40,37 @@ def test_health_stays_fast_when_supabase_hangs(client: TestClient, monkeypatch):
     assert response.status_code == 200
     assert response.json()["supabase"] == "error"
     assert elapsed < 3.0, f"health took {elapsed:.1f}s — probe timeout not enforced"
+
+
+def test_health_aurora_and_worker_observability(client: TestClient):
+    """Health check must include Aurora and Celery worker observability without secret leakage."""
+    response = client.get("/health")
+    assert response.status_code == 200
+    data = response.json()
+
+    assert "aurora" in data
+    assert "worker" in data
+    assert isinstance(data["aurora"], dict)
+    assert isinstance(data["worker"], dict)
+
+    # Zero credential exposure assertion
+    raw_text = response.text.lower()
+    assert "password" not in raw_text
+    assert "secret" not in raw_text
+    assert "postgres://" not in raw_text
+    assert "postgresql://" not in raw_text
+    assert "redis://" not in raw_text
+
+
+def test_health_staging_environment_reports_staging_guard(client: TestClient, monkeypatch):
+    """When APP_ENV is staging, /health must surface staging guard isolation summary."""
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "APP_ENV", "staging")
+    response = client.get("/health")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["environment"] == "staging"
+    assert "staging_guard" in data
+    assert "status" in data["staging_guard"]
+    assert "isolated" in data["staging_guard"]

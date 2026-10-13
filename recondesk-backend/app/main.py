@@ -6,6 +6,8 @@ import sys
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 
+from typing import Any
+
 import sentry_sdk
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exception_handlers import http_exception_handler
@@ -344,6 +346,12 @@ def _run_alembic_upgrade():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     _log.info("Startup: Beginning application startup sequence...")
+
+    # 0. Fail-closed staging guard: prevent staging from touching production assets
+    if (settings.APP_ENV or "").lower() == "staging" or os.environ.get("ENFORCE_STAGING_GUARD") == "true":
+        _log.info("Startup: Enforcing staging safety guard...")
+        from app.staging_guard import enforce_staging_safety
+        enforce_staging_safety(settings)
 
     # 1. Verify database connection with strict 10s timeout
     try:
@@ -813,6 +821,21 @@ async def health_check():
             _log.warning("health probe %s failed", label, exc_info=True)
             return "error"
 
+    async def _timed_dict(label: str, factory) -> dict[str, Any]:
+        try:
+            res = await asyncio.wait_for(
+                asyncio.to_thread(factory), timeout=_HEALTH_PROBE_TIMEOUT_S
+            )
+            if isinstance(res, dict):
+                return res
+            return {"status": "ok", "healthy": True}
+        except asyncio.TimeoutError:
+            _log.warning("health probe %s timed out after %.1fs", label, _HEALTH_PROBE_TIMEOUT_S)
+            return {"status": "timeout", "healthy": False}
+        except Exception as exc:
+            _log.warning("health probe %s failed: %s", label, exc)
+            return {"status": "error", "healthy": False, "error": exc.__class__.__name__}
+
     def _ping_supabase() -> None:
         get_supabase().table("user_profiles").select("id").limit(1).execute()
 
@@ -830,23 +853,67 @@ async def health_check():
                 return
             raise
 
-    supabase_state, r2_state = await asyncio.gather(
+    def _ping_aurora() -> dict[str, Any]:
+        from app.aurora import check_aurora_health, is_aurora_enabled
+        if not is_aurora_enabled():
+            return {"status": "disabled", "healthy": True}
+        raw = check_aurora_health()
+        return {
+            "status": raw.get("status", "error"),
+            "healthy": bool(raw.get("healthy")),
+            "latency_ms": raw.get("latency_ms"),
+            "database": "aurora_postgresql",
+        }
+
+    def _ping_worker() -> dict[str, Any]:
+        try:
+            if not settings.import_use_celery:
+                return {"status": "sync_mode", "healthy": True, "broker": "none"}
+            import redis
+            r = redis.from_url(settings.REDIS_URL, socket_timeout=1.0, socket_connect_timeout=1.0)
+            r.ping()
+            return {"status": "ok", "healthy": True, "broker": "redis"}
+        except Exception as exc:
+            return {"status": "degraded", "healthy": False, "error": exc.__class__.__name__}
+
+    supabase_state, r2_state, aurora_health, worker_health = await asyncio.gather(
         _timed_state("supabase", _ping_supabase),
         _timed_state("r2", _ping_r2_soft),
+        _timed_dict("aurora", _ping_aurora),
+        _timed_dict("worker", _ping_worker),
     )
 
     env = "production" if (settings.APP_ENV or "").lower() == "production" else "development"
+    if (settings.APP_ENV or "").lower() == "staging":
+        env = "staging"
+
     now = datetime.now(timezone.utc)
     uptime_seconds = int((now - START_TIME).total_seconds())
-    overall = "ok" if supabase_state == "ok" and r2_state == "ok" else "degraded"
+    overall = (
+        "ok"
+        if (
+            supabase_state == "ok"
+            and r2_state == "ok"
+            and aurora_health.get("healthy", True)
+            and worker_health.get("healthy", True)
+        )
+        else "degraded"
+    )
 
-    return {
+    result = {
         "status": overall,
         "version": settings.APP_VERSION,
         "git_commit_sha": os.environ.get("RAILWAY_GIT_COMMIT_SHA", os.environ.get("COMMIT_SHA", "unknown")),
         "uptime_seconds": uptime_seconds,
         "supabase": supabase_state,
         "r2": r2_state,
+        "aurora": aurora_health,
+        "worker": worker_health,
         "environment": env,
         "timestamp": now.isoformat(),
     }
+    if env == "staging":
+        from app.staging_guard import get_staging_guard_summary
+        result["staging_guard"] = get_staging_guard_summary(settings)
+
+    return result

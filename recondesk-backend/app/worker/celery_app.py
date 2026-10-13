@@ -51,6 +51,11 @@ def assert_worker_environment(**kwargs) -> None:
     from app.config import get_settings
     from app.aurora import is_aurora_enabled, get_aurora_database_url
 
+    settings = get_settings()
+    if (settings.APP_ENV or "").lower() == "staging" or os.environ.get("ENFORCE_STAGING_GUARD") == "true":
+        from app.staging_guard import enforce_staging_safety
+        enforce_staging_safety(settings)
+
     if is_aurora_enabled() and get_aurora_database_url():
         _log.info("Celery worker environment verified using AWS Aurora PostgreSQL.")
         return

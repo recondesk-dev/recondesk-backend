@@ -12,11 +12,12 @@ ALLOWED_EXTENSIONS = {".json", ".xlsx", ".xls", ".csv"}
 
 def _get_client():
     s = get_settings()
+    endpoint = s.R2_ENDPOINT_URL if s.R2_ENDPOINT_URL else f"https://{s.R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
     return boto3.client(
         "s3",
-        endpoint_url=f"https://{s.R2_ACCOUNT_ID}.r2.cloudflarestorage.com",
-        aws_access_key_id=s.R2_ACCESS_KEY_ID,
-        aws_secret_access_key=s.R2_SECRET_ACCESS_KEY,
+        endpoint_url=endpoint,
+        aws_access_key_id=s.R2_ACCESS_KEY_ID or "staging_mock_key",
+        aws_secret_access_key=s.R2_SECRET_ACCESS_KEY or "staging_mock_secret",
         region_name="auto",
     )
 

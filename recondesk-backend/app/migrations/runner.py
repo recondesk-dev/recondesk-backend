@@ -140,6 +140,7 @@ def clean_migration_sql(sql_content: str) -> str:
     Ensures the runner maintains full transactional boundary control without
     driver conflicts or premature commits. PL/pgSQL internal BEGIN/COMMIT blocks
     are preserved because they do not appear as isolated statement lines.
+    Also handles legacy driver-escaped '%%' in PL/pgSQL RAISE statements.
     """
     cleaned = re.sub(
         r"^\s*(?:BEGIN|COMMIT)\s*;\s*$",
@@ -147,6 +148,42 @@ def clean_migration_sql(sql_content: str) -> str:
         sql_content,
         flags=re.MULTILINE | re.IGNORECASE,
     )
+    # Normalize legacy double-percent in PL/pgSQL RAISE statements (e.g. 'run not found: %%' -> 'run not found: %')
+    cleaned = re.sub(
+        r"(RAISE\s+(?:EXCEPTION|WARNING|NOTICE|INFO|LOG)\s+'[^']*?)%%([^']*?')",
+        r"\1%\2",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    # If migration references public.filing_runs on a fresh database before migration 16, ensure stub exists idempotently
+    if "REFERENCES public.filing_runs" in cleaned or "REFERENCES filing_runs" in cleaned:
+        stub = """CREATE TABLE IF NOT EXISTS public.filing_runs (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    firm_id             UUID REFERENCES public.user_profiles (id) ON DELETE CASCADE,
+    client_gstin_id     UUID REFERENCES public.client_gstins (id) ON DELETE SET NULL,
+    filing_session_id   UUID,
+    gstin               TEXT,
+    return_type         TEXT,
+    period              VARCHAR(7),
+    status              TEXT NOT NULL DEFAULT 'draft',
+    reference_id        TEXT,
+    ack_number          TEXT,
+    arn                 TEXT,
+    filing_method       TEXT,
+    save_payload        JSONB,
+    offset_payload      JSONB,
+    tx_pmt_snapshot     JSONB,
+    raw_response        JSONB,
+    error_code          TEXT,
+    error_message       TEXT,
+    offset_completed_at TIMESTAMPTZ,
+    filed_at            TIMESTAMPTZ,
+    created_by          UUID REFERENCES public.user_profiles (id) ON DELETE SET NULL,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+);\n"""
+        cleaned = stub + cleaned
+
     return cleaned.strip()
 
 
@@ -720,6 +757,12 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     # Validate that AURORA_DATABASE_URL is configured
     try:
+        from app.config import get_settings
+        settings = get_settings()
+        if (settings.APP_ENV or "").lower() == "staging" or os.environ.get("ENFORCE_STAGING_GUARD") == "true":
+            from app.staging_guard import enforce_staging_safety
+            enforce_staging_safety(settings)
+
         url = get_aurora_database_url()
         if not url:
             print(
@@ -730,6 +773,9 @@ def main(argv: Optional[list[str]] = None) -> int:
             return 1
     except AuroraConfigurationError as exc:
         print(f"ERROR: {sanitize_db_error(str(exc))}", file=sys.stderr)
+        return 1
+    except Exception as exc:
+        print(f"SAFETY ERROR: {sanitize_db_error(str(exc))}", file=sys.stderr)
         return 1
 
     custom_dir = Path(args.migrations_dir) if args.migrations_dir else None

@@ -228,8 +228,8 @@ def build_aurora_connect_args(url: str) -> dict[str, Any]:
             connect_args["sslmode"] = s.AURORA_SSL_MODE.strip()
         else:
             host = (parsed.hostname or "").lower()
-            if host in ("localhost", "127.0.0.1", ""):
-                # Local dev without SSL
+            if host in ("localhost", "127.0.0.1", "staging-db", ""):
+                # Local dev / docker staging without SSL
                 pass
             else:
                 # AWS Aurora clusters require SSL

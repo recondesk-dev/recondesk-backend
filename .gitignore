@@ -13,5 +13,6 @@ supabase_migration_dump*.sql
 
 # Local env and vercel
 .env*.local
+.env.staging
 .vercel/
 

@@ -1,0 +1,138 @@
+services:
+  staging-db:
+    image: postgres:16-alpine
+    container_name: recondesk-staging-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: recondesk_staging
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - staging_pgdata:/var/lib/postgresql/data
+    networks:
+      - staging-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d recondesk_staging"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    restart: unless-stopped
+
+  staging-redis:
+    image: redis:7-alpine
+    container_name: recondesk-staging-redis
+    ports:
+      - "127.0.0.1:6380:6379"
+    volumes:
+      - staging_redisdata:/data
+    networks:
+      - staging-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 3s
+    restart: unless-stopped
+
+  staging-mock:
+    image: python:3.11-alpine
+    container_name: recondesk-staging-mock
+    volumes:
+      - ./recondesk-backend/app/scripts/staging_mock_server.py:/staging_mock_server.py:ro
+    command: python3 /staging_mock_server.py 9000
+    ports:
+      - "127.0.0.1:9090:9000"
+    networks:
+      - staging-net
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9000')"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  staging-web:
+    build:
+      context: ./recondesk-backend
+      dockerfile: Dockerfile
+    container_name: recondesk-staging-web
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --timeout-keep-alive 300
+    ports:
+      - "127.0.0.1:8001:8000"
+    env_file:
+      - .env.staging
+    environment:
+      - APP_ENV=staging
+      - DATABASE_URL=postgresql://postgres:postgres@staging-db:5432/recondesk_staging
+      - AURORA_DATABASE_URL=postgresql+psycopg2://postgres:postgres@staging-db:5432/recondesk_staging
+      - AURORA_DB_ENABLED=true
+      - AURORA_SSL_MODE=disable
+      - REDIS_URL=redis://staging-redis:6379/0
+      - IMPORT_USE_CELERY=true
+      - COGNITO_AUTH_ENABLED=false
+      - COGNITO_USER_POOL_ID=ap-south-1_STAGING001
+      - COGNITO_CLIENT_ID=staging_client_id_001
+      - RAZORPAY_KEY_ID=rzp_test_staging0000000000
+      - R2_BUCKET_NAME=recondesk-staging-uploads
+      - R2_ENDPOINT_URL=http://staging-mock:9000
+      - SES_SMTP_HOST=staging-mock
+      - SES_SMTP_USER=
+      - SES_SMTP_PASS=
+      - GSTR3B_FILING_ENABLED=false
+    depends_on:
+      staging-db:
+        condition: service_healthy
+      staging-redis:
+        condition: service_healthy
+    networks:
+      - staging-net
+    restart: unless-stopped
+
+  staging-worker:
+    build:
+      context: ./recondesk-backend
+      dockerfile: Dockerfile
+    container_name: recondesk-staging-worker
+    command: celery -A app.worker.celery_app worker -Q reconciliation,imports,gstn,filing,exports,notifications,maintenance --loglevel=info --concurrency=2
+    env_file:
+      - .env.staging
+    environment:
+      - APP_ENV=staging
+      - DATABASE_URL=postgresql://postgres:postgres@staging-db:5432/recondesk_staging
+      - AURORA_DATABASE_URL=postgresql+psycopg2://postgres:postgres@staging-db:5432/recondesk_staging
+      - AURORA_DB_ENABLED=true
+      - AURORA_SSL_MODE=disable
+      - REDIS_URL=redis://staging-redis:6379/0
+      - IMPORT_USE_CELERY=true
+      - COGNITO_AUTH_ENABLED=false
+      - COGNITO_USER_POOL_ID=ap-south-1_STAGING001
+      - COGNITO_CLIENT_ID=staging_client_id_001
+      - RAZORPAY_KEY_ID=rzp_test_staging0000000000
+      - R2_BUCKET_NAME=recondesk-staging-uploads
+      - R2_ENDPOINT_URL=http://staging-mock:9000
+      - SES_SMTP_HOST=staging-mock
+      - SES_SMTP_USER=
+      - SES_SMTP_PASS=
+      - GSTR3B_FILING_ENABLED=false
+    depends_on:
+      staging-db:
+        condition: service_healthy
+      staging-redis:
+        condition: service_healthy
+    networks:
+      - staging-net
+    restart: unless-stopped
+
+networks:
+  staging-net:
+    name: recondesk-staging-net
+    driver: bridge
+
+volumes:
+  staging_pgdata:
+    name: recondesk-staging-pgdata
+  staging_redisdata:
+    name: recondesk-staging-redisdata
