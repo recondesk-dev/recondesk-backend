@@ -98,6 +98,7 @@ class UserProfileResponse(StrictModel):
     auto_approve_confidence_threshold: Optional[int] = Field(
         default=95, ge=0, le=100
     )
+    is_founder: Optional[bool] = False
 
     model_config = ConfigDict(from_attributes=True, extra="ignore")
 

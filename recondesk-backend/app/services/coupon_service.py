@@ -586,21 +586,17 @@ def create_admin_coupon(
             detail=f"Discount must be one of {sorted(PERMITTED_DISCOUNTS)}%",
         )
 
-    # Rule 12: 30% discount requires verified founder identity (P0 fix)
+    # Rule 12: Founder-only authorization (P0 fix & founder-only administration)
     from app.auth import is_founder_user
-    if payload.discount_percentage == 30:
-        if not is_founder_user(admin_user):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="30% discount coupons strictly require authorization by an authorized founder.",
-            )
-        founder_approved = True
-        founder_approved_by = str(admin_user.get("email") or admin_uid or "founder")
-        founder_approval_notes = payload.founder_approval_notes.strip() if payload.founder_approval_notes else None
-    else:
-        founder_approved = False
-        founder_approved_by = None
-        founder_approval_notes = None
+    if not is_founder_user(admin_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Coupons strictly require authorization by an authorized founder.",
+        )
+
+    founder_approved = True
+    founder_approved_by = str(admin_user.get("email") or admin_uid or "kadamomkar9988@gmail.com")
+    founder_approval_notes = payload.founder_approval_notes.strip() if payload.founder_approval_notes else "Direct founder authorization"
 
     # Check duplicate code
     existing = find_coupon_by_code(db, clean_code)
@@ -748,22 +744,14 @@ def assign_private_ca_coupon(
     staff_user: dict,
 ) -> dict[str, Any]:
     """Manually assign and activate a negotiated private discount offer to an existing CA customer."""
-    from app.auth import is_founder_user, is_internal_coupon_staff_user
+    from app.auth import is_founder_user
 
-    # Internal staff check: CA customers strictly blocked with 403
-    if not is_internal_coupon_staff_user(staff_user):
+    # Founder-only check: CA customers, sales, and non-founders strictly blocked with 403
+    if not is_founder_user(staff_user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Internal staff or management permissions required to assign private offers.",
+            detail="Founder-only authorization required. Only an authorized founder can assign private offers.",
         )
-
-    # 30% discount founder check
-    if payload.discount_percentage == 30:
-        if not is_founder_user(staff_user):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="30% discount coupons strictly require authorization by an authorized founder.",
-            )
 
     clean_plan = payload.plan.strip().lower()
     if clean_plan not in ANNUAL_PLANS:
@@ -879,12 +867,12 @@ def activate_private_ca_coupon(
     coupon_id: str,
     staff_user: dict,
 ) -> dict[str, Any]:
-    """Activate a draft or inactive private offer so the CA can view and redeem it."""
-    from app.auth import is_internal_coupon_staff_user, is_founder_user
-    if not is_internal_coupon_staff_user(staff_user):
+    """Activate a draft or inactive private offer so the CA can view and redeem it. Founder-only."""
+    from app.auth import is_founder_user
+    if not is_founder_user(staff_user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Internal staff or management authorization required.",
+            detail="Founder-only authorization required. Only an authorized founder can activate private offers.",
         )
 
     coupon_res = db.table("coupons").select("*").eq("id", coupon_id).limit(1).execute()
@@ -892,18 +880,11 @@ def activate_private_ca_coupon(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Coupon not found.")
     coupon = coupon_res.data[0]
 
-    if int(coupon.get("discount_percentage") or 0) == 30 and not coupon.get("founder_approved"):
-        if not is_founder_user(staff_user):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Activating a 30% discount coupon requires founder authorization.",
-            )
-
     if int(coupon.get("redemptions_count") or 0) >= int(coupon.get("max_redemptions") or 1):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot activate an already-redeemed offer.")
 
     now_iso = _utcnow().isoformat()
-    staff_name = str(staff_user.get("full_name") or staff_user.get("email") or "Staff")
+    staff_name = str(staff_user.get("full_name") or staff_user.get("email") or "Founder")
 
     update_payload: dict[str, Any] = {
         "is_active": True,
@@ -926,12 +907,12 @@ def revoke_private_ca_coupon(
     staff_user: dict,
     reason: Optional[str] = None,
 ) -> dict[str, Any]:
-    """Revoke an unredeemed private offer so it can never be used or viewed."""
-    from app.auth import is_internal_coupon_staff_user
-    if not is_internal_coupon_staff_user(staff_user):
+    """Revoke an unredeemed private offer so it can never be used or viewed. Founder-only."""
+    from app.auth import is_founder_user
+    if not is_founder_user(staff_user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Internal staff or management authorization required.",
+            detail="Founder-only authorization required. Only an authorized founder can revoke private offers.",
         )
 
     coupon_res = db.table("coupons").select("*").eq("id", coupon_id).limit(1).execute()

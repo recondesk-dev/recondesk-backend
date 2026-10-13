@@ -158,6 +158,7 @@ class Settings(BaseSettings):
     ADMIN_USER_IDS: Optional[str] = None
     ADMIN_EMAILS: Optional[str] = None
     FOUNDER_USER_IDS: Optional[str] = None
+    FOUNDER_COGNITO_SUBS: Optional[str] = None
     FOUNDER_EMAILS: Optional[str] = None
     FOUNDER_ADMIN_EMAILS: Optional[str] = None
     INTERNAL_STAFF_EMAILS: Optional[str] = None

@@ -78,6 +78,7 @@ export interface AuthMeProfile {
   demo_tour_seen?: boolean | null;
   showcase_seen?: boolean | null;
   auto_approve_confidence_threshold?: number | null;
+  is_founder?: boolean | null;
 }
 
 export interface ProfileUpdatePayload {

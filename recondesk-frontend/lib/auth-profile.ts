@@ -59,6 +59,13 @@ export function isRoleWriterOrAbove(role: string | null | undefined): boolean {
   );
 }
 
+export function isFounderAccount(me: AuthMeProfile | null | undefined): boolean {
+  if (!me) return false;
+  if (me.is_founder === true) return true;
+  const email = (me.email ?? "").trim().toLowerCase();
+  return email === "kadamomkar9988@gmail.com";
+}
+
 export function clearCachedAuthRole(): void {
   if (typeof window === "undefined") return;
   for (const key of CACHED_ROLE_KEYS) {

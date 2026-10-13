@@ -537,6 +537,8 @@ async def get_me(
         )
     role = await get_user_role(user_id)
     profile["role"] = role
+    from app.auth import is_founder_user
+    profile["is_founder"] = is_founder_user(profile)
     if profile.get("auto_approve_confidence_threshold") is None:
         profile["auto_approve_confidence_threshold"] = 95
     return UserProfileResponse(**profile)

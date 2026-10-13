@@ -19,6 +19,7 @@ import { teamApi, billingApi, filingApi, type TeamMemberListItem } from "@/lib/a
 import {
   AUTH_PROFILE_SWR_OPTIONS,
   authProfileFetcher,
+  isFounderAccount,
   isRoleAdminOrPartner,
   normalizeAuthRole,
 } from "@/lib/auth-profile";
@@ -106,6 +107,7 @@ export default function SettingsHubPage() {
 
   const roleNorm = normalizeAuthRole(me?.role);
   const isAdmin = !!me && isRoleAdminOrPartner(roleNorm);
+  const isFounder = isFounderAccount(me);
 
   const cards = [
     {
@@ -158,12 +160,12 @@ export default function SettingsHubPage() {
       description: "Plans, invoices, and payment methods.",
       Icon: CreditCard,
     },
-    ...(isAdmin
+    ...(isFounder
       ? [
           {
             href: "/settings/coupons",
             title: "Coupons",
-            description: "Promotional discount codes for annual subscriptions.",
+            description: "Promotional discount codes for annual subscriptions (Founder Only).",
             Icon: Tag,
           },
         ]

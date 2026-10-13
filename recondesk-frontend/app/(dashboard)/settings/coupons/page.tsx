@@ -29,6 +29,11 @@ import {
   type CouponCreateInput,
   type CouponRedemptionRecord,
 } from "@/lib/api";
+import {
+  AUTH_PROFILE_SWR_OPTIONS,
+  authProfileFetcher,
+  isFounderAccount,
+} from "@/lib/auth-profile";
 import { useAccessToken } from "@/lib/hooks/useAccessToken";
 import { formatInr } from "@/lib/pricing-data";
 import { AssignPrivateOfferModal } from "@/components/billing/AssignPrivateOfferModal";
@@ -36,6 +41,12 @@ import { AssignPrivateOfferModal } from "@/components/billing/AssignPrivateOffer
 export default function AdminCouponsPage() {
   const token = useAccessToken();
   const authToken = typeof token === "string" && token.length > 0 ? token : null;
+
+  const { data: me, isLoading: meLoading } = useSWR(
+    authToken ? ["settings-coupons-me", authToken] : null,
+    ([, t]) => authProfileFetcher(t),
+    AUTH_PROFILE_SWR_OPTIONS
+  );
 
   const [activeTab, setActiveTab] = useState<"coupons" | "redemptions">("coupons");
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -90,7 +101,9 @@ export default function AdminCouponsPage() {
     { revalidateOnFocus: false }
   );
 
-  const isForbidden = couponsError && (couponsError.status === 403 || couponsError.status === 401);
+  const isForbidden =
+    (!meLoading && me && !isFounderAccount(me)) ||
+    (couponsError && (couponsError.status === 403 || couponsError.status === 401));
 
   function generateRandomCode(prefix = "CA", pct = 25) {
     const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -153,10 +166,6 @@ export default function AdminCouponsPage() {
       setFormError("Please select at least one eligible annual plan");
       return;
     }
-    if (formDiscount === 30 && (!formFounderApproved || !formFounderApprovedBy.trim())) {
-      setFormError("30% discount strictly requires founder approval confirmation and approved_by name");
-      return;
-    }
 
     setFormSubmitting(true);
     setFormError(null);
@@ -171,9 +180,9 @@ export default function AdminCouponsPage() {
       restricted_to_tenant_id: formTenantId.trim() || null,
       restricted_to_email: formEmail.trim() || null,
       is_acquisition_only: formIsAcquisitionOnly,
-      founder_approved: formDiscount === 30 ? formFounderApproved : false,
-      founder_approved_by: formDiscount === 30 ? formFounderApprovedBy.trim() : null,
-      founder_approval_notes: formDiscount === 30 ? formFounderNotes.trim() : null,
+      founder_approved: true,
+      founder_approved_by: me?.email || formFounderApprovedBy.trim() || "kadamomkar9988@gmail.com",
+      founder_approval_notes: formFounderNotes.trim() || (formDiscount === 30 ? "Direct founder authorization" : null),
     };
 
     try {
@@ -202,12 +211,12 @@ export default function AdminCouponsPage() {
       <div className="mx-auto max-w-4xl p-8">
         <div className="rounded-2xl border border-red-200 bg-red-50/70 p-8 text-center space-y-4">
           <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-red-100 text-red-600">
-            <XCircle className="h-8 w-8" />
+            <ShieldCheck className="h-8 w-8 text-red-600" />
           </div>
-          <h2 className="text-xl font-bold text-slate-900">Access Restricted</h2>
+          <h2 className="text-xl font-bold text-slate-900">Founder Authorization Required</h2>
           <p className="text-sm text-slate-600 max-w-md mx-auto">
-            Annual subscription coupons are restricted to internal ReconDesk platform administrators.
-            Tenant admins and firm users cannot access promotional administration.
+            Annual subscription coupon administration is strictly restricted to the authenticated ReconDesk founder account (kadamomkar9988@gmail.com).
+            CA tenant administrators, sales staff, management staff, and ordinary platform administrators cannot access promotional coupon management.
           </p>
           <div className="pt-2">
             <Link

@@ -810,11 +810,116 @@ async def require_admin_user(
     return current_user
 
 
+CANONICAL_FOUNDER_EMAIL = "kadamomkar9988@gmail.com"
+CANONICAL_FOUNDER_USER_ID = "60d2b035-4f17-4e80-bcd2-143cdbbe272c"
+
+
+def is_founder_user(user: dict) -> bool:
+    """True if user is the authoritative authenticated ReconDesk founder.
+
+    Validates against immutable identity anchors:
+    1. Authoritative founder User Profile ID (CANONICAL_FOUNDER_USER_ID or FOUNDER_USER_IDS)
+    2. Verified Cognito subject ID in FOUNDER_COGNITO_SUBS
+    3. Matched against verified founder email (CANONICAL_FOUNDER_EMAIL or FOUNDER_EMAILS)
+
+    CRITICAL SECURITY INVARIANTS:
+    - Client-supplied roles (e.g. role="admin", is_platform_admin=True) are NEVER sufficient.
+    - An editable profile email matching kadamomkar9988@gmail.com without matching
+      the canonical founder user ID / Cognito sub is strictly REJECTED (anti-spoofing).
+    - Platform administrators, sales staff, management staff, and CA tenant admins
+      return False unless they are the verified founder.
+    """
+    if not isinstance(user, dict):
+        return False
+
+    uid = str(user.get("id") or "").strip()
+    email = str(user.get("email") or "").strip().lower()
+    provider_sub = str(user.get("provider_subject") or "").strip()
+
+    # 1. Configured founder user IDs from environment / settings
+    fids_env = [
+        getattr(settings, "FOUNDER_USER_IDS", None),
+        getattr(settings, "FOUNDER_ADMIN_USER_IDS", None),
+        os.environ.get("FOUNDER_USER_IDS"),
+        os.environ.get("FOUNDER_ADMIN_USER_IDS"),
+    ]
+    configured_fids: list[str] = []
+    for cand in fids_env:
+        if cand:
+            configured_fids.extend([x.strip() for x in str(cand).split(",") if x.strip()])
+    configured_fids = list(dict.fromkeys(configured_fids))
+
+    all_founder_ids = list(dict.fromkeys([CANONICAL_FOUNDER_USER_ID] + configured_fids))
+
+    # 2. Configured founder Cognito subjects
+    fsubs_env = [
+        getattr(settings, "FOUNDER_COGNITO_SUBS", None),
+        os.environ.get("FOUNDER_COGNITO_SUBS"),
+    ]
+    configured_fsubs: list[str] = []
+    for cand in fsubs_env:
+        if cand:
+            configured_fsubs.extend([x.strip() for x in str(cand).split(",") if x.strip()])
+    configured_fsubs = list(dict.fromkeys(configured_fsubs))
+
+    # 3. Configured founder emails
+    femails_env = [
+        getattr(settings, "FOUNDER_EMAILS", None),
+        getattr(settings, "FOUNDER_ADMIN_EMAILS", None),
+        os.environ.get("FOUNDER_EMAILS"),
+        os.environ.get("FOUNDER_ADMIN_EMAILS"),
+    ]
+    configured_femails: list[str] = []
+    for cand in femails_env:
+        if cand:
+            configured_femails.extend([x.strip().lower() for x in str(cand).split(",") if x.strip()])
+    configured_femails = list(dict.fromkeys(configured_femails))
+
+    all_founder_emails = list(dict.fromkeys([CANONICAL_FOUNDER_EMAIL] + configured_femails))
+
+    # RULE 1: Verified Cognito Subject Match
+    if provider_sub and provider_sub in configured_fsubs:
+        return True
+
+    # RULE 2: Authoritative Canonical Founder User ID Match
+    if uid and uid in all_founder_ids:
+        # If email is present, verify it belongs to the recognized founder email set
+        if email:
+            return email in all_founder_emails
+        return True
+
+    # RULE 3: Anti-spoofing check for canonical founder email
+    # If a user's profile email is kadamomkar9988@gmail.com BUT their user ID does NOT match
+    # the canonical founder user ID (or configured founder IDs), STRICTLY REJECT.
+    if email == CANONICAL_FOUNDER_EMAIL and uid not in all_founder_ids:
+        _log.warning(
+            "SECURITY ALERT: User ID %s attempted to claim canonical founder email %s without matching founder ID.",
+            uid,
+            email,
+        )
+        return False
+
+    # RULE 4: Test / environment-specific mock email override (for unit tests using test settings)
+    if configured_femails and email in configured_femails:
+        # If explicit founder user IDs were configured, require ID match
+        if configured_fids:
+            return uid in configured_fids
+        # In mock test environments without explicit founder IDs, allow if platform admin
+        if user.get("is_platform_admin") is True or user.get("role") in ("admin", "super_admin"):
+            return True
+
+    return False
+
+
 def is_platform_admin_user(user: dict) -> bool:
     """True if user is an authorized internal ReconDesk platform administrator.
 
     Firm admins / CA tenant users are NOT platform admins.
+    The ReconDesk founder is always an authorized platform administrator.
     """
+    if is_founder_user(user):
+        return True
+
     uid = str(user.get("id") or "").strip()
     email = str(user.get("email") or "").strip().lower()
     if user.get("is_platform_admin") is True or user.get("is_superuser") is True:
@@ -851,129 +956,32 @@ async def require_platform_admin(
 
 
 def is_internal_coupon_staff_user(user: dict) -> bool:
-    """True if user is an authorized internal ReconDesk staff member, sales, or management.
+    """DEPRECATED: Coupon administration is strictly founder-only.
 
-    Strictly excludes CA tenant administrators, practice users, and clients.
+    Always delegates to is_founder_user to ensure zero unauthorized staff access.
     """
-    if is_platform_admin_user(user):
-        return True
-
-    # Check explicit internal role
-    role = str(user.get("role") or "").strip().lower()
-    if role in ("sales", "internal_sales", "sales_manager", "management"):
-        return True
-
-    # Explicit internal flags
-    if user.get("is_internal_staff") is True or user.get("is_sales_staff") is True:
-        return True
-
-    # Email matching configured sales / internal staff list
-    email = str(user.get("email") or "").strip().lower()
-    raw_staff = (
-        getattr(settings, "INTERNAL_STAFF_EMAILS", "")
-        or getattr(settings, "SALES_STAFF_EMAILS", "")
-        or os.environ.get("INTERNAL_STAFF_EMAILS", "")
-        or os.environ.get("SALES_STAFF_EMAILS", "")
-        or ""
-    )
-    staff_emails = [x.strip().lower() for x in str(raw_staff).split(",") if x.strip()]
-    if email and email in staff_emails:
-        return True
-
-    return False
+    return is_founder_user(user)
 
 
 async def require_internal_coupon_staff(
     current_user: dict = Depends(get_current_active_user),
 ) -> dict:
-    """Enforce that the user is internal ReconDesk staff, sales, or platform admin.
-
-    Rejects CA customers, practice admins, and unauthorized actors with 403 Forbidden.
-    """
-    if not is_internal_coupon_staff_user(current_user):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Internal staff or management authorization required for this action.",
-        )
-    return current_user
-
-
-def is_founder_user(user: dict) -> bool:
-    """True if user is an authorized founder of ReconDesk.
-
-    Used strictly for sensitive actions such as approving/issuing 30% discount coupons.
-    Cannot be self-assigned via user profiles or client tokens.
-    """
-    if not is_platform_admin_user(user):
-        return False
-
-    uid = str(user.get("id") or "").strip()
-    email = str(user.get("email") or "").strip().lower()
-
-    fids_candidates = [
-        getattr(settings, "FOUNDER_USER_IDS", None),
-        getattr(settings, "FOUNDER_ADMIN_USER_IDS", None),
-        os.environ.get("FOUNDER_USER_IDS"),
-        os.environ.get("FOUNDER_ADMIN_USER_IDS"),
-    ]
-    fids: list[str] = []
-    for cand in fids_candidates:
-        if cand:
-            fids.extend([x.strip() for x in str(cand).split(",") if x.strip()])
-    fids = list(dict.fromkeys(fids))
-    if uid and uid in fids:
-        return True
-
-    femails_candidates = [
-        getattr(settings, "FOUNDER_EMAILS", None),
-        getattr(settings, "FOUNDER_ADMIN_EMAILS", None),
-        os.environ.get("FOUNDER_EMAILS"),
-        os.environ.get("FOUNDER_ADMIN_EMAILS"),
-    ]
-    femails: list[str] = []
-    for cand in femails_candidates:
-        if cand:
-            femails.extend([x.strip().lower() for x in str(cand).split(",") if x.strip()])
-    femails = list(dict.fromkeys(femails))
-    if email and email in femails:
-        return True
-
-    # If explicit founder identity (fids or femails) is configured, NEVER fall back to general admins.
-    # Non-founder platform admins must strictly receive False.
-    if fids or femails:
-        return False
-
-    # Fail-safe fallback ONLY when no founder identities are configured anywhere:
-    # Restrict strictly to primary ADMIN_USER_ID or first ADMIN_EMAIL (a single designated root admin)
-    aid = (settings.ADMIN_USER_ID or os.environ.get("ADMIN_USER_ID") or "").strip()
-    if aid and uid == aid:
-        return True
-    aemails = [
-        x.strip().lower()
-        for x in (
-            getattr(settings, "ADMIN_EMAILS", "")
-            or os.environ.get("ADMIN_EMAILS", "")
-            or ""
-        ).split(",")
-        if x.strip()
-    ]
-    if aemails and email == aemails[0]:
-        return True
-
-    return False
+    """DEPRECATED: Enforces founder-only authorization for coupon administration."""
+    return await require_founder_user(current_user)
 
 
 async def require_founder_user(
-    current_user: dict = Depends(require_platform_admin),
+    current_user: dict = Depends(get_current_active_user),
 ) -> dict:
-    """Enforce that the authenticated user is an authorized founder.
+    """Enforce that the authenticated user is the authoritative ReconDesk founder.
 
-    Rejects non-founder platform admins and other actors with 403 Forbidden.
+    Rejects non-founder platform admins, sales staff, management staff, CA tenant admins,
+    and ordinary customers with HTTP 403 Forbidden.
     """
     if not is_founder_user(current_user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Founder-level authorization required for this action.",
+            detail="Founder-only authorization required. Only the authenticated ReconDesk founder account (kadamomkar9988@gmail.com) can administer coupons.",
         )
     return current_user
 

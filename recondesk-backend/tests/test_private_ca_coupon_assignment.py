@@ -65,7 +65,7 @@ def mock_admin_user():
 @pytest.fixture
 def mock_founder_user():
     return {
-        "id": "founder-uuid-999",
+        "id": "60d2b035-4f17-4e80-bcd2-143cdbbe272c",
         "email": "kadamomkar9988@gmail.com",
         "full_name": "Omkar Kadam",
         "role": "admin",
@@ -98,7 +98,7 @@ def mock_ca_user_b():
 
 
 # ============================================================================
-# 1. Permission Controls: Internal Staff vs CA Customers
+# 1. Permission Controls: Founder-Only Enforcement vs CA Customers & Staff
 # ============================================================================
 
 def test_ca_customer_cannot_assign_coupon(mock_ca_user_a):
@@ -112,22 +112,55 @@ def test_ca_customer_cannot_assign_coupon(mock_ca_user_a):
     with pytest.raises(HTTPException) as exc:
         assign_private_ca_coupon(mock_db, req, mock_ca_user_a)
     assert exc.value.status_code == 403
-    assert "internal staff or management" in exc.value.detail.lower()
+    assert "founder-only authorization required" in exc.value.detail.lower()
 
 
-def test_ordinary_staff_cannot_assign_30_percent_without_founder(mock_staff_user):
-    """Ordinary sales staff receive 403 when creating 30% coupon without founder approval."""
+def test_ordinary_staff_cannot_assign_coupon(mock_staff_user):
+    """Ordinary sales staff receive 403 when attempting to assign any coupon."""
     mock_db = MagicMock()
     req = PrivateCouponAssignRequest(
         tenant_id="ca-tenant-a-111",
         plan="firm",
-        discount_percentage=30,
+        discount_percentage=20,
     )
-    with patch("app.auth.is_founder_user", return_value=False):
-        with pytest.raises(HTTPException) as exc:
-            assign_private_ca_coupon(mock_db, req, mock_staff_user)
-        assert exc.value.status_code == 403
-        assert "authorized founder" in exc.value.detail.lower()
+    with pytest.raises(HTTPException) as exc:
+        assign_private_ca_coupon(mock_db, req, mock_staff_user)
+    assert exc.value.status_code == 403
+    assert "founder-only authorization required" in exc.value.detail.lower()
+
+
+def test_platform_admin_cannot_assign_coupon(mock_admin_user):
+    """Ordinary platform admins receive 403 when attempting to assign any coupon."""
+    mock_db = MagicMock()
+    req = PrivateCouponAssignRequest(
+        tenant_id="ca-tenant-a-111",
+        plan="firm",
+        discount_percentage=25,
+    )
+    with pytest.raises(HTTPException) as exc:
+        assign_private_ca_coupon(mock_db, req, mock_admin_user)
+    assert exc.value.status_code == 403
+    assert "founder-only authorization required" in exc.value.detail.lower()
+
+
+def test_anti_spoofing_attacker_with_founder_email_blocked():
+    """An attacker setting their email to founder's email without matching canonical ID is blocked with 403."""
+    mock_db = MagicMock()
+    fake_user = {
+        "id": "attacker-uuid-1234",
+        "email": "kadamomkar9988@gmail.com",
+        "role": "admin",
+        "is_platform_admin": True,
+    }
+    req = PrivateCouponAssignRequest(
+        tenant_id="ca-tenant-a-111",
+        plan="firm",
+        discount_percentage=25,
+    )
+    with pytest.raises(HTTPException) as exc:
+        assign_private_ca_coupon(mock_db, req, fake_user)
+    assert exc.value.status_code == 403
+    assert "founder-only authorization required" in exc.value.detail.lower()
 
 
 def test_founder_can_assign_30_percent_private_offer(mock_founder_user):
@@ -161,11 +194,10 @@ def test_founder_can_assign_30_percent_private_offer(mock_founder_user):
         discount_percentage=30,
         founder_approval_notes="Strategic multi-year CA partner agreement",
     )
-    with patch("app.auth.is_founder_user", return_value=True):
-        res = assign_private_ca_coupon(mock_db, req, mock_founder_user)
-        assert res["discount_percentage"] == 30
-        assert res["founder_approved"] is True
-        assert res["assigned_to_tenant_id"] == "ca-tenant-a-111"
+    res = assign_private_ca_coupon(mock_db, req, mock_founder_user)
+    assert res["discount_percentage"] == 30
+    assert res["founder_approved"] is True
+    assert res["assigned_to_tenant_id"] == "ca-tenant-a-111"
 
 
 # ============================================================================
@@ -182,7 +214,7 @@ def test_high_entropy_code_generation():
     assert len(code1) >= 16
 
 
-def test_save_offer_as_draft_keeps_it_inactive(mock_staff_user):
+def test_save_offer_as_draft_keeps_it_inactive(mock_founder_user):
     """Saving an offer with activate_now=False creates a draft that is inactive and invisible."""
     mock_db = MagicMock()
     mock_db.table().select().eq().limit().execute.return_value.data = [{
@@ -208,7 +240,7 @@ def test_save_offer_as_draft_keeps_it_inactive(mock_staff_user):
         discount_percentage=20,
         activate_now=False,
     )
-    res = assign_private_ca_coupon(mock_db, req, mock_staff_user)
+    res = assign_private_ca_coupon(mock_db, req, mock_founder_user)
     assert res["is_active"] is False
     assert res["offer_status"] == "draft"
 
@@ -351,8 +383,8 @@ def test_revoked_offer_cannot_be_redeemed():
 # 5. Revocation & Activation Lifecycle
 # ============================================================================
 
-def test_staff_can_revoke_unredeemed_offer(mock_staff_user):
-    """Staff can revoke an unredeemed offer, recording revocation attribution and reason."""
+def test_founder_can_revoke_unredeemed_offer(mock_founder_user):
+    """Founder can revoke an unredeemed offer, recording revocation attribution and reason."""
     mock_db = MagicMock()
     mock_db.table().select().eq().limit().execute.return_value.data = [{
         "id": "c-to-revoke",
@@ -365,14 +397,14 @@ def test_staff_can_revoke_unredeemed_offer(mock_staff_user):
         "id": "c-to-revoke",
         "is_active": False,
         "offer_status": "revoked",
-        "revoked_by_name": "Sales Rep Priya",
+        "revoked_by_name": "Omkar Kadam",
         "revoked_reason": "Customer opted for monthly billing instead",
     }]
 
     res = revoke_private_ca_coupon(
         mock_db,
         coupon_id="c-to-revoke",
-        staff_user=mock_staff_user,
+        staff_user=mock_founder_user,
         reason="Customer opted for monthly billing instead",
     )
     assert res["is_active"] is False
@@ -380,7 +412,21 @@ def test_staff_can_revoke_unredeemed_offer(mock_staff_user):
     assert res["revoked_reason"] == "Customer opted for monthly billing instead"
 
 
-def test_cannot_revoke_already_redeemed_offer(mock_staff_user):
+def test_non_founder_cannot_revoke_offer(mock_staff_user, mock_admin_user):
+    """Staff and platform admins receive 403 when attempting to revoke an offer."""
+    mock_db = MagicMock()
+    with pytest.raises(HTTPException) as exc1:
+        revoke_private_ca_coupon(mock_db, coupon_id="c-to-revoke", staff_user=mock_staff_user)
+    assert exc1.value.status_code == 403
+    assert "founder-only authorization required" in exc1.value.detail.lower()
+
+    with pytest.raises(HTTPException) as exc2:
+        revoke_private_ca_coupon(mock_db, coupon_id="c-to-revoke", staff_user=mock_admin_user)
+    assert exc2.value.status_code == 403
+    assert "founder-only authorization required" in exc2.value.detail.lower()
+
+
+def test_cannot_revoke_already_redeemed_offer(mock_founder_user):
     """Attempting to revoke an offer that has already been redeemed raises 400."""
     mock_db = MagicMock()
     mock_db.table().select().eq().limit().execute.return_value.data = [{
@@ -391,13 +437,13 @@ def test_cannot_revoke_already_redeemed_offer(mock_staff_user):
     }]
 
     with pytest.raises(HTTPException) as exc:
-        revoke_private_ca_coupon(mock_db, coupon_id="c-redeemed", staff_user=mock_staff_user)
+        revoke_private_ca_coupon(mock_db, coupon_id="c-redeemed", staff_user=mock_founder_user)
     assert exc.value.status_code == 400
     assert "already been redeemed" in exc.value.detail.lower()
 
 
-def test_staff_can_activate_draft_offer(mock_staff_user):
-    """Staff can activate a draft offer, setting offer_status='active' and is_active=True."""
+def test_founder_can_activate_draft_offer(mock_founder_user):
+    """Founder can activate a draft offer, setting offer_status='active' and is_active=True."""
     mock_db = MagicMock()
     mock_db.table().select().eq().limit().execute.return_value.data = [{
         "id": "c-draft-01",
@@ -414,9 +460,23 @@ def test_staff_can_activate_draft_offer(mock_staff_user):
         "offer_status": "active",
     }]
 
-    res = activate_private_ca_coupon(mock_db, coupon_id="c-draft-01", staff_user=mock_staff_user)
+    res = activate_private_ca_coupon(mock_db, coupon_id="c-draft-01", staff_user=mock_founder_user)
     assert res["is_active"] is True
     assert res["offer_status"] == "active"
+
+
+def test_non_founder_cannot_activate_offer(mock_staff_user, mock_admin_user):
+    """Staff and platform admins receive 403 when attempting to activate a draft offer."""
+    mock_db = MagicMock()
+    with pytest.raises(HTTPException) as exc1:
+        activate_private_ca_coupon(mock_db, coupon_id="c-draft-01", staff_user=mock_staff_user)
+    assert exc1.value.status_code == 403
+    assert "founder-only authorization required" in exc1.value.detail.lower()
+
+    with pytest.raises(HTTPException) as exc2:
+        activate_private_ca_coupon(mock_db, coupon_id="c-draft-01", staff_user=mock_admin_user)
+    assert exc2.value.status_code == 403
+    assert "founder-only authorization required" in exc2.value.detail.lower()
 
 
 # ============================================================================
@@ -538,7 +598,7 @@ def test_search_tenants_returns_ca_profiles():
     assert results[0]["firm_name"] == "Sharma & Co"
 
 
-def test_cannot_assign_duplicate_active_offer_for_same_ca(mock_staff_user):
+def test_cannot_assign_duplicate_active_offer_for_same_ca(mock_founder_user):
     """Attempting to assign a second active offer to the same CA customer raises 400."""
     mock_db = MagicMock()
     mock_db.table().select().eq().limit().execute.return_value.data = [{
@@ -562,7 +622,7 @@ def test_cannot_assign_duplicate_active_offer_for_same_ca(mock_staff_user):
     )
 
     with pytest.raises(HTTPException) as exc:
-        assign_private_ca_coupon(mock_db, req, mock_staff_user)
+        assign_private_ca_coupon(mock_db, req, mock_founder_user)
     assert exc.value.status_code == 400
     assert "active private offer" in exc.value.detail.lower()
 
@@ -669,8 +729,8 @@ def test_private_ca_coupon_disposable_database_migration_rehearsal_and_rollback(
     db.close()
 
 
-def test_full_lifecycle_staff_assignment_customer_billing_checkout_integration(mock_staff_user):
-    """End-to-end integration: Staff assigns draft -> activates -> CA sees on billing -> applies to checkout."""
+def test_full_lifecycle_founder_assignment_customer_billing_checkout_integration(mock_founder_user):
+    """End-to-end integration: Founder assigns draft -> activates -> CA sees on billing -> applies to checkout."""
     storage = {}
 
     def mock_insert(rec):
@@ -690,7 +750,7 @@ def test_full_lifecycle_staff_assignment_customer_billing_checkout_integration(m
     mock_db.table("coupons").select().eq().eq().execute.return_value.data = []
     mock_db.table("coupons").insert.side_effect = mock_insert
 
-    # Step 1: Staff creates draft offer
+    # Step 1: Founder creates draft offer
     draft_req = PrivateCouponAssignRequest(
         tenant_id="tenant-ca-99",
         plan="large_firm",
@@ -698,7 +758,7 @@ def test_full_lifecycle_staff_assignment_customer_billing_checkout_integration(m
         sales_notes="Agreed for 150 GSTIN tier",
         activate_now=False,
     )
-    assigned_draft = assign_private_ca_coupon(mock_db, draft_req, mock_staff_user)
+    assigned_draft = assign_private_ca_coupon(mock_db, draft_req, mock_founder_user)
     assert assigned_draft["offer_status"] == "draft"
     assert assigned_draft["is_active"] is False
     assert assigned_draft["code"].startswith("CA")
@@ -708,14 +768,14 @@ def test_full_lifecycle_staff_assignment_customer_billing_checkout_integration(m
     offers_before_activation = list_customer_exclusive_offers(mock_db, tenant_id="tenant-ca-99")
     assert len(offers_before_activation) == 0  # Drafts invisible!
 
-    # Step 3: Staff activates draft offer
+    # Step 3: Founder activates draft offer
     mock_db.table("coupons").select().eq().limit().execute.return_value.data = [assigned_draft]
     activated_record = assigned_draft.copy()
     activated_record["is_active"] = True
     activated_record["offer_status"] = "active"
     mock_db.table("coupons").update().eq().execute.return_value.data = [activated_record]
 
-    activated = activate_private_ca_coupon(mock_db, assigned_draft["id"], mock_staff_user)
+    activated = activate_private_ca_coupon(mock_db, assigned_draft["id"], mock_founder_user)
     assert activated["offer_status"] == "active"
     assert activated["is_active"] is True
 

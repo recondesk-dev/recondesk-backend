@@ -1007,7 +1007,7 @@ def test_tenant_admin_blocked_from_admin_coupon_endpoints():
         # GET /api/admin/coupons
         res_get = client.get("/api/admin/coupons")
         assert res_get.status_code == 403
-        assert "Platform administrator access required" in res_get.json()["detail"]
+        assert "founder" in res_get.json()["detail"].lower()
 
         # POST /api/admin/coupons
         res_post = client.post(
@@ -1025,10 +1025,16 @@ def test_tenant_admin_blocked_from_admin_coupon_endpoints():
 
 
 def test_platform_admin_access_allowed():
-    """An internal platform admin (is_platform_admin=True) can access admin coupon routes."""
+    """Founder can access /api/admin/coupons; ordinary platform admin is strictly blocked with 403."""
     mock_platform_admin = {
         "id": "internal-admin-uuid",
         "email": "ops@recondesk.com",
+        "role": "admin",
+        "is_platform_admin": True,
+    }
+    mock_founder = {
+        "id": "60d2b035-4f17-4e80-bcd2-143cdbbe272c",
+        "email": "kadamomkar9988@gmail.com",
         "role": "admin",
         "is_platform_admin": True,
     }
@@ -1037,13 +1043,22 @@ def test_platform_admin_access_allowed():
         {"id": "c-1", "code": "CA25", "discount_percentage": 25, "is_active": True}
     ]
 
+    # Ordinary platform admin is denied
     app.dependency_overrides[get_current_active_user] = lambda: mock_platform_admin
     app.dependency_overrides[supabase_client] = lambda: mock_db
-
     try:
-        res = client.get("/api/admin/coupons")
-        assert res.status_code == 200
-        data = res.json()
+        res_admin = client.get("/api/admin/coupons")
+        assert res_admin.status_code == 403
+        assert "founder" in res_admin.json()["detail"].lower()
+    finally:
+        app.dependency_overrides.pop(get_current_active_user, None)
+
+    # Authoritative founder is allowed
+    app.dependency_overrides[get_current_active_user] = lambda: mock_founder
+    try:
+        res_founder = client.get("/api/admin/coupons")
+        assert res_founder.status_code == 200
+        data = res_founder.json()
         assert len(data) == 1
         assert data[0]["code"] == "CA25"
     finally:
@@ -1067,6 +1082,13 @@ def test_admin_create_coupon_and_toggle_status():
         "redemptions_count": 0,
     }]
 
+    founder_user = {
+        "id": "60d2b035-4f17-4e80-bcd2-143cdbbe272c",
+        "email": "kadamomkar9988@gmail.com",
+        "role": "admin",
+        "is_platform_admin": True,
+    }
+
     created = create_admin_coupon(
         mock_db,
         CouponCreateRequest(
@@ -1074,7 +1096,7 @@ def test_admin_create_coupon_and_toggle_status():
             discount_percentage=25,
             eligible_plans=["firm"],
         ),
-        admin_user_id="admin-123",
+        admin_user=founder_user,
     )
     assert created["code"] == "FIRM25"
     assert created["discount_percentage"] == 25
