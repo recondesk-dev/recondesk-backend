@@ -105,6 +105,8 @@ class Gstr8RecordBody(BaseModel):
     original_supplier_gstin: Optional[str] = Field(None, description="Original supplier GSTIN for Table 4A")
     original_pos: Optional[str] = Field(None, description="Original POS for Table 4B")
     tax_deposited: Optional[float] = Field(0.0, description="Tax deposited amount")
+    transaction_date: Optional[str] = Field(None, description="Transaction date (YYYY-MM-DD or DD-MM-YYYY)")
+    rate_basis: Optional[str] = Field(None, description="Verifiable rate basis (PRE_CUTOFF or POST_CUTOFF) for transition periods")
 
 
 class MakerCheckerActionBody(BaseModel):

@@ -378,10 +378,18 @@ def rollup_client_rows(client_rows: list[dict[str, Any]]) -> dict[str, Any]:
     late_filing_count = 0
     pr_only_count = 0
     quarterly = False
+    import uuid
     for row in client_rows:
-        cid = str(row.get("client_gstin_id") or "").strip()
-        if cid and cid not in client_ids:
-            client_ids.append(cid)
+        cid_raw = row.get("client_gstin_id")
+        if cid_raw:
+            cid_str = str(cid_raw).strip()
+            try:
+                norm_uuid = str(uuid.UUID(cid_str))
+                if norm_uuid not in client_ids:
+                    client_ids.append(norm_uuid)
+            except (ValueError, AttributeError):
+                if cid_str and cid_str not in client_ids:
+                    client_ids.append(cid_str)
         tn = str(row.get("supplier_trade_name") or "").strip()
         if tn and (not trade or len(tn) > len(trade)):
             trade = tn

@@ -793,6 +793,10 @@ def build_gstr1a_offline_json(
     cdnur_list: list[dict[str, Any]] = []
     cdnura_list: list[dict[str, Any]] = []
     b2csa_list: list[dict[str, Any]] = []
+    supeco_list: list[dict[str, Any]] = []
+    supecoa_list: list[dict[str, Any]] = []
+    sec9_5_list: list[dict[str, Any]] = []
+    sec9_5a_list: list[dict[str, Any]] = []
 
     for it in items:
         tbl = (it.get("table_name") or "").upper()
@@ -800,7 +804,17 @@ def build_gstr1a_offline_json(
         amen_p = it.get("amended_payload") or {}
         orig_p = it.get("original_payload") or {}
 
-        if "4" in tbl or "B2B" in tbl:
+        if "14" in tbl or "SUPECO" in tbl or ("ECO" in tbl and "9" not in tbl):
+            if act == "ADDITION":
+                supeco_list.append(amen_p)
+            else:
+                supecoa_list.append({**amen_p, "oinum": it.get("original_invoice_number"), "oidt": it.get("original_invoice_date")})
+        elif "15" in tbl or "SEC9" in tbl or "9(5)" in tbl:
+            if act == "ADDITION":
+                sec9_5_list.append(amen_p)
+            else:
+                sec9_5a_list.append({**amen_p, "oinum": it.get("original_invoice_number"), "oidt": it.get("original_invoice_date")})
+        elif "4" in tbl or "B2B" in tbl:
             if act == "ADDITION":
                 b2b_list.append(amen_p)
             else:
@@ -825,7 +839,7 @@ def build_gstr1a_offline_json(
                 cdnur_list.append(amen_p)
             else:
                 cdnura_list.append({**amen_p, "ont_num": it.get("original_invoice_number"), "ont_dt": it.get("original_invoice_date")})
-        elif "10" in tbl or "B2CS" in tbl:
+        elif "7" in tbl or "10" in tbl or "B2CS" in tbl:
             b2csa_list.append(amen_p)
 
     offline_payload = {
@@ -844,5 +858,9 @@ def build_gstr1a_offline_json(
         "cdnur": cdnur_list,
         "cdnura": cdnura_list,
         "b2csa": b2csa_list,
+        "supeco": supeco_list,
+        "supecoa": supecoa_list,
+        "sec9_5": sec9_5_list,
+        "sec9_5a": sec9_5a_list,
     }
     return offline_payload

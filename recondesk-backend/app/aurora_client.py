@@ -42,6 +42,13 @@ def _serialize_row(d: Dict[str, Any]) -> Dict[str, Any]:
 # PostgreSQL columns known to be native arrays (e.g. uuid[], text[]).
 # All other list values in ReconDesk are stored in JSONB columns.
 _NATIVE_ARRAY_COLS = {"client_gstin_ids", "record_ids"}
+_UUID_ARRAY_COLS = {"client_gstin_ids"}
+
+try:
+    import psycopg2.extras
+    psycopg2.extras.register_uuid()
+except Exception:
+    pass
 
 
 def _prepare_sql_param(col: str, val: Any) -> Any:
@@ -50,6 +57,18 @@ def _prepare_sql_param(col: str, val: Any) -> Any:
     if isinstance(val, dict):
         return json.dumps(val)
     if isinstance(val, list):
+        if col in _UUID_ARRAY_COLS:
+            import uuid
+            adapted_uuids = []
+            for item in val:
+                if isinstance(item, uuid.UUID):
+                    adapted_uuids.append(item)
+                elif item:
+                    try:
+                        adapted_uuids.append(uuid.UUID(str(item).strip()))
+                    except (ValueError, AttributeError):
+                        adapted_uuids.append(str(item))
+            return adapted_uuids
         if col in _NATIVE_ARRAY_COLS:
             return list(val)
         return json.dumps(val)

@@ -31,6 +31,7 @@ from app.rules.gstr8_rules import (
     TcsCalculationResult,
     calculate_gstr8_tcs,
     get_applicable_tcs_rates,
+    normalize_transaction_date,
 )
 from app.rules.gstr7_rules import extract_state_code, validate_gstin_format
 
@@ -75,6 +76,10 @@ class Gstr8RecordData:
     original_supplier_gstin: Optional[str] = None
     original_pos: Optional[str] = None
     tax_deposited: float = 0.0
+    transaction_date: Optional[str] = None
+    rate_basis: Optional[str] = None
+    needs_review: bool = False
+    review_reason: Optional[str] = None
     status: str = "ACTIVE"
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     updated_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
@@ -288,20 +293,32 @@ def add_or_update_gstr8_record_sync(
         ret_val = float(record_data.get("returned_supplies") or 0.0)
         eco_state = extract_state_code(batch.gstin)
         supp_state = extract_state_code(supplier_gstin) if supplier_gstin else None
+        tx_date_raw = record_data.get("transaction_date") or record_data.get("supply_date") or record_data.get("invoice_date")
+        try:
+            tx_date = normalize_transaction_date(tx_date_raw, strict=True)
+        except ValueError as exc:
+            raise Gstr8ValidationError(f"Invalid transaction date: {exc}") from exc
 
-        # Compute statutory TCS calculation
-        calc = calculate_gstr8_tcs(
-            period=batch.period,
-            gross_supplies=gross_val,
-            returned_supplies=ret_val,
-            eco_state=eco_state,
-            pos=pos,
-            supplier_state=supp_state,
-        )
+        rate_basis = record_data.get("rate_basis")
+
+        # Compute statutory TCS calculation with transaction date and rate basis awareness
+        try:
+            calc = calculate_gstr8_tcs(
+                period=batch.period,
+                gross_supplies=gross_val,
+                returned_supplies=ret_val,
+                eco_state=eco_state,
+                pos=pos,
+                supplier_state=supp_state,
+                transaction_date=tx_date,
+                rate_basis=rate_basis,
+            )
+        except ValueError as exc:
+            raise Gstr8ValidationError(str(exc)) from exc
 
         record_id = str(record_data.get("id") or "").strip() or str(uuid4())
 
-        # Check for duplicates
+        # Check for duplicates: allow multiple records for same supplier/POS only if transaction dates differ
         for r in _mem_store_8.records.values():
             if (
                 r.batch_id == batch_id
@@ -311,13 +328,15 @@ def add_or_update_gstr8_record_sync(
                 and r.record_type == rec_type
             ):
                 if supply_type == "B2B" and r.supplier_gstin == supplier_gstin:
-                    raise Gstr8DuplicateError(
-                        f"Duplicate B2B record for supplier {supplier_gstin} in {rec_type} table"
-                    )
+                    if not (r.transaction_date and tx_date and r.transaction_date != tx_date):
+                        raise Gstr8DuplicateError(
+                            f"Duplicate B2B record for supplier {supplier_gstin} in {rec_type} table"
+                        )
                 if supply_type == "B2C" and r.pos == pos:
-                    raise Gstr8DuplicateError(
-                        f"Duplicate B2C record for Place of Supply {pos} in {rec_type} table"
-                    )
+                    if not (r.transaction_date and tx_date and r.transaction_date != tx_date):
+                        raise Gstr8DuplicateError(
+                            f"Duplicate B2C record for Place of Supply {pos} in {rec_type} table"
+                        )
 
         # Allow user overrides for tax amounts if explicitly provided
         tcs_igst = float(record_data.get("tcs_igst") if "tcs_igst" in record_data else calc.tcs_igst)
@@ -345,6 +364,10 @@ def add_or_update_gstr8_record_sync(
             original_supplier_gstin=record_data.get("original_supplier_gstin"),
             original_pos=record_data.get("original_pos"),
             tax_deposited=float(record_data.get("tax_deposited") or 0.0),
+            transaction_date=tx_date,
+            rate_basis=str(rate_basis) if rate_basis else None,
+            needs_review=calc.requires_review,
+            review_reason=calc.review_reason,
             status="ACTIVE",
         )
 
@@ -423,6 +446,14 @@ def get_batch_summary_sync(
                     "category": "NEGATIVE_NET_SUPPLIES",
                     "reason": f"Returned supplies (₹{r['returned_supplies']:,.2f}) exceed gross supplies (₹{r['gross_supplies']:,.2f}).",
                 })
+            if r.get("needs_review"):
+                exceptions.append({
+                    "record_id": r["id"],
+                    "supplier_gstin": r.get("supplier_gstin"),
+                    "pos": r["pos"],
+                    "category": "MISSING_RATE_BASIS_JULY_2024",
+                    "reason": r.get("review_reason") or "July 2024 transition record requires transaction_date or verifiable rate basis (1.0% vs 0.5%).",
+                })
 
         total_tcs = batch.total_tcs_igst + batch.total_tcs_cgst + batch.total_tcs_sgst
         deposit_variance = round(total_tcs - batch.total_tcs_deposited, 2)
@@ -465,32 +496,64 @@ def build_gstr8_offline_json(
     summary = get_batch_summary_sync(sb, batch_id=batch_id)
     batch = summary["batch"]
 
+    # Block offline JSON generation if any records are unresolved for July 2024 rate basis
+    all_recs = (
+        summary["table3_b2b"]
+        + summary["table3_b2c"]
+        + summary["table4_b2b"]
+        + summary["table4_b2c"]
+    )
+    for r in all_recs:
+        if r.get("needs_review"):
+            raise Gstr8ValidationError(
+                f"Cannot export offline JSON: Record {r.get('id')} ({r.get('supplier_gstin') or r.get('pos')}) "
+                f"requires review for July 2024 rate determination: {r.get('review_reason')}"
+            )
+
     parts = batch["period"].split("-")
     fp = f"{parts[1]}{parts[0]}" if len(parts) == 2 else batch["period"]
 
-    tcs_list = []
+    tcs_dict: dict[str, dict[str, Any]] = {}
     for r in summary["table3_b2b"]:
-        tcs_list.append({
-            "gstin_supp": r["supplier_gstin"],
-            "gross_val": float(r["gross_supplies"]),
-            "ret_val": float(r["returned_supplies"]),
-            "net_val": float(r["net_supplies"]),
-            "iamt": float(r["tcs_igst"]),
-            "camt": float(r["tcs_cgst"]),
-            "samt": float(r["tcs_sgst"]),
-        })
+        supp = r["supplier_gstin"]
+        if supp not in tcs_dict:
+            tcs_dict[supp] = {
+                "gstin_supp": supp,
+                "gross_val": 0.0,
+                "ret_val": 0.0,
+                "net_val": 0.0,
+                "iamt": 0.0,
+                "camt": 0.0,
+                "samt": 0.0,
+            }
+        tcs_dict[supp]["gross_val"] = round(tcs_dict[supp]["gross_val"] + float(r["gross_supplies"]), 2)
+        tcs_dict[supp]["ret_val"] = round(tcs_dict[supp]["ret_val"] + float(r["returned_supplies"]), 2)
+        tcs_dict[supp]["net_val"] = round(tcs_dict[supp]["net_val"] + float(r["net_supplies"]), 2)
+        tcs_dict[supp]["iamt"] = round(tcs_dict[supp]["iamt"] + float(r["tcs_igst"]), 2)
+        tcs_dict[supp]["camt"] = round(tcs_dict[supp]["camt"] + float(r["tcs_cgst"]), 2)
+        tcs_dict[supp]["samt"] = round(tcs_dict[supp]["samt"] + float(r["tcs_sgst"]), 2)
+    tcs_list = list(tcs_dict.values())
 
-    tcs_b2c_list = []
+    tcs_b2c_dict: dict[str, dict[str, Any]] = {}
     for r in summary["table3_b2c"]:
-        tcs_b2c_list.append({
-            "pos": r["pos"],
-            "gross_val": float(r["gross_supplies"]),
-            "ret_val": float(r["returned_supplies"]),
-            "net_val": float(r["net_supplies"]),
-            "iamt": float(r["tcs_igst"]),
-            "camt": float(r["tcs_cgst"]),
-            "samt": float(r["tcs_sgst"]),
-        })
+        pos_key = r["pos"]
+        if pos_key not in tcs_b2c_dict:
+            tcs_b2c_dict[pos_key] = {
+                "pos": pos_key,
+                "gross_val": 0.0,
+                "ret_val": 0.0,
+                "net_val": 0.0,
+                "iamt": 0.0,
+                "camt": 0.0,
+                "samt": 0.0,
+            }
+        tcs_b2c_dict[pos_key]["gross_val"] = round(tcs_b2c_dict[pos_key]["gross_val"] + float(r["gross_supplies"]), 2)
+        tcs_b2c_dict[pos_key]["ret_val"] = round(tcs_b2c_dict[pos_key]["ret_val"] + float(r["returned_supplies"]), 2)
+        tcs_b2c_dict[pos_key]["net_val"] = round(tcs_b2c_dict[pos_key]["net_val"] + float(r["net_supplies"]), 2)
+        tcs_b2c_dict[pos_key]["iamt"] = round(tcs_b2c_dict[pos_key]["iamt"] + float(r["tcs_igst"]), 2)
+        tcs_b2c_dict[pos_key]["camt"] = round(tcs_b2c_dict[pos_key]["camt"] + float(r["tcs_cgst"]), 2)
+        tcs_b2c_dict[pos_key]["samt"] = round(tcs_b2c_dict[pos_key]["samt"] + float(r["tcs_sgst"]), 2)
+    tcs_b2c_list = list(tcs_b2c_dict.values())
 
     tcsa_list = []
     for r in summary["table4_b2b"]:
