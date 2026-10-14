@@ -16,3 +16,6 @@ supabase_migration_dump*.sql
 .env.staging
 .vercel/
 
+# Worktrees
+.worktrees/
+
