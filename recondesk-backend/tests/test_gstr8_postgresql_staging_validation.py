@@ -472,3 +472,197 @@ class TestPostgreSqlStagingValidation:
             .execute()
         )
         assert len(res_rec_denied.data) == 0
+
+    def test_9_failed_audit_insertion_rolls_back_record_and_batch_atomically(self):
+        """6 & 7: Verify failed audit insertion rolls back record and batch update atomically in PostgreSQL."""
+        engine = sa.create_engine(STAGING_DB_URL)
+        sb = AuroraClient()
+        period = "2027-02"
+
+        batch = get_or_create_batch_sync(
+            sb,
+            firm_id=FIRM_ALPHA_ID,
+            client_gstin_id=CLIENT_ALPHA_ID,
+            gstin=GSTIN_ALPHA,
+            period=period,
+            user_id=FIRM_ALPHA_ID,
+        )
+        batch_id = batch["id"]
+
+        # Manually approve batch
+        with engine.begin() as conn:
+            conn.execute(sa.text("UPDATE public.gstr8_batches SET status = 'APPROVED' WHERE id = :id"), {"id": batch_id})
+
+        # Create a trigger on gstr8_audit_trail to simulate failure
+        with engine.begin() as conn:
+            conn.execute(sa.text("""
+                CREATE OR REPLACE FUNCTION fail_audit_insert() RETURNS trigger AS $$
+                BEGIN
+                    RAISE EXCEPTION 'Simulated audit insertion failure for transaction atomicity test';
+                END;
+                $$ LANGUAGE plpgsql;
+            """))
+            conn.execute(sa.text("""
+                CREATE TRIGGER trigger_fail_audit_insert
+                BEFORE INSERT ON public.gstr8_audit_trail
+                FOR EACH ROW EXECUTE FUNCTION fail_audit_insert();
+            """))
+
+        rec_id = "99999999-9999-9999-9999-999999999999"
+        try:
+            with pytest.raises(Exception) as exc_info:
+                add_or_update_gstr8_record_sync(
+                    sb,
+                    batch_id=batch_id,
+                    record_data={
+                        "id": rec_id,
+                        "supply_type": "B2B",
+                        "record_type": "ORIGINAL",
+                        "supplier_gstin": "27GGGGG0000G1Z6",
+                        "gross_supplies": 800000.0,
+                        "returned_supplies": 0.0,
+                        "pos": "27",
+                        "transaction_date": "2027-02-10",
+                    },
+                    user_id=FIRM_ALPHA_ID,
+                )
+            assert "Simulated audit insertion failure" in str(exc_info.value)
+        finally:
+            # Clean up trigger
+            with engine.begin() as conn:
+                conn.execute(sa.text("DROP TRIGGER IF EXISTS trigger_fail_audit_insert ON public.gstr8_audit_trail;"))
+                conn.execute(sa.text("DROP FUNCTION IF EXISTS fail_audit_insert();"))
+
+        # VERIFY ATOMICITY:
+        with engine.connect() as conn:
+            # 1. Record must NOT exist
+            rec_found = conn.execute(
+                sa.text("SELECT count(*) FROM public.gstr8_records WHERE id = :id"),
+                {"id": rec_id}
+            ).scalar()
+            assert rec_found == 0, "Record was partially committed despite audit failure!"
+
+            # 2. Batch status must still be APPROVED and totals must still be 0
+            b_state = conn.execute(
+                sa.text("SELECT status, gross_supplies_value FROM public.gstr8_batches WHERE id = :id"),
+                {"id": batch_id}
+            ).mappings().first()
+            assert b_state["status"] == "APPROVED", "Batch status was mutated despite rollback!"
+            assert float(b_state["gross_supplies_value"]) == 0.0, "Batch totals were mutated despite rollback!"
+
+    def test_10_production_environment_strictly_blocks_silent_in_memory_fallback(self, monkeypatch):
+        """8: Verify production environment strictly raises AuroraConnectionError rather than falling back to RAM."""
+        from app.config import get_settings
+        from app.aurora import AuroraConnectionError
+        from app.services.gstr8_service import _mem_store_8
+
+        # Clear memory store to verify no leakage
+        with _mem_store_8._lock:
+            _mem_store_8.records.clear()
+            _mem_store_8.batches.clear()
+
+        # Simulate production without database connection
+        monkeypatch.setenv("APP_ENV", "production")
+        monkeypatch.setenv("AURORA_DB_ENABLED", "true")
+        monkeypatch.delenv("AURORA_DATABASE_URL", raising=False)
+        get_settings.cache_clear()
+
+        # Calling without DB must raise AuroraConnectionError, NOT silently use _mem_store_8
+        with pytest.raises(AuroraConnectionError) as exc_info:
+            get_or_create_batch_sync(
+                None,
+                firm_id=FIRM_ALPHA_ID,
+                client_gstin_id=CLIENT_ALPHA_ID,
+                gstin=GSTIN_ALPHA,
+                period="2027-03",
+                user_id=FIRM_ALPHA_ID,
+            )
+        assert "Production/Staging safeguard violation" in str(exc_info.value)
+
+        with pytest.raises(AuroraConnectionError) as exc_info:
+            add_or_update_gstr8_record_sync(
+                None,
+                batch_id="non-existent",
+                record_data={"supply_type": "B2B", "supplier_gstin": "27GGGGG0000G1Z6", "pos": "27", "transaction_date": "2027-03-01"},
+                user_id=FIRM_ALPHA_ID,
+            )
+        assert "Production/Staging safeguard violation" in str(exc_info.value)
+
+        # Verify in-memory store remains completely empty
+        with _mem_store_8._lock:
+            assert len(_mem_store_8.records) == 0
+            assert len(_mem_store_8.batches) == 0
+
+    def test_11_migration_runner_enforces_lock_and_statement_timeouts(self):
+        """4: Verify migration runner sets explicit PostgreSQL DDL lock_timeout and statement_timeout."""
+        engine = sa.create_engine(STAGING_DB_URL)
+        runner = AuroraMigrationRunner(engine=engine)
+        with engine.begin() as conn:
+            runner._acquire_advisory_lock(conn)
+            lt = conn.execute(sa.text("SHOW lock_timeout;")).scalar()
+            st = conn.execute(sa.text("SHOW statement_timeout;")).scalar()
+            assert lt == "5s", f"Expected lock_timeout '5s', got '{lt}'"
+            assert st in ("60s", "1min"), f"Expected statement_timeout '60s'/'1min', got '{st}'"
+
+    def test_12_failed_batch_update_rolls_back_record_insert(self):
+        """6 & 7: Verify failed batch update aborts and rolls back record insertion atomically."""
+        engine = sa.create_engine(STAGING_DB_URL)
+        sb = AuroraClient()
+        period = "2027-04"
+
+        batch = get_or_create_batch_sync(
+            sb,
+            firm_id=FIRM_ALPHA_ID,
+            client_gstin_id=CLIENT_ALPHA_ID,
+            gstin=GSTIN_ALPHA,
+            period=period,
+            user_id=FIRM_ALPHA_ID,
+        )
+        batch_id = batch["id"]
+
+        # Create trigger on gstr8_batches to simulate batch update failure
+        with engine.begin() as conn:
+            conn.execute(sa.text("""
+                CREATE OR REPLACE FUNCTION fail_batch_update() RETURNS trigger AS $$
+                BEGIN
+                    RAISE EXCEPTION 'Simulated batch update failure for atomicity test';
+                END;
+                $$ LANGUAGE plpgsql;
+            """))
+            conn.execute(sa.text("""
+                CREATE TRIGGER trigger_fail_batch_update
+                BEFORE UPDATE ON public.gstr8_batches
+                FOR EACH ROW EXECUTE FUNCTION fail_batch_update();
+            """))
+
+        rec_id = "88888888-8888-8888-8888-888888888888"
+        try:
+            with pytest.raises(Exception) as exc_info:
+                add_or_update_gstr8_record_sync(
+                    sb,
+                    batch_id=batch_id,
+                    record_data={
+                        "id": rec_id,
+                        "supply_type": "B2B",
+                        "record_type": "ORIGINAL",
+                        "supplier_gstin": "27HHHHH0000H1Z7",
+                        "gross_supplies": 500000.0,
+                        "returned_supplies": 0.0,
+                        "pos": "27",
+                        "transaction_date": "2027-04-15",
+                    },
+                    user_id=FIRM_ALPHA_ID,
+                )
+            assert "Simulated batch update failure" in str(exc_info.value)
+        finally:
+            with engine.begin() as conn:
+                conn.execute(sa.text("DROP TRIGGER IF EXISTS trigger_fail_batch_update ON public.gstr8_batches;"))
+                conn.execute(sa.text("DROP FUNCTION IF EXISTS fail_batch_update();"))
+
+        # Verify record was NOT committed
+        with engine.connect() as conn:
+            cnt = conn.execute(
+                sa.text("SELECT count(*) FROM public.gstr8_records WHERE id = :id"),
+                {"id": rec_id}
+            ).scalar()
+            assert cnt == 0, "Record was committed despite batch update failure!"

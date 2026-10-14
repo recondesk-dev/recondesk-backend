@@ -26,6 +26,7 @@ from datetime import datetime, timezone
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Any, Mapping, Optional
 from uuid import uuid4
+import sqlalchemy as sa
 
 from app.rules.gstr8_rules import (
     TcsCalculationResult,
@@ -222,14 +223,38 @@ def _recalculate_batch_totals_8(batch: Gstr8BatchData, records: list[Gstr8Record
     batch.figures_digest = compute_gstr8_figures_digest(batch.__dict__, rec_dicts)
 
 
+def _assert_no_in_memory_fallback() -> None:
+    """Fails closed if running in production or staging.
+
+    Prevents silent fallback to process-local in-memory storage in production/staging,
+    which causes silent data loss across container and worker boundaries.
+    """
+    try:
+        from app.config import get_settings
+        from app.aurora import AuroraConnectionError
+        s = get_settings()
+        app_env = str(getattr(s, "APP_ENV", "") or "").lower()
+        if app_env in ("production", "staging"):
+            raise AuroraConnectionError(
+                "Production/Staging safeguard violation: Aurora database connection is unavailable or unconfigured. "
+                "Process-local in-memory storage fallback is strictly blocked to prevent silent data loss."
+            )
+    except ImportError:
+        pass
+
+
 def _has_db(sb: Any) -> bool:
     if sb is None or not hasattr(sb, "table"):
+        _assert_no_in_memory_fallback()
         return False
     try:
         from app.aurora_client import AuroraClient
         if isinstance(sb, AuroraClient):
             from app.aurora import get_aurora_database_url
-            return bool(get_aurora_database_url())
+            has_url = bool(get_aurora_database_url())
+            if not has_url:
+                _assert_no_in_memory_fallback()
+            return has_url
     except Exception:
         pass
     return True
@@ -340,6 +365,7 @@ def get_or_create_batch_sync(
         ins_res = sb.table(GSTR8_BATCHES_TABLE).insert(new_batch).execute()
         return dict(ins_res.data[0] if ins_res.data else new_batch)
 
+    _assert_no_in_memory_fallback()
     with _mem_store_8._lock:
         for b in _mem_store_8.batches.values():
             if (
@@ -398,6 +424,155 @@ def add_or_update_gstr8_record_sync(
     record_id = str(record_data.get("id") or "").strip() or str(uuid4())
 
     if _has_db(sb):
+        engine = None
+        try:
+            from app.aurora_client import AuroraClient
+            if isinstance(sb, AuroraClient):
+                from app.aurora import get_aurora_engine, get_aurora_database_url
+                if get_aurora_database_url():
+                    engine = get_aurora_engine()
+        except Exception:
+            engine = None
+
+        if engine is not None:
+            with engine.begin() as conn:
+                b_row = conn.execute(
+                    sa.text("SELECT * FROM public.gstr8_batches WHERE id = :id FOR UPDATE"),
+                    {"id": batch_id}
+                ).mappings().first()
+                if not b_row:
+                    raise Gstr8Error(f"GSTR-8 Batch {batch_id} not found")
+                batch = dict(b_row)
+
+                if str(batch.get("status") or "").upper() in ("SAVED", "FILED"):
+                    raise Gstr8ValidationError(f"Cannot modify batch in status {batch['status']}")
+
+                eco_state = extract_state_code(batch.get("gstin") or "")
+                supp_state = extract_state_code(supplier_gstin) if supplier_gstin else None
+
+                try:
+                    calc = calculate_gstr8_tcs(
+                        period=str(batch.get("period") or ""),
+                        gross_supplies=gross_val,
+                        returned_supplies=ret_val,
+                        eco_state=eco_state,
+                        pos=pos,
+                        supplier_state=supp_state,
+                        transaction_date=tx_date,
+                        rate_basis=rate_basis,
+                    )
+                except ValueError as exc:
+                    raise Gstr8ValidationError(str(exc)) from exc
+
+                dup_rows = conn.execute(
+                    sa.text("""
+                        SELECT id, supply_type, record_type, supplier_gstin, pos, transaction_date
+                        FROM public.gstr8_records
+                        WHERE batch_id = :batch_id
+                          AND status = 'ACTIVE'
+                          AND supply_type = :supply_type
+                          AND record_type = :rec_type
+                    """),
+                    {"batch_id": batch_id, "supply_type": supply_type, "rec_type": rec_type}
+                ).mappings().fetchall()
+
+                for r in dup_rows:
+                    if str(r.get("id")) != str(record_id):
+                        if supply_type == "B2B" and str(r.get("supplier_gstin") or "").upper() == supplier_gstin:
+                            r_date = str(r.get("transaction_date") or "")
+                            if not (r_date and tx_date and r_date != str(tx_date)):
+                                raise Gstr8DuplicateError(f"Duplicate B2B record for supplier {supplier_gstin} in {rec_type} table")
+                        if supply_type == "B2C" and str(r.get("pos") or "") == pos:
+                            r_date = str(r.get("transaction_date") or "")
+                            if not (r_date and tx_date and r_date != str(tx_date)):
+                                raise Gstr8DuplicateError(f"Duplicate B2C record for Place of Supply {pos} in {rec_type} table")
+
+                tcs_igst = float(record_data.get("tcs_igst") if "tcs_igst" in record_data else calc.tcs_igst)
+                tcs_cgst = float(record_data.get("tcs_cgst") if "tcs_cgst" in record_data else calc.tcs_cgst)
+                tcs_sgst = float(record_data.get("tcs_sgst") if "tcs_sgst" in record_data else calc.tcs_sgst)
+
+                now_iso = datetime.now(timezone.utc).isoformat()
+                now_dt = datetime.now(timezone.utc)
+                rec_row = {
+                    "id": record_id,
+                    "batch_id": batch_id,
+                    "firm_id": str(batch.get("firm_id")),
+                    "client_gstin_id": str(batch.get("client_gstin_id")),
+                    "period": str(batch.get("period")),
+                    "supply_type": supply_type,
+                    "record_type": rec_type,
+                    "pos": pos,
+                    "supplier_gstin": supplier_gstin,
+                    "gross_supplies": gross_val,
+                    "returned_supplies": ret_val,
+                    "net_supplies": float(calc.net_supplies),
+                    "tcs_rate": float(calc.rate_structure.total_rate_pct),
+                    "tcs_igst": tcs_igst,
+                    "tcs_cgst": tcs_cgst,
+                    "tcs_sgst": tcs_sgst,
+                    "original_period": record_data.get("original_period"),
+                    "original_supplier_gstin": record_data.get("original_supplier_gstin"),
+                    "original_pos": record_data.get("original_pos"),
+                    "tax_deposited": float(record_data.get("tax_deposited") or 0.0),
+                    "transaction_date": tx_date,
+                    "rate_basis": str(rate_basis) if rate_basis else None,
+                    "needs_review": calc.requires_review,
+                    "review_reason": calc.review_reason,
+                    "status": "ACTIVE",
+                    "updated_at": now_dt,
+                }
+
+                ex_id = conn.execute(
+                    sa.text("SELECT id FROM public.gstr8_records WHERE id = :id"),
+                    {"id": record_id}
+                ).scalar()
+
+                if ex_id:
+                    update_cols = [k for k in rec_row.keys() if k != "id"]
+                    set_clause = ", ".join(f'"{k}" = :{k}' for k in update_cols)
+                    conn.execute(sa.text(f'UPDATE public.gstr8_records SET {set_clause} WHERE id = :id'), rec_row)
+                else:
+                    rec_row["created_at"] = now_dt
+                    cols = list(rec_row.keys())
+                    col_str = ", ".join(f'"{k}"' for k in cols)
+                    val_str = ", ".join(f":{k}" for k in cols)
+                    conn.execute(sa.text(f'INSERT INTO public.gstr8_records ({col_str}) VALUES ({val_str})'), rec_row)
+
+                active_rows = conn.execute(
+                    sa.text("SELECT * FROM public.gstr8_records WHERE batch_id = :batch_id AND status = 'ACTIVE'"),
+                    {"batch_id": batch_id}
+                ).mappings().fetchall()
+                active_recs = [dict(r) for r in active_rows]
+
+                b_updates = _calculate_batch_totals_from_dicts(batch, active_recs)
+                if str(batch.get("status") or "").upper() in ("APPROVED", "UNDER_REVIEW"):
+                    b_updates["status"] = "PREPARED"
+
+                b_update_cols = list(b_updates.keys())
+                b_set_clause = ", ".join(f'"{k}" = :{k}' for k in b_update_cols)
+                b_params = {**b_updates, "id": batch_id}
+                conn.execute(sa.text(f'UPDATE public.gstr8_batches SET {b_set_clause} WHERE id = :id'), b_params)
+
+                conn.execute(
+                    sa.text("""
+                        INSERT INTO public.gstr8_audit_trail (batch_id, firm_id, action, actor_id, details, created_at)
+                        VALUES (:batch_id, :firm_id, :action, :actor_id, :details, :created_at)
+                    """),
+                    {
+                        "batch_id": batch_id,
+                        "firm_id": str(batch.get("firm_id")),
+                        "action": "UPSERT_RECORD",
+                        "actor_id": user_id,
+                        "details": json.dumps({"record_id": record_id, "supplier_gstin": supplier_gstin, "pos": pos}),
+                        "created_at": now_dt,
+                    }
+                )
+
+                rec_return = dict(rec_row)
+                rec_return["created_at"] = now_iso
+                rec_return["updated_at"] = now_iso
+                return copy.deepcopy(rec_return)
+
         b_res = sb.table(GSTR8_BATCHES_TABLE).select("*").eq("id", batch_id).limit(1).execute()
         if not b_res.data:
             raise Gstr8Error(f"GSTR-8 Batch {batch_id} not found")
@@ -491,20 +666,18 @@ def add_or_update_gstr8_record_sync(
             b_updates["status"] = "PREPARED"
         sb.table(GSTR8_BATCHES_TABLE).update(b_updates).eq("id", batch_id).execute()
 
-        try:
-            sb.table(GSTR8_AUDIT_TABLE).insert({
-                "batch_id": batch_id,
-                "firm_id": batch.get("firm_id"),
-                "action": "UPSERT_RECORD",
-                "actor_id": user_id,
-                "details": {"record_id": record_id, "supplier_gstin": supplier_gstin, "pos": pos},
-                "created_at": now_iso,
-            }).execute()
-        except Exception:
-            pass
+        sb.table(GSTR8_AUDIT_TABLE).insert({
+            "batch_id": batch_id,
+            "firm_id": batch.get("firm_id"),
+            "action": "UPSERT_RECORD",
+            "actor_id": user_id,
+            "details": {"record_id": record_id, "supplier_gstin": supplier_gstin, "pos": pos},
+            "created_at": now_iso,
+        }).execute()
 
         return copy.deepcopy(rec_row)
 
+    _assert_no_in_memory_fallback()
     with _mem_store_8._lock:
         batch_mem = _mem_store_8.batches.get(batch_id)
         if not batch_mem:
@@ -604,6 +777,74 @@ def delete_gstr8_record_sync(
 ) -> bool:
     """Soft delete a GSTR-8 TCS record."""
     if _has_db(sb):
+        engine = None
+        try:
+            from app.aurora_client import AuroraClient
+            if isinstance(sb, AuroraClient):
+                from app.aurora import get_aurora_engine, get_aurora_database_url
+                if get_aurora_database_url():
+                    engine = get_aurora_engine()
+        except Exception:
+            engine = None
+
+        if engine is not None:
+            with engine.begin() as conn:
+                b_row = conn.execute(
+                    sa.text("SELECT * FROM public.gstr8_batches WHERE id = :id FOR UPDATE"),
+                    {"id": batch_id}
+                ).mappings().first()
+                if not b_row:
+                    raise Gstr8Error(f"Batch {batch_id} not found")
+                batch = dict(b_row)
+
+                if str(batch.get("status") or "").upper() in ("SAVED", "FILED"):
+                    raise Gstr8ValidationError(f"Cannot modify batch in status {batch['status']}")
+
+                r_id = conn.execute(
+                    sa.text("SELECT id FROM public.gstr8_records WHERE id = :id AND batch_id = :batch_id AND status = 'ACTIVE'"),
+                    {"id": record_id, "batch_id": batch_id}
+                ).scalar()
+                if not r_id:
+                    return False
+
+                now_dt = datetime.now(timezone.utc)
+                conn.execute(
+                    sa.text("UPDATE public.gstr8_records SET status = 'DELETED', updated_at = :now WHERE id = :id"),
+                    {"id": record_id, "now": now_dt}
+                )
+
+                active_rows = conn.execute(
+                    sa.text("SELECT * FROM public.gstr8_records WHERE batch_id = :batch_id AND status = 'ACTIVE'"),
+                    {"batch_id": batch_id}
+                ).mappings().fetchall()
+                active_recs = [dict(r) for r in active_rows]
+
+                b_updates = _calculate_batch_totals_from_dicts(batch, active_recs)
+                if str(batch.get("status") or "").upper() in ("APPROVED", "UNDER_REVIEW"):
+                    b_updates["status"] = "PREPARED"
+
+                b_update_cols = list(b_updates.keys())
+                b_set_clause = ", ".join(f'"{k}" = :{k}' for k in b_update_cols)
+                b_params = {**b_updates, "id": batch_id}
+                conn.execute(sa.text(f'UPDATE public.gstr8_batches SET {b_set_clause} WHERE id = :id'), b_params)
+
+                conn.execute(
+                    sa.text("""
+                        INSERT INTO public.gstr8_audit_trail (batch_id, firm_id, action, actor_id, details, created_at)
+                        VALUES (:batch_id, :firm_id, :action, :actor_id, :details, :created_at)
+                    """),
+                    {
+                        "batch_id": batch_id,
+                        "firm_id": str(batch.get("firm_id")),
+                        "action": "DELETE_RECORD",
+                        "actor_id": user_id,
+                        "details": json.dumps({"record_id": record_id}),
+                        "created_at": now_dt,
+                    }
+                )
+
+                return True
+
         b_res = sb.table(GSTR8_BATCHES_TABLE).select("*").eq("id", batch_id).limit(1).execute()
         if not b_res.data:
             raise Gstr8Error(f"Batch {batch_id} not found")
@@ -628,20 +869,18 @@ def delete_gstr8_record_sync(
             b_updates["status"] = "PREPARED"
         sb.table(GSTR8_BATCHES_TABLE).update(b_updates).eq("id", batch_id).execute()
 
-        try:
-            sb.table(GSTR8_AUDIT_TABLE).insert({
-                "batch_id": batch_id,
-                "firm_id": batch.get("firm_id"),
-                "action": "DELETE_RECORD",
-                "actor_id": user_id,
-                "details": {"record_id": record_id},
-                "created_at": now_iso,
-            }).execute()
-        except Exception:
-            pass
+        sb.table(GSTR8_AUDIT_TABLE).insert({
+            "batch_id": batch_id,
+            "firm_id": batch.get("firm_id"),
+            "action": "DELETE_RECORD",
+            "actor_id": user_id,
+            "details": {"record_id": record_id},
+            "created_at": now_iso,
+        }).execute()
 
         return True
 
+    _assert_no_in_memory_fallback()
     with _mem_store_8._lock:
         batch_mem = _mem_store_8.batches.get(batch_id)
         if not batch_mem:
@@ -737,6 +976,7 @@ def get_batch_summary_sync(
             "exceptions": exceptions_db,
         }
 
+    _assert_no_in_memory_fallback()
     with _mem_store_8._lock:
         batch_mem = _mem_store_8.batches.get(batch_id)
         if not batch_mem:
