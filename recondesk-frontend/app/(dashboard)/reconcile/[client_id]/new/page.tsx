@@ -26,6 +26,11 @@ import {
 import { FileDropzone } from "@/components/ui/FileDropzone";
 import { subscribeAccessToken } from "@/lib/supabase/client";
 import { ReconciliationLoadingExperience } from "@/components/reconcile/ReconciliationLoadingExperience";
+import {
+  showDesktopNotification,
+  trackBackgroundRun,
+  untrackBackgroundRun,
+} from "@/lib/desktopNotification";
 
 const MAX_UPLOAD = 20 * 1024 * 1024;
 const ACTIVE_STATUSES = ["draft", "gstr_uploaded", "pr_uploaded", "pending", "processing"] as const;
@@ -1451,6 +1456,14 @@ export default function NewReconcileWizardPage() {
             });
             const r = await refreshRun(runId, token);
             if (!cancelled) setRun(r);
+            untrackBackgroundRun(runId);
+            const clientLabel = clientRow?.legal_name || clientRow?.trade_name || clientId;
+            const periodStr = periodLabel(run?.period || period || "2024-10-01");
+            showDesktopNotification("Reconciliation Ready! 🎉", {
+              body: `${clientLabel} (${periodStr}) reconciliation is complete. Click to view results.`,
+              onClickUrl: `/reconcile/runs/${runId}/results`,
+              tag: `recon-ready-${runId}`,
+            });
           }
           return;
         }
@@ -1545,7 +1558,19 @@ export default function NewReconcileWizardPage() {
           runId={run?.id}
           isCancelling={busy}
           onCancelRun={onCancelRun}
-          onContinueBackground={() => router.push("/dashboard")}
+          onContinueBackground={() => {
+            const activeId = run?.id || runId;
+            if (activeId) {
+              trackBackgroundRun({
+                runId: activeId,
+                clientId,
+                clientName: clientRow?.legal_name || clientRow?.trade_name || clientId,
+                periodLabel: periodLabel(run?.period || period || "2024-10-01"),
+                startedAt: Date.now(),
+              });
+            }
+            router.push("/dashboard");
+          }}
           onViewReport={() => router.push(`/reconcile/runs/${run?.id}/results`)}
         />
       </div>

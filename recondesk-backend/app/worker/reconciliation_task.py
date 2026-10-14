@@ -1958,9 +1958,12 @@ def execute_reconciliation(self, run_id: str) -> None:
             )
         match_rate = round(len(state.clean_matched) / n_gstr * 100, 2) if n_gstr else 0.0
 
-        to_email = ""
-        full_nm = ""
-        created_by = ""  # reconciliation_run has no created_by column; notifications disabled
+        from app.utils.audit import actor_user_for_run, log_audit_sync
+
+        actor = actor_user_for_run(client, run_id) or {"id": None, "full_name": "System"}
+        created_by = str(actor.get("id") or "").strip()
+        to_email = str(actor.get("email") or "").strip()
+        full_nm = str(actor.get("full_name") or "").strip()
 
         client_display_name = "Client"
         cg_row = (
@@ -1992,10 +1995,6 @@ def execute_reconciliation(self, run_id: str) -> None:
             wrongful_risk_amount_paise=wrongful_paise,
             match_rate_percent=match_rate,
         )
-
-        from app.utils.audit import actor_user_for_run, log_audit_sync
-
-        actor = actor_user_for_run(client, run_id) or {"id": None, "full_name": "System"}
         # Anchor firm scoping to the client's owner when the actor can't supply it
         # (e.g. legacy runs with no created_by/finalized_by).
         if not actor.get("firm_id"):

@@ -2,6 +2,11 @@
 
 import React, { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
+import {
+  getNotificationPermission,
+  requestNotificationPermission,
+  trackBackgroundRun,
+} from "@/lib/desktopNotification";
 
 export interface ReconciliationLoadingProps {
   /** Optional override for preview/snapshot demonstration */
@@ -86,6 +91,35 @@ export function ReconciliationLoadingExperience({
     previewState === "longer_wait"
   );
   const [activeMatchedIndex, setActiveMatchedIndex] = useState(1);
+
+  // Desktop notification permission & tracking
+  const [notifPermission, setNotifPermission] = useState<
+    NotificationPermission | "unsupported"
+  >("unsupported");
+
+  useEffect(() => {
+    setNotifPermission(getNotificationPermission());
+  }, []);
+
+  const handleEnableNotification = async () => {
+    const res = await requestNotificationPermission();
+    setNotifPermission(res);
+  };
+
+  const handleContinueWorking = () => {
+    if (runId) {
+      trackBackgroundRun({
+        runId,
+        clientName,
+        periodLabel,
+        startedAt: Date.now(),
+      });
+    }
+    if (notifPermission === "default") {
+      void requestNotificationPermission().then(setNotifPermission);
+    }
+    onContinueBackground?.();
+  };
 
   // Automatic elapsed timer if not controlled
   useEffect(() => {
@@ -426,7 +460,7 @@ export function ReconciliationLoadingExperience({
                 {onContinueBackground ? (
                   <button
                     type="button"
-                    onClick={onContinueBackground}
+                    onClick={handleContinueWorking}
                     className="px-5 py-2.5 rounded-full bg-[#342B40] text-white text-xs font-semibold shadow-xs hover:bg-[#433752] transition-colors"
                   >
                     Continue working →
@@ -434,14 +468,44 @@ export function ReconciliationLoadingExperience({
                 ) : (
                   <Link
                     href="/dashboard"
+                    onClick={() => {
+                      if (runId) {
+                        trackBackgroundRun({
+                          runId,
+                          clientName,
+                          periodLabel,
+                          startedAt: Date.now(),
+                        });
+                      }
+                    }}
                     className="inline-block px-5 py-2.5 rounded-full bg-[#342B40] text-white text-xs font-semibold shadow-xs hover:bg-[#433752] transition-colors"
                   >
                     Continue working →
                   </Link>
                 )}
-                <p className="text-[11px] text-[#8E839E] mt-1">
-                  You can safely leave this page. We’ll notify you when ready.
-                </p>
+                {notifPermission === "granted" ? (
+                  <p className="text-[11px] text-[#5B4E75] mt-1.5 flex items-center gap-1.5 font-medium">
+                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                    Desktop notification enabled. You can safely leave this page.
+                  </p>
+                ) : notifPermission === "default" ? (
+                  <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
+                    <p className="text-[11px] text-[#8E839E]">
+                      You can safely leave this page.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={handleEnableNotification}
+                      className="text-[11px] font-semibold text-[#6C5CE7] hover:text-[#5848d0] underline inline-flex items-center gap-1 cursor-pointer"
+                    >
+                      🔔 Enable desktop alert
+                    </button>
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-[#8E839E] mt-1">
+                    You can safely leave this page. We’ll notify you when ready.
+                  </p>
+                )}
               </div>
 
               {showCancelModal ? (
