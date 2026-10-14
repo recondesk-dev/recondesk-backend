@@ -321,16 +321,31 @@ def _invoice_date_value(invoice: dict, *, is_cdnr: bool) -> Any:
     return _first_present(invoice, "dt", "idt")
 
 
+CREDIT_NOTE_STRINGS = frozenset({"C", "CR", "CN", "CREDIT", "CREDIT NOTE", "CR NOTE", "CREDIT_NOTE"})
+DEBIT_NOTE_STRINGS = frozenset({"D", "DR", "DN", "DEBIT", "DEBIT NOTE", "DR NOTE", "DEBIT_NOTE"})
+
+
 def _note_type_value(invoice: dict) -> str:
     """Credit/debit note type from portal or legacy field names.
 
     Portal JSON uses ``ntyp``; some API dumps use ``nttyp`` / ``typ``;
     older fixtures use ``ntty``. Values are ``C`` (credit) or ``D`` (debit).
     """
-    raw = _first_present(invoice, "ntyp", "nttyp", "ntty", "typ")
+    raw = _first_present(
+        invoice,
+        "ntyp", "nttyp", "ntty", "typ",
+        "note_type", "Note Type", "document_type", "Document Type",
+        "invoice_type", "Invoice type", "Invoice Type", "inv_type",
+        "doc_type", "Doc Type", "voucher_type", "Voucher Type",
+    )
     if raw is None:
         return ""
-    return str(raw).strip().upper()
+    val = str(raw).strip().upper()
+    if val in CREDIT_NOTE_STRINGS or val.startswith("C") or "CREDIT" in val:
+        return "C"
+    if val in DEBIT_NOTE_STRINGS or val.startswith("D") or "DEBIT" in val:
+        return "D"
+    return val
 
 
 def _reverse_charge_value(invoice: dict) -> bool:
@@ -1841,14 +1856,22 @@ def _alt_map_note_row(row: Mapping[str, Any]) -> dict[str, Any] | None:
         return None
 
     ntty_raw = str(
-        _alt_row_get(row, "Note Type", "ntty", "type", "Document Type") or ""
+        _alt_row_get(
+            row,
+            "Note Type", "note_type", "ntty", "nttyp", "type", "Type",
+            "Document Type", "document_type", "Doc Type", "doc_type",
+            "Invoice type", "Invoice Type", "invoice_type", "inv_type",
+            "Voucher Type", "voucher_type", "vch_type",
+        ) or ""
     ).strip().upper()
-    if ntty_raw.startswith("C") or "CREDIT" in ntty_raw:
+    if ntty_raw in CREDIT_NOTE_STRINGS or ntty_raw.startswith("C") or "CREDIT" in ntty_raw:
         ntty = "C"
-    elif ntty_raw.startswith("D") or "DEBIT" in ntty_raw:
+    elif ntty_raw in DEBIT_NOTE_STRINGS or ntty_raw.startswith("D") or "DEBIT" in ntty_raw:
         ntty = "D"
+    elif ntty_raw:
+        ntty = ntty_raw
     else:
-        ntty = "C"
+        ntty = "UNKNOWN"
 
     party = str(
         _alt_row_get(

@@ -108,16 +108,32 @@ def _comma_int(n: float) -> str:
 def _doc_type_display(doc_type: Any, row: dict[str, Any] | None = None) -> str:
     """Return formatted document type: 'Credit Note', 'Debit Note', or 'Invoice'."""
     if row and isinstance(row, dict):
+        pr_data = row.get("purchase_register_data") if isinstance(row.get("purchase_register_data"), dict) else {}
+        gstr_data = row.get("gstr2b_data") if isinstance(row.get("gstr2b_data"), dict) else {}
         if (
             row.get("is_debit_note")
+            or pr_data.get("is_debit_note")
+            or gstr_data.get("is_debit_note")
             or str(row.get("document_type") or "").upper().replace(" ", "_") in ("DEBIT_NOTE", "DEBIT", "DBN", "DN", "DRN", "D", "DBT")
+            or str(pr_data.get("document_type") or "").upper().replace(" ", "_") in ("DEBIT_NOTE", "DEBIT", "DBN", "DN", "DRN", "D", "DBT")
+            or str(gstr_data.get("document_type") or "").upper().replace(" ", "_") in ("DEBIT_NOTE", "DEBIT", "DBN", "DN", "DRN", "D", "DBT")
             or str(row.get("doc_type") or "").upper().replace(" ", "_") in ("DEBIT_NOTE", "DEBIT", "DBN", "DN", "DRN", "D", "DBT")
             or str(row.get("ntty") or "").upper().strip() in ("D", "DR", "DEBIT", "DEBIT_NOTE")
+            or str(gstr_data.get("ntty") or "").upper().strip() in ("D", "DR", "DEBIT", "DEBIT_NOTE")
         ):
             return "Debit Note"
         if (
             row.get("is_credit_note")
+            or pr_data.get("is_credit_note")
+            or gstr_data.get("is_credit_note")
             or str(row.get("section") or "").lower() in ("cdnr", "cdnra", "cdnur", "cdnura")
+            or str(gstr_data.get("section") or "").lower() in ("cdnr", "cdnra", "cdnur", "cdnura")
+            or str(row.get("document_type") or "").upper().replace(" ", "_") in ("CREDIT_NOTE", "CREDIT", "CRN", "CN", "CDN", "C", "CBT")
+            or str(pr_data.get("document_type") or "").upper().replace(" ", "_") in ("CREDIT_NOTE", "CREDIT", "CRN", "CN", "CDN", "C", "CBT")
+            or str(gstr_data.get("document_type") or "").upper().replace(" ", "_") in ("CREDIT_NOTE", "CREDIT", "CRN", "CN", "CDN", "C", "CBT")
+            or str(row.get("doc_type") or "").upper().replace(" ", "_") in ("CREDIT_NOTE", "CREDIT", "CRN", "CN", "CDN", "C", "CBT")
+            or str(row.get("ntty") or "").upper().strip() in ("C", "CR", "CREDIT", "CREDIT_NOTE")
+            or str(gstr_data.get("ntty") or "").upper().strip() in ("C", "CR", "CREDIT", "CREDIT_NOTE")
         ):
             return "Credit Note"
     if not doc_type:
@@ -757,7 +773,7 @@ def build_excel_workbook_bytes(
                 row.get("supplier_gstin", ""),
                 row.get("invoice_number", ""),
                 row.get("invoice_date", ""),
-                _doc_type_display(gstr_doc),
+                _doc_type_display(gstr_doc, row),
                 _comma_int(tax_amt),
                 _comma_int(itc_am),
                 _decision_cell(row.get("decision_what")),
@@ -804,7 +820,7 @@ def build_excel_workbook_bytes(
                 row.get("supplier_gstin", ""),
                 row.get("invoice_number", ""),
                 row.get("invoice_date", ""),
-                _doc_type_display(row.get("document_type")),
+                _doc_type_display(row.get("document_type"), row),
                 _comma_int(am),
                 _decision_cell(row.get("decision_what")),
                 _decision_cell(row.get("decision_why")),
@@ -859,7 +875,7 @@ def build_excel_workbook_bytes(
                     row.get("supplier_gstin", ""),
                     row.get("invoice_number", ""),
                     row.get("invoice_date", ""),
-                    _doc_type_display(row.get("document_type")),
+                    _doc_type_display(row.get("document_type"), row),
                     _comma_int(am),
                     cutoff,
                     sec_status,
@@ -1160,7 +1176,7 @@ def build_excel_workbook_bytes(
             r = 2
             for row in unmatched_note_rows:
                 vals = (
-                    _doc_type_display(row.get("document_type") or row.get("match_status")),
+                    _doc_type_display(row.get("document_type") or row.get("match_status"), row),
                     row.get("supplier_gstin") or "—",
                     row.get("supplier_name") or "—",
                     row.get("invoice_number") or "—",

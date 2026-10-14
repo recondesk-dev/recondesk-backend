@@ -3553,8 +3553,38 @@ def _build_wrongful_risk_records(
             tap_wr = mt.get("taxable_amount_paise")
         if tap_wr is not None:
             mf_wr.append("taxable_amount")
+
+        doc_type_val = (
+            w.get("document_type")
+            or mt.get("document_type")
+            or (rd.get("document_type") if isinstance(rd, dict) else None)
+            or (rd.get("invoice_type") if isinstance(rd, dict) else None)
+            or cell.get("document_type")
+        )
+        is_dn = bool(
+            w.get("is_debit_note")
+            or mt.get("is_debit_note")
+            or (isinstance(rd, dict) and rd.get("is_debit_note"))
+            or str(doc_type_val or "").upper().replace(" ", "_") in ("DEBIT_NOTE", "DEBIT", "DBN", "DN", "DRN", "D", "DBT")
+        )
+        is_cn = bool(
+            w.get("is_credit_note")
+            or mt.get("is_credit_note")
+            or (isinstance(rd, dict) and rd.get("is_credit_note"))
+            or str(doc_type_val or "").upper().replace(" ", "_") in ("CREDIT_NOTE", "CREDIT", "CRN", "CN", "CDN", "C", "CBT")
+        )
+        if is_dn:
+            final_doc_type = "DEBIT_NOTE"
+            rule_name = "WRONGFUL_ITC_DEBIT_NOTE"
+        elif is_cn:
+            final_doc_type = "CREDIT_NOTE"
+            rule_name = "WRONGFUL_ITC_CREDIT_NOTE"
+        else:
+            final_doc_type = str(doc_type_val).upper().replace(" ", "_") if doc_type_val else "INVOICE"
+            rule_name = "WRONGFUL_ITC"
+
         dout = generate_decision(
-            "WRONGFUL_ITC",
+            rule_name,
             confidence="MEDIUM",
             matched_fields=mf_wr,
             differed_fields=[],
@@ -3575,6 +3605,9 @@ def _build_wrongful_risk_records(
         out.append(
             {
                 "id": row_id,
+                "document_type": final_doc_type,
+                "is_debit_note": is_dn,
+                "is_credit_note": is_cn,
                 "supplier_gstin": str(w.get("supplier_gstin") or mt.get("supplier_gstin") or ""),
                 "trade_name": trade_name or None,
                 "invoice_number": str(
