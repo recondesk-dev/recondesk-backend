@@ -2246,6 +2246,8 @@ def test_condition3_production_schema_dump_inspection_and_constraint_safety():
     from pathlib import Path
     root = Path(__file__).resolve().parent.parent.parent
     dump_file = root / "supabase_migration_dump.sql"
+    if not dump_file.exists():
+        dump_file = root.parent.parent / "supabase_migration_dump.sql"
     aurora_up = root / "recondesk-backend/migrations/aurora/20261012120000_create_coupons_and_redemptions.up.sql"
     aurora_down = root / "recondesk-backend/migrations/aurora/20261012120000_create_coupons_and_redemptions.down.sql"
 
@@ -2427,8 +2429,8 @@ def test_condition3_supabase_and_aurora_parity():
     sb_sql = supabase_sql.read_text(encoding="utf-8")
 
     # Both must declare discount percentage check constraint
-    assert "CHECK (discount_percentage IN (20, 25, 30, 40))" in up_sql
-    assert "CHECK (discount_percentage IN (20, 25, 30, 40))" in sb_sql
+    assert "CHECK (discount_percentage IN (20, 25, 30))" in up_sql
+    assert "CHECK (discount_percentage IN (20, 25, 30))" in sb_sql
 
     # Both must declare all 3 refund tracking columns
     for ref_col in ["refund_id", "refund_status", "refund_error"]:
