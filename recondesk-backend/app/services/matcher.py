@@ -271,13 +271,14 @@ class InvoiceNormalizationEvidence:
 def extract_terminal_and_prefix(s: str | None) -> tuple[int | None, str]:
     """Extract terminal meaningful sequence number and prefix preceding it."""
     raw = str(s or "").strip()
-    m = re.search(r"^(.*?)(\d+)\s*$", raw)
+    clean_s = _RE_BRANCH_NORM.sub("", _RE_BRANCH_SUFFIX.sub("", raw))
+    m = re.search(r"^(.*?)(\d+)\s*$", clean_s)
     if m:
         pref = _RE_NON_ALNUM.sub("", m.group(1)).upper()
         return int(m.group(2)), pref
-    nums = [int(x) for x in re.findall(r"\d+", raw)]
+    nums = [int(x) for x in re.findall(r"\d+", clean_s)]
     term = nums[-1] if nums else None
-    clean = _RE_NON_ALNUM.sub("", raw).upper()
+    clean = _RE_NON_ALNUM.sub("", clean_s).upper()
     pref = re.sub(r"\d+$", "", clean)
     return term, pref
 
@@ -287,7 +288,7 @@ def extract_meaningful_numeric_sequence_token(s: str | None) -> str | None:
     raw = str(s or "").strip()
     if not raw:
         return None
-    clean_s = _RE_BRANCH_SUFFIX.sub("", raw)
+    clean_s = _RE_BRANCH_NORM.sub("", _RE_BRANCH_SUFFIX.sub("", raw))
     m_let = _RE_LETTER_SUFFIX.search(clean_s)
     if m_let:
         clean_s = clean_s[: m_let.start()]
@@ -345,6 +346,25 @@ def is_meaningful_numeric_sequence_mismatch(
         diff_o = Counter(l_o)
         diff_o.subtract(Counter(s_o))
         if not any(ch in "123456789" for ch, cnt in diff_o.items() if cnt > 0):
+            return False
+
+    # Check with branch suffixes stripped (e.g. TAX-16/01611 vs TAX-16/016II-BR01)
+    ra_nobr = _RE_BRANCH_NORM.sub("", _RE_BRANCH_SUFFIX.sub("", ra))
+    rb_nobr = _RE_BRANCH_NORM.sub("", _RE_BRANCH_SUFFIX.sub("", rb))
+    if ra_nobr != ra or rb_nobr != rb:
+        na_nobr, nb_nobr = normalize_invoice(ra_nobr), normalize_invoice(rb_nobr)
+        if na_nobr and nb_nobr and na_nobr == nb_nobr:
+            return False
+        ocr_an, ocr_bn = ocr_canonical_invoice(ra_nobr), ocr_canonical_invoice(rb_nobr)
+        if ocr_an and ocr_bn and ocr_an == ocr_bn:
+            clean_an, clean_bn = _RE_NON_ALNUM.sub("", ra_nobr).upper(), _RE_NON_ALNUM.sub("", rb_nobr).upper()
+            if len(clean_an) > 4 and len(clean_bn) > 4:
+                ocr_cn, _ = count_ocr_substitutions(ra_nobr, rb_nobr, a_raw=ra_nobr, b_raw=rb_nobr)
+                if ocr_cn <= 2 and not is_short_invoice_fuzzy_risk(ra_nobr, rb_nobr, a_raw=ra_nobr, b_raw=rb_nobr, ocr_subs=ocr_cn):
+                    return False
+        tok_oan = extract_meaningful_numeric_sequence_token(ocr_an or ra_nobr)
+        tok_obn = extract_meaningful_numeric_sequence_token(ocr_bn or rb_nobr)
+        if tok_oan and tok_obn and int(tok_oan) == int(tok_obn):
             return False
 
     if not tok_a or not tok_b:
@@ -483,7 +503,7 @@ def analyze_invoice_evidence(
             ):
                 is_legit_format_diff = True
 
-            if not is_legit_format_diff:
+            elif not is_legit_format_diff:
                 prefix_changed = True
                 # Also check if prefix change is accompanied by OCR substitutions on body
                 if len(clean_a) == len(clean_b):
@@ -1065,13 +1085,19 @@ def is_sequential_series_mismatch(
     if not n1 or not n2 or n1 == n2:
         return False
 
-    # Check OCR-canonical equality with zero compression (e.g. 00385 vs O038S)
+    # Strip branch suffixes before OCR and numeric sequence analysis
+    r1_nobr = _RE_BRANCH_NORM.sub("", _RE_BRANCH_SUFFIX.sub("", r1))
+    r2_nobr = _RE_BRANCH_NORM.sub("", _RE_BRANCH_SUFFIX.sub("", r2))
+    s1_nobr = _RE_BRANCH_NORM.sub("", _RE_BRANCH_SUFFIX.sub("", s1))
+    s2_nobr = _RE_BRANCH_NORM.sub("", _RE_BRANCH_SUFFIX.sub("", s2))
+
+    # Check OCR-canonical equality with zero compression (e.g. 00385 vs O038S or 01611 vs 016II)
     try:
-        o1 = re.sub(r"0+", "0", ocr_canonical_invoice(s1))
-        o2 = re.sub(r"0+", "0", ocr_canonical_invoice(s2))
+        o1 = re.sub(r"0+", "0", ocr_canonical_invoice(s1_nobr or s1))
+        o2 = re.sub(r"0+", "0", ocr_canonical_invoice(s2_nobr or s2))
         if o1 and o2 and o1 == o2:
             return False
-        ok_align, ocr_cnt, _ = ocr_alignment(r1 or s1, r2 or s2)
+        ok_align, ocr_cnt, _ = ocr_alignment(r1_nobr or s1_nobr, r2_nobr or s2_nobr)
         if ok_align and ocr_cnt > 0:
             return False
     except Exception:
@@ -1079,16 +1105,16 @@ def is_sequential_series_mismatch(
 
     # Digit transpositions (e.g. 650125 ↔ 605125 or 185025 ↔ 815025) are typos,
     # not sequential series mismatches.
-    d1 = "".join(re.findall(r"\d", s1)).lstrip("0")
-    d2 = "".join(re.findall(r"\d", s2)).lstrip("0")
+    d1 = "".join(re.findall(r"\d", s1_nobr or s1)).lstrip("0")
+    d2 = "".join(re.findall(r"\d", s2_nobr or s2)).lstrip("0")
     if len(d1) >= 3 and len(d2) >= 3 and Counter(d1) == Counter(d2):
         return False
 
     def _extract_nums(s: str) -> list[int]:
         return [int(m) for m in re.findall(r"\d+", s)]
 
-    nums1 = _extract_nums(r1)
-    nums2 = _extract_nums(r2)
+    nums1 = _extract_nums(r1_nobr or r1)
+    nums2 = _extract_nums(r2_nobr or r2)
 
     if nums1 and nums2:
         last1 = nums1[-1]
@@ -1367,11 +1393,23 @@ def build_compared_fields(
     tax_g = _safe_paise_field(gstr_rec, "total_tax_paise")
     tax_p = _safe_paise_field(pr_rec, "total_tax_paise")
     if tax_g or tax_p:
-        tax_diff = abs(tax_g - tax_p)
+        compat_doc, reason_doc = are_document_types_compatible(gstr_rec, pr_rec)
+        is_compat_note = compat_doc and reason_doc in (
+            "COMPATIBLE_CREDIT_NOTE",
+            "COMPATIBLE_BUYER_RETURN_DEBIT_NOTE",
+            "COMPATIBLE_DEBIT_NOTE",
+        )
+        if is_compat_note:
+            tax_diff = abs(abs(tax_g) - abs(tax_p))
+            max_tax = max(abs(tax_g), abs(tax_p))
+        else:
+            tax_diff = abs(tax_g - tax_p)
+            max_tax = max(tax_g, tax_p)
+
         if tax_diff <= AMOUNT_TOLERANCE_L1_PAISE:
             out.append(_field_entry("tax_amount", "exact"))
         else:
-            tax_pct = tax_diff / float(max(tax_g, tax_p)) if max(tax_g, tax_p) > 0 else 1.0
+            tax_pct = tax_diff / float(max_tax) if max_tax > 0 else 1.0
             if tax_pct <= AMOUNT_TOLERANCE_L3_PCT:
                 out.append(_field_entry("tax_amount", "fuzzy", int(round(max(0.0, 1.0 - tax_pct) * 100))))
             else:
@@ -2200,6 +2238,19 @@ def _match_gstr_to_pr_pair(
             ocr_p_c = ocr_canonical_invoice(p_inv_raw or p_inv)
             if ocr_g_c and ocr_p_c and is_invoice_format_variant(ocr_g_c, ocr_p_c):
                 format_variant = True
+            else:
+                g_raw_nobr_chk = _RE_BRANCH_NORM.sub("", _RE_BRANCH_SUFFIX.sub("", g_inv_raw or g_inv))
+                p_raw_nobr_chk = _RE_BRANCH_NORM.sub("", _RE_BRANCH_SUFFIX.sub("", p_inv_raw or p_inv))
+                if g_raw_nobr_chk != (g_inv_raw or g_inv) or p_raw_nobr_chk != (p_inv_raw or p_inv):
+                    norm_gn_chk = normalize_invoice(g_raw_nobr_chk)
+                    norm_pn_chk = normalize_invoice(p_raw_nobr_chk)
+                    if norm_gn_chk and norm_pn_chk:
+                        if (
+                            norm_gn_chk == norm_pn_chk
+                            or ocr_canonical_invoice(norm_gn_chk) == ocr_canonical_invoice(norm_pn_chk)
+                            or is_invoice_format_variant(norm_gn_chk, norm_pn_chk, g_raw_nobr_chk, p_raw_nobr_chk)
+                        ):
+                            format_variant = True
 
 
     g_orig = str(gstr_rec.get("original_invoice_number") or gstr_rec.get("oinum") or "").strip()
@@ -2439,6 +2490,20 @@ def _match_gstr_to_pr_pair(
     ocr_subs, ocr_pfx = count_ocr_substitutions(g_inv, p_inv, a_raw=g_inv_raw, b_raw=p_inv_raw)
     ev_inv = analyze_invoice_evidence(norm_g, norm_p, a_inv_raw=g_inv_raw, b_inv_raw=p_inv_raw)
     ocr_subs = max(ocr_subs, ev_inv.ocr_substitution_count)
+
+    g_raw_nobr = _RE_BRANCH_NORM.sub("", _RE_BRANCH_SUFFIX.sub("", g_inv_raw or g_inv))
+    p_raw_nobr = _RE_BRANCH_NORM.sub("", _RE_BRANCH_SUFFIX.sub("", p_inv_raw or p_inv))
+    g_norm_nobr = normalize_invoice(g_raw_nobr)
+    p_norm_nobr = normalize_invoice(p_raw_nobr)
+    if g_raw_nobr != (g_inv_raw or g_inv) or p_raw_nobr != (p_inv_raw or p_inv):
+        ocr_s_nobr, ocr_p_nobr = count_ocr_substitutions(
+            g_norm_nobr, p_norm_nobr,
+            a_raw=g_raw_nobr, b_raw=p_raw_nobr,
+        )
+        if ocr_s_nobr > 0:
+            ocr_subs = max(ocr_subs, ocr_s_nobr)
+            ocr_pfx = ocr_pfx or ocr_p_nobr
+
     ocr_only_match = (
         not raw_inv_ok
         and (
@@ -2448,6 +2513,8 @@ def _match_gstr_to_pr_pair(
         and (
             ocr_canonical_invoice(norm_g) == ocr_canonical_invoice(norm_p)
             or ocr_canonical_invoice(g_inv_raw) == ocr_canonical_invoice(p_inv_raw)
+            or (g_norm_nobr and p_norm_nobr and ocr_canonical_invoice(g_norm_nobr) == ocr_canonical_invoice(p_norm_nobr))
+            or (g_raw_nobr and p_raw_nobr and ocr_canonical_invoice(g_raw_nobr) == ocr_canonical_invoice(p_raw_nobr))
             or ocr_subs > 0
         )
     )
@@ -2456,11 +2523,11 @@ def _match_gstr_to_pr_pair(
     is_risky_ocr = ocr_only_match and ((ocr_subs >= 2) or ocr_pfx or is_short_risk)
 
     is_branch_variant = bool(
-        (_RE_BRANCH_SUFFIX.search(g_inv_raw) or _RE_BRANCH_SUFFIX.search(p_inv_raw))
+        (_RE_BRANCH_SUFFIX.search(g_inv_raw) or _RE_BRANCH_SUFFIX.search(p_inv_raw) or _RE_BRANCH_NORM.search(norm_g) or _RE_BRANCH_NORM.search(norm_p))
         and (
             _RE_BRANCH_SUFFIX.sub("", g_inv_raw) == _RE_BRANCH_SUFFIX.sub("", p_inv_raw)
-            or normalize_invoice(_RE_BRANCH_SUFFIX.sub("", g_inv_raw))
-            == normalize_invoice(_RE_BRANCH_SUFFIX.sub("", p_inv_raw))
+            or g_norm_nobr == p_norm_nobr
+            or (g_norm_nobr and p_norm_nobr and ocr_canonical_invoice(g_norm_nobr) == ocr_canonical_invoice(p_norm_nobr))
         )
     )
     is_note = (
@@ -2472,7 +2539,13 @@ def _match_gstr_to_pr_pair(
 
     if (
         gstin_match
-        and (inv_ok or format_variant or is_term_del or is_short_risk)
+        and (
+            inv_ok
+            or format_variant
+            or is_term_del
+            or is_short_risk
+            or (not is_note and not is_branch_variant and not is_amendment_match and ev_inv.prefix_changed and ev_inv.terminal_sequence_match)
+        )
         and _vendor_name_ok
         and zero_discrepancy
         and date_within_l1
@@ -2690,7 +2763,13 @@ def _match_gstr_to_pr_pair(
                 )
 
     # ── Tier 2: Same GSTIN + normalized invoice number (L2) ─────────────────
-    if gstin_match and (inv_ok or is_term_del or is_short_risk):
+    is_pfx_alt = bool(not is_note and not is_branch_variant and not is_amendment_match and ev_inv.prefix_changed and ev_inv.terminal_sequence_match)
+    if gstin_match and (
+        inv_ok
+        or is_term_del
+        or is_short_risk
+        or (is_pfx_alt and amount_within_l1 and tax_only_diff <= AMOUNT_TOLERANCE_L1_PAISE)
+    ):
         if amount_within_l2 and date_within_l2 and tax_structure_match:
             # A genuinely zero-discrepancy pair is already handled by the
             # zero-discrepancy invariant above and never reaches this branch;
@@ -2739,12 +2818,16 @@ def _match_gstr_to_pr_pair(
                 rr = "REVIEW_REQUIRED"
 
             return _ret(
-                level=2, matched=True, confidence=90, requires_human_review=True,
+                level=3 if rr == "PREFIX_ALTERATION_REVIEW" else 2,
+                matched=True,
+                confidence=75 if rr == "PREFIX_ALTERATION_REVIEW" else 90,
+                requires_human_review=True,
                 decision_what=d_what,
                 decision_why=d_why,
                 decision_next="Verify if needed",
                 discrepancies=discrepancies,
-                identity_confidence="High", financial_status=financial_status,
+                identity_confidence="Medium" if rr == "PREFIX_ALTERATION_REVIEW" else "High",
+                financial_status=financial_status,
                 review_reason=rr,
             )
 

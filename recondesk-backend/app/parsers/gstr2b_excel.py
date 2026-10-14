@@ -598,7 +598,7 @@ def excel_to_alt_2b_dict(
                 if not v or not isinstance(v, str):
                     continue
                 kn = normalize_header(k)
-                if any(term in kn for term in ("doc type", "document type", "note type", "ntty", "voucher type", "type")):
+                if any(term in kn for term in ("doc type", "document type", "note type", "ntty", "voucher type", "type", "invoice type", "inv type")):
                     vn = v.strip().lower()
                     if any(term in vn for term in ("credit", "debit", "cdn", "cdnr", "cr note", "dr note")) or vn in {"c", "d", "cn", "dn", "cr", "dr"}:
                         return True

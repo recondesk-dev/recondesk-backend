@@ -107,6 +107,15 @@ TEMPLATES: dict[str, dict[str, str]] = {
         ),
         "next": "Follow up with {supplier_gstin} to confirm filing of Credit Note in GSTR-1 Table 9B.",
     },
+    "WRONGFUL_ITC_DEBIT_NOTE": {
+        "what": "Debit Note in Books but not reflected in GSTR-2B",
+        "why": (
+            "Debit note recorded in {source_software} does not appear in supplier's GSTR-1 (CDNR table). "
+            "Supplier may not have filed or reported it under a different return period. "
+            "ITC of {itc_amount} cannot be claimed until it appears in GSTR-2B."
+        ),
+        "next": "Contact {supplier_gstin} to confirm filing of Debit Note in GSTR-1. Do not claim this ITC in GSTR-3B until it appears in GSTR-2B.",
+    },
     "WRONGFUL_ITC_GSTIN_TYPO": {
         # Bug-3 fix: These records have an invoice number that IS present in
         # GSTR-2B, but under a different supplier GSTIN than recorded in the PR.

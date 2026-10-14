@@ -19,6 +19,7 @@ from app.services.matcher import (
     TOTAL_TOLERANCE_PAISE,
     MatchResult,
     are_document_types_compatible,
+    analyze_invoice_evidence,
     build_compared_fields,
     count_ocr_substitutions,
     invoice_similarity,
@@ -33,6 +34,8 @@ from app.services.matcher import (
     supplier_identity_compatible,
     _parse_invoice_date,
     _RE_NOTE_IDENTIFIER,
+    _RE_BRANCH_SUFFIX,
+    _RE_BRANCH_NORM,
 )
 from app.services.vendor_name_matcher import find_best_vendor_match, vendor_name_similarity, l1_vendor_name_ok
 from app.services.gstr3b_reconciliation import _paise_to_rupees
@@ -305,6 +308,26 @@ def build_pr_candidate_indices(pr_index: dict[str, list[dict]]) -> PRCandidateIn
                         indices.by_invoice_ocr_global[ocr_compact].append(pr)
                         ocr_dict[ocr_compact].append(pr)
 
+                pr_raw_inv = str(pr.get("invoice_number") or "")
+                inv_nobr = _RE_BRANCH_NORM.sub("", _RE_BRANCH_SUFFIX.sub("", pr_raw_inv or inv_norm))
+                norm_nobr = normalize_invoice(inv_nobr)
+                if norm_nobr and norm_nobr != inv_norm:
+                    if norm_nobr not in indices.by_invoice_norm_global:
+                        indices.by_invoice_norm_global[norm_nobr] = []
+                    indices.by_invoice_norm_global[norm_nobr].append(pr)
+                    ocr_nobr = ocr_canonical_invoice(norm_nobr)
+                    if ocr_nobr:
+                        if ocr_nobr not in indices.by_invoice_ocr_global:
+                            indices.by_invoice_ocr_global[ocr_nobr] = []
+                        indices.by_invoice_ocr_global[ocr_nobr].append(pr)
+                        ocr_dict[ocr_nobr].append(pr)
+                        ocr_nobr_c = re.sub(r"0+", "", ocr_nobr)
+                        if ocr_nobr_c and ocr_nobr_c != ocr_nobr:
+                            if ocr_nobr_c not in indices.by_invoice_ocr_global:
+                                indices.by_invoice_ocr_global[ocr_nobr_c] = []
+                            indices.by_invoice_ocr_global[ocr_nobr_c].append(pr)
+                            ocr_dict[ocr_nobr_c].append(pr)
+
             if not is_pr_note_quarantine(pr) and not _is_note_document(pr):
                 orig = str(pr.get("original_invoice_number") or pr.get("oinum") or "").strip()
                 if orig:
@@ -372,6 +395,18 @@ def _get_narrowed_candidates(
         if ocr_compact and ocr_compact != ocr_k:
             for pr in ocr_gstin_map.get(ocr_compact, []):
                 candidates_set[str(pr["id"])] = pr
+        g_raw = str(gstr_record.get("invoice_number") or "")
+        g_nobr = _RE_BRANCH_NORM.sub("", _RE_BRANCH_SUFFIX.sub("", g_raw or inv_norm))
+        norm_gnobr = normalize_invoice(g_nobr)
+        if norm_gnobr and norm_gnobr != inv_norm:
+            ocr_gnobr = ocr_canonical_invoice(norm_gnobr)
+            if ocr_gnobr:
+                for pr in ocr_gstin_map.get(ocr_gnobr, []):
+                    candidates_set[str(pr["id"])] = pr
+                ocr_gnobr_c = re.sub(r"0+", "", ocr_gnobr)
+                if ocr_gnobr_c and ocr_gnobr_c != ocr_gnobr:
+                    for pr in ocr_gstin_map.get(ocr_gnobr_c, []):
+                        candidates_set[str(pr["id"])] = pr
     if orig_norm:
         ocr_orig = ocr_canonical_invoice(orig_norm)
         for pr in ocr_gstin_map.get(ocr_orig, []):
@@ -2909,33 +2944,57 @@ def execute_phase2_and_3(
                     if not g_date or not p_date or date_diff <= 45:
                         g_inv_norm = str(g.get("invoice_number_normalized") or "")
                         p_inv_norm = str(p.get("invoice_number_normalized") or "")
-                        sim = invoice_similarity(g_inv_norm, p_inv_norm)
-                        if sim >= 0.75 and g_inv_norm != p_inv_norm:
+                        if g_inv_norm != p_inv_norm:
                             g_inv_raw_typo = str(g.get("invoice_number") or "")
                             p_inv_raw_typo = str(p.get("invoice_number") or "")
-                            if is_sequential_series_mismatch(
-                                g_inv_norm,
-                                p_inv_norm,
-                                g_inv_raw_typo,
-                                p_inv_raw_typo,
-                                is_note=_is_note_document(g) or _is_note_document(p),
-                            ):
-                                continue
-                            candidates_typo.append((p, sim))
+                            sim = invoice_similarity(g_inv_norm, p_inv_norm)
+                            if sim >= 0.75:
+                                if is_sequential_series_mismatch(
+                                    g_inv_norm,
+                                    p_inv_norm,
+                                    g_inv_raw_typo,
+                                    p_inv_raw_typo,
+                                    is_note=_is_note_document(g) or _is_note_document(p),
+                                ):
+                                    continue
+                                candidates_typo.append((p, sim, "TYPO_MISMATCH"))
+                            elif not (_is_note_document(g) or _is_note_document(p)):
+                                # Discover prefix alterations sharing sequence with zero financial diff
+                                if (diff_pct == 0.0 or abs(g_amt - p_amt) <= amount_tolerance_paise) and (
+                                    g_tax == p_tax
+                                    or (g_tax is not None and p_tax is not None and abs(g_tax - p_tax) <= amount_tolerance_paise)
+                                ):
+                                    term_g, _ = extract_terminal_and_prefix(g_inv_raw_typo or g_inv_norm)
+                                    term_p, _ = extract_terminal_and_prefix(p_inv_raw_typo or p_inv_norm)
+                                    if term_g is not None and term_p is not None and term_g == term_p:
+                                        ev_inv = analyze_invoice_evidence(
+                                            g_inv_norm, p_inv_norm, a_inv_raw=g_inv_raw_typo, b_inv_raw=p_inv_raw_typo
+                                        )
+                                        if ev_inv.prefix_changed and ev_inv.terminal_sequence_match:
+                                            if is_sequential_series_mismatch(
+                                                g_inv_norm,
+                                                p_inv_norm,
+                                                g_inv_raw_typo,
+                                                p_inv_raw_typo,
+                                                is_note=_is_note_document(g) or _is_note_document(p),
+                                            ):
+                                                continue
+                                            candidates_typo.append((p, 0.75, "PREFIX_ALTERATION_REVIEW"))
                             
         if candidates_typo:
             candidates_typo.sort(key=lambda x: x[1], reverse=True)
+            best_p, best_sim, best_reason = candidates_typo[0]
             if len(candidates_typo) > 1 and candidates_typo[0][1] == candidates_typo[1][1]:
                 _push_review_required(
-                    state, gid, candidates_typo[0][0]["id"], 60, "MULTIPLE_CANDIDATES",
-                    gstr_rec=g, pr_rec=candidates_typo[0][0],
-                    match_confidence=candidates_typo[0][1],
+                    state, gid, best_p["id"], 60, "MULTIPLE_CANDIDATES",
+                    gstr_rec=g, pr_rec=best_p,
+                    match_confidence=best_sim,
                 )
             else:
                 _push_review_required(
-                    state, gid, candidates_typo[0][0]["id"], 60, "TYPO_MISMATCH",
-                    gstr_rec=g, pr_rec=candidates_typo[0][0],
-                    match_confidence=candidates_typo[0][1],
+                    state, gid, best_p["id"], 60, best_reason,
+                    gstr_rec=g, pr_rec=best_p,
+                    match_confidence=best_sim,
                 )
             continue
 
