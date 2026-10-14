@@ -9,14 +9,14 @@ from uuid import UUID
 from pydantic import BaseModel, Field, field_validator
 
 
-PermittedDiscount = Literal[20, 25, 30]
-PERMITTED_DISCOUNTS: frozenset[int] = frozenset({20, 25, 30})
+PermittedDiscount = Literal[20, 25, 30, 40]
+PERMITTED_DISCOUNTS: frozenset[int] = frozenset({20, 25, 30, 40})
 ANNUAL_PLANS: frozenset[str] = frozenset({"solo", "firm", "large_firm"})
 
 
 class CouponCreateRequest(BaseModel):
     code: str = Field(..., min_length=3, max_length=50, description="Unique coupon code")
-    discount_percentage: int = Field(..., description="Discount tier (20, 25, or 30)")
+    discount_percentage: int = Field(..., description="Discount tier (20, 25, 30, or 40)")
     eligible_plans: List[str] = Field(
         default=["solo", "firm", "large_firm"],
         description="List of eligible annual plans",
@@ -29,7 +29,7 @@ class CouponCreateRequest(BaseModel):
     is_acquisition_only: bool = Field(True, description="Whether coupon is limited to first-year new annual subscribers")
     founder_approved: bool = Field(False, description="Server-verified founder approval")
     founder_approved_by: Optional[str] = Field(None, description="Server-derived identifier of founder who approved")
-    founder_approval_notes: Optional[str] = Field(None, description="Notes/justification for 30% discount")
+    founder_approval_notes: Optional[str] = Field(None, description="Notes/justification for 40% discount")
 
     @field_validator("code")
     @classmethod
@@ -127,12 +127,12 @@ class CouponResponse(BaseModel):
 class PrivateCouponAssignRequest(BaseModel):
     tenant_id: str = Field(..., description="Target CA user/tenant ID from user_profiles")
     plan: str = Field(..., description="Eligible annual plan (solo, firm, large_firm)")
-    discount_percentage: int = Field(..., description="Discount tier (20, 25, or 30)")
+    discount_percentage: int = Field(..., description="Discount tier (20, 25, 30, or 40)")
     expires_at: Optional[datetime] = Field(None, description="Offer expiration timestamp (UTC)")
     sales_notes: Optional[str] = Field(None, max_length=1000, description="Internal sales/negotiation notes")
     custom_code: Optional[str] = Field(None, max_length=50, description="Optional custom code; auto-generated if omitted")
     activate_now: bool = Field(True, description="True to activate immediately; False to save as draft")
-    founder_approval_notes: Optional[str] = Field(None, description="Mandatory notes for 30% discount")
+    founder_approval_notes: Optional[str] = Field(None, description="Mandatory notes for 40% discount")
 
     @field_validator("plan")
     @classmethod

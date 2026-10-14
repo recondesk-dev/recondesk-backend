@@ -62,7 +62,22 @@ client = TestClient(app)
 # ─────────────────────────────────────────────────────────────────────────────
 
 def test_permitted_discounts_set():
-    assert PERMITTED_DISCOUNTS == {20, 25, 30}
+    assert PERMITTED_DISCOUNTS == {20, 25, 30, 40}
+
+
+def test_firm_annual_40_percent_pricing():
+    """Verify 40% discount on Firm Annual plan.
+    Base: 1,499,900 paise
+    Discount: 599,960 paise
+    Discounted Base: 899,940 paise
+    GST (18%): 161,989 paise
+    Total: 1,061,929 paise
+    """
+    res = calculate_discounted_pricing(1499900, 40)
+    assert res["discount_amount_paise"] == 599960
+    assert res["discounted_base_paise"] == 899940
+    assert res["gst_paise"] == 161989
+    assert res["total_paise"] == 1061929
 
 
 def test_firm_annual_25_percent_exact_prompt_pricing():
@@ -87,9 +102,9 @@ def test_firm_annual_25_percent_exact_prompt_pricing():
 
 
 def test_all_permitted_discount_tiers_on_all_annual_plans():
-    """Verify 20%, 25%, and 30% tiers calculate integer paise correctly across Solo, Firm, Large Firm."""
+    """Verify 20%, 25%, 30%, and 40% tiers calculate integer paise correctly across Solo, Firm, Large Firm."""
     plans = ["solo", "firm", "large_firm"]
-    tiers = [20, 25, 30]
+    tiers = [20, 25, 30, 40]
 
     for plan in plans:
         plan_info = get_plan_details(plan, "yearly")
@@ -2345,7 +2360,7 @@ def test_condition3_disposable_database_migration_rehearsal_and_rollback():
         CREATE TABLE coupons (
             id TEXT PRIMARY KEY,
             code TEXT NOT NULL UNIQUE,
-            discount_percentage INTEGER CHECK (discount_percentage IN (20, 25, 30)),
+            discount_percentage INTEGER CHECK (discount_percentage IN (20, 25, 30, 40)),
             is_active INTEGER DEFAULT 1
         )
     """)
@@ -2412,8 +2427,8 @@ def test_condition3_supabase_and_aurora_parity():
     sb_sql = supabase_sql.read_text(encoding="utf-8")
 
     # Both must declare discount percentage check constraint
-    assert "CHECK (discount_percentage IN (20, 25, 30))" in up_sql
-    assert "CHECK (discount_percentage IN (20, 25, 30))" in sb_sql
+    assert "CHECK (discount_percentage IN (20, 25, 30, 40))" in up_sql
+    assert "CHECK (discount_percentage IN (20, 25, 30, 40))" in sb_sql
 
     # Both must declare all 3 refund tracking columns
     for ref_col in ["refund_id", "refund_status", "refund_error"]:

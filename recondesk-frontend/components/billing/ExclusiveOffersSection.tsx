@@ -117,24 +117,24 @@ export function ExclusiveOffersSection({ accessToken, onApplyOffer }: Props) {
                 <div className="rounded-xl bg-white/80 p-3.5 border border-purple-100 space-y-1.5 text-xs">
                   <div className="flex justify-between text-slate-500">
                     <span>Standard Annual Base:</span>
-                    <span className="line-through">₹{formatInr(offer.original_base_paise / 100)}</span>
+                    <span className="line-through">{formatInr(offer.original_base_paise / 100)}</span>
                   </div>
                   <div className="flex justify-between font-semibold text-purple-700">
                     <span>Exclusive Discount ({offer.discount_percentage}%):</span>
-                    <span>-₹{formatInr(offer.discount_amount_paise / 100)}</span>
+                    <span>-{formatInr(offer.discount_amount_paise / 100)}</span>
                   </div>
                   <div className="flex justify-between text-slate-600">
                     <span>Discounted Base:</span>
-                    <span>₹{formatInr(offer.discounted_base_paise / 100)}</span>
+                    <span>{formatInr(offer.discounted_base_paise / 100)}</span>
                   </div>
                   <div className="flex justify-between text-slate-500">
                     <span>GST (18%):</span>
-                    <span>+₹{formatInr(offer.gst_paise / 100)}</span>
+                    <span>+{formatInr(offer.gst_paise / 100)}</span>
                   </div>
                   <div className="pt-1.5 border-t border-purple-100 flex justify-between items-baseline">
                     <span className="font-bold text-slate-900">Total Payable:</span>
                     <span className="text-base font-extrabold text-emerald-700">
-                      ₹{formatInr(offer.total_paise / 100)}
+                      {formatInr(offer.total_paise / 100)}
                       <span className="text-[11px] font-normal text-slate-500"> / year</span>
                     </span>
                   </div>

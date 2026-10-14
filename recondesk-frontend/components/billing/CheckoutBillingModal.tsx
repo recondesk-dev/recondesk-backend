@@ -382,7 +382,7 @@ export function CheckoutBillingModal({
                     </span>
                   </div>
                   <span className="font-bold text-emerald-700">
-                    −₹{formatInr(discountAmount)}
+                    −{formatInr(discountAmount)}
                   </span>
                 </div>
               )}
@@ -401,7 +401,7 @@ export function CheckoutBillingModal({
               <svg className="w-4 h-4 text-slate-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
-              <span>Promotional coupons (20%–30%) are available only for annual subscription plans.</span>
+              <span>Promotional coupons (20%–40%) are available only for annual subscription plans.</span>
             </div>
           )}
 
@@ -412,7 +412,7 @@ export function CheckoutBillingModal({
                 {plan.name} Plan ({cycle === "yearly" ? "Annual" : "Monthly"})
               </span>
               <span className={`font-semibold ${appliedCoupon ? "line-through text-slate-400" : "text-slate-800"}`}>
-                ₹{formatInr(originalBasePrice)}
+                {formatInr(originalBasePrice)}
               </span>
             </div>
 
@@ -422,11 +422,11 @@ export function CheckoutBillingModal({
                   <span className="flex items-center gap-1">
                     Coupon: {appliedCoupon.code} ({appliedCoupon.discountPercentage}% OFF)
                   </span>
-                  <span className="font-semibold">−₹{formatInr(discountAmount)}</span>
+                  <span className="font-semibold">−{formatInr(discountAmount)}</span>
                 </div>
                 <div className="flex justify-between text-xs text-slate-700 font-semibold border-t border-dashed border-slate-200 pt-1.5">
                   <span>Discounted Base (Taxable)</span>
-                  <span>₹{formatInr(finalBasePrice)}</span>
+                  <span>{formatInr(finalBasePrice)}</span>
                 </div>
               </>
             )}
@@ -434,17 +434,17 @@ export function CheckoutBillingModal({
             {isInterstate ? (
               <div className="flex justify-between text-xs text-slate-600">
                 <span>Integrated Tax (IGST 18%)</span>
-                <span className="font-semibold text-slate-800">₹{formatInr(gstAmount)}</span>
+                <span className="font-semibold text-slate-800">{formatInr(gstAmount)}</span>
               </div>
             ) : (
               <>
                 <div className="flex justify-between text-xs text-slate-600">
                   <span>Central Tax (CGST 9%)</span>
-                  <span className="font-semibold text-slate-800">₹{formatInr(halfGst)}</span>
+                  <span className="font-semibold text-slate-800">{formatInr(halfGst)}</span>
                 </div>
                 <div className="flex justify-between text-xs text-slate-600">
                   <span>State Tax (SGST 9%)</span>
-                  <span className="font-semibold text-slate-800">₹{formatInr(gstAmount - halfGst)}</span>
+                  <span className="font-semibold text-slate-800">{formatInr(gstAmount - halfGst)}</span>
                 </div>
               </>
             )}
@@ -452,7 +452,7 @@ export function CheckoutBillingModal({
             <div className="border-t border-slate-200 pt-2 flex justify-between items-baseline">
               <span className="text-sm font-bold text-[var(--ink)]">Total Payable</span>
               <span className="text-lg font-extrabold text-[var(--ink)]">
-                ₹{formatInr(totalAmount)}
+                {formatInr(totalAmount)}
               </span>
             </div>
 
@@ -462,7 +462,7 @@ export function CheckoutBillingModal({
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
                 <span>
-                  <strong>₹{formatInr(gstAmount)}</strong> will be credited as Input Tax Credit (ITC) to your GST ledger and auto-populate in your firm’s GSTR-2B.
+                  <strong>{formatInr(gstAmount)}</strong> will be credited as Input Tax Credit (ITC) to your GST ledger and auto-populate in your firm’s GSTR-2B.
                 </span>
               </div>
             )}
@@ -489,7 +489,7 @@ export function CheckoutBillingModal({
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
                 </svg>
               )}
-              <span>Proceed to Pay ₹{formatInr(totalAmount)}</span>
+              <span>Proceed to Pay {formatInr(totalAmount)}</span>
             </button>
           </div>
         </form>

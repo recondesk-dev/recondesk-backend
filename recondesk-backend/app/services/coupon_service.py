@@ -201,18 +201,18 @@ def validate_coupon_for_checkout(
         )
 
     discount_percentage = int(coupon.get("discount_percentage") or 0)
-    # Rule 2 & 5: Only 20, 25, 30 permitted
+    # Rule 2 & 5: Only 20, 25, 30, 40 permitted
     if discount_percentage not in PERMITTED_DISCOUNTS:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid coupon discount percentage configuration.",
         )
 
-    # Rule 12: Founder-level approval required for 30% discount
-    if discount_percentage == 30 and not coupon.get("founder_approved"):
+    # Rule 12: Founder-level approval required for 30% and 40% discounts
+    if discount_percentage in (30, 40) and not coupon.get("founder_approved"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="30% discount coupon requires verified founder approval.",
+            detail=f"{discount_percentage}% discount coupon requires verified founder approval.",
         )
 
     # Rule 3 & 4: Acquisition vs Renewal coupon check
@@ -691,6 +691,7 @@ def get_coupon_analytics(db: Client) -> dict[str, Any]:
             "20%": sum(1 for c in coupons if c.get("discount_percentage") == 20),
             "25%": sum(1 for c in coupons if c.get("discount_percentage") == 25),
             "30%": sum(1 for c in coupons if c.get("discount_percentage") == 30),
+            "40%": sum(1 for c in coupons if c.get("discount_percentage") == 40),
         },
     }
 
@@ -838,8 +839,8 @@ def assign_private_ca_coupon(
         "sales_notes": payload.sales_notes.strip() if getattr(payload, "sales_notes", None) and payload.sales_notes else None,
         "is_acquisition_only": True,
         "created_by": staff_id if staff_id else None,
-        "founder_approved": True if payload.discount_percentage == 30 else False,
-        "founder_approved_by": str(staff_user.get("email") or staff_id) if payload.discount_percentage == 30 else None,
+        "founder_approved": True if payload.discount_percentage in (30, 40) else False,
+        "founder_approved_by": str(staff_user.get("email") or staff_id) if payload.discount_percentage in (30, 40) else None,
         "founder_approval_notes": payload.founder_approval_notes.strip() if getattr(payload, "founder_approval_notes", None) and payload.founder_approval_notes else None,
         "metadata": {
             "type": "private_ca_offer",
@@ -893,7 +894,7 @@ def activate_private_ca_coupon(
         "assigned_by_name": staff_name,
         "updated_at": now_iso,
     }
-    if int(coupon.get("discount_percentage") or 0) == 30:
+    if int(coupon.get("discount_percentage") or 0) in (30, 40):
         update_payload["founder_approved"] = True
         update_payload["founder_approved_by"] = str(staff_user.get("email") or staff_user.get("id"))
 

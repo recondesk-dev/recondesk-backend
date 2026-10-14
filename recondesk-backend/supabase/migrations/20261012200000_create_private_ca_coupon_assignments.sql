@@ -40,3 +40,11 @@ CREATE INDEX IF NOT EXISTS idx_coupons_offer_status
 CREATE INDEX IF NOT EXISTS idx_coupons_tenant_active_offer
     ON public.coupons (assigned_to_tenant_id, is_active, offer_status)
     WHERE is_active = TRUE AND offer_status = 'active';
+
+-- 4. Update discount_percentage check constraint to allow 40% discount tier
+ALTER TABLE public.coupons
+    DROP CONSTRAINT IF EXISTS coupons_discount_percentage_check;
+
+ALTER TABLE public.coupons
+    ADD CONSTRAINT coupons_discount_percentage_check
+    CHECK (discount_percentage IN (20, 25, 30, 40));

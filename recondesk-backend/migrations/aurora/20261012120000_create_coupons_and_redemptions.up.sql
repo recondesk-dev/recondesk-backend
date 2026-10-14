@@ -9,7 +9,7 @@
 CREATE TABLE IF NOT EXISTS public.coupons (
     id                          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     code                        VARCHAR(50) NOT NULL,
-    discount_percentage         INTEGER NOT NULL CHECK (discount_percentage IN (20, 25, 30)),
+    discount_percentage         INTEGER NOT NULL CHECK (discount_percentage IN (20, 25, 30, 40)),
     eligible_plans              JSONB NOT NULL DEFAULT '["solo", "firm", "large_firm"]'::jsonb,
     is_active                   BOOLEAN NOT NULL DEFAULT TRUE,
     expires_at                  TIMESTAMPTZ,

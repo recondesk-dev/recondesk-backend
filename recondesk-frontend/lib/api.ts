@@ -5677,7 +5677,7 @@ export type TenantSearchResult = {
 export type PrivateCouponAssignInput = {
   tenant_id: string;
   plan: "solo" | "firm" | "large_firm" | string;
-  discount_percentage: 20 | 25 | 30;
+  discount_percentage: 20 | 25 | 30 | 40;
   expires_at?: string | null;
   sales_notes?: string | null;
   custom_code?: string | null;

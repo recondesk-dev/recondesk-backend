@@ -49,7 +49,7 @@ export function AssignPrivateOfferModal({
   const [selectedTenant, setSelectedTenant] = useState<TenantSearchResult | null>(null);
 
   const [selectedPlan, setSelectedPlan] = useState<"solo" | "firm" | "large_firm">("firm");
-  const [discountTier, setDiscountTier] = useState<20 | 25 | 30>(25);
+  const [discountTier, setDiscountTier] = useState<20 | 25 | 40>(25);
   const [expiresAt, setExpiresAt] = useState("");
   const [salesNotes, setSalesNotes] = useState("");
   const [customCode, setCustomCode] = useState("");
@@ -126,7 +126,7 @@ export function AssignPrivateOfferModal({
       sales_notes: salesNotes.trim() || null,
       custom_code: customCode.trim() || null,
       activate_now: activateNow,
-      founder_approval_notes: discountTier === 30 ? founderNotes.trim() || null : null,
+      founder_approval_notes: discountTier === 40 ? founderNotes.trim() || null : null,
     };
 
     try {
@@ -292,7 +292,7 @@ export function AssignPrivateOfferModal({
                     <span className="font-bold text-xs capitalize">{planKey.replace("_", " ")}</span>
                     <span className="text-[10px] text-slate-500 mt-0.5">{info.gstins} GSTINs</span>
                     <span className="text-xs font-extrabold text-slate-900 mt-1">
-                      ₹{formatInr(info.base)}/yr
+                      {formatInr(info.base)}/yr
                     </span>
                   </button>
                 );
@@ -306,11 +306,11 @@ export function AssignPrivateOfferModal({
               3. Negotiated Discount Tier <span className="text-red-500">*</span>
             </label>
             <div className="grid grid-cols-3 gap-2.5">
-              {[20, 25, 30].map((tier) => (
+              {[20, 25, 40].map((tier) => (
                 <button
                   key={tier}
                   type="button"
-                  onClick={() => setDiscountTier(tier as 20 | 25 | 30)}
+                  onClick={() => setDiscountTier(tier as 20 | 25 | 40)}
                   className={`flex flex-col items-center justify-center p-3 rounded-xl border text-center transition ${
                     discountTier === tier
                       ? "border-purple-600 bg-purple-50/60 text-purple-900 ring-2 ring-purple-600/20"
@@ -326,12 +326,12 @@ export function AssignPrivateOfferModal({
             </div>
           </div>
 
-          {/* Founder Warning for 30% */}
-          {discountTier === 30 && (
+          {/* Founder Warning for 40% */}
+          {discountTier === 40 && (
             <div className="rounded-xl border border-amber-300 bg-amber-50 p-3.5 space-y-2">
               <div className="flex items-center gap-2 text-xs font-bold text-amber-900">
                 <ShieldCheck className="h-4 w-4 text-amber-700" />
-                <span>Founder Authorization Strictly Required for 30%</span>
+                <span>Founder Authorization Strictly Required for 40%</span>
               </div>
               <p className="text-[11px] text-amber-800">
                 The server will verify that your authenticated staff account belongs to the authorized founder team.
@@ -400,24 +400,24 @@ export function AssignPrivateOfferModal({
             <div className="space-y-1.5 text-xs text-slate-600">
               <div className="flex justify-between">
                 <span>Standard Annual Base:</span>
-                <span>₹{formatInr(originalBase)}</span>
+                <span>{formatInr(originalBase)}</span>
               </div>
               <div className="flex justify-between text-purple-700 font-semibold">
                 <span>Discount ({discountTier}%):</span>
-                <span>-₹{formatInr(discountAmount)}</span>
+                <span>-{formatInr(discountAmount)}</span>
               </div>
               <div className="flex justify-between">
                 <span>Discounted Base:</span>
-                <span>₹{formatInr(discountedBase)}</span>
+                <span>{formatInr(discountedBase)}</span>
               </div>
               <div className="flex justify-between text-slate-500">
                 <span>GST (18%):</span>
-                <span>+₹{formatInr(gstAmount)}</span>
+                <span>+{formatInr(gstAmount)}</span>
               </div>
               <div className="pt-2 border-t border-slate-200 flex justify-between items-baseline font-bold text-slate-900">
                 <span>Total Annual Payable:</span>
                 <span className="text-base font-extrabold text-emerald-700">
-                  ₹{formatInr(totalAmount)}
+                  {formatInr(totalAmount)}
                   <span className="text-xs font-normal text-slate-500"> / year</span>
                 </span>
               </div>

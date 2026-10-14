@@ -55,7 +55,7 @@ export default function AdminCouponsPage() {
 
   // Form State
   const [formCode, setFormCode] = useState("");
-  const [formDiscount, setFormDiscount] = useState<20 | 25 | 30>(25);
+  const [formDiscount, setFormDiscount] = useState<20 | 25 | 40>(25);
   const [formPlans, setFormPlans] = useState<string[]>(["solo", "firm", "large_firm"]);
   const [formExpiresAt, setFormExpiresAt] = useState("");
   const [formMaxRedemptions, setFormMaxRedemptions] = useState<string>("");
@@ -182,7 +182,7 @@ export default function AdminCouponsPage() {
       is_acquisition_only: formIsAcquisitionOnly,
       founder_approved: true,
       founder_approved_by: me?.email || formFounderApprovedBy.trim() || "kadamomkar9988@gmail.com",
-      founder_approval_notes: formFounderNotes.trim() || (formDiscount === 30 ? "Direct founder authorization" : null),
+      founder_approval_notes: formFounderNotes.trim() || (formDiscount === 40 ? "Direct founder authorization" : null),
     };
 
     try {
@@ -248,7 +248,7 @@ export default function AdminCouponsPage() {
             Annual Subscription Coupons
           </h1>
           <p className="mt-1 text-xs text-slate-500">
-            Manage high-intent promotional discount campaigns (20%, 25%, 30%) applied during GSTIN billing.
+            Manage high-intent promotional discount campaigns (20%, 25%, 40%) applied during GSTIN billing.
           </p>
         </div>
 
@@ -323,7 +323,7 @@ export default function AdminCouponsPage() {
             <TrendingUp className="h-4 w-4 text-amber-600" />
           </div>
           <div className="text-2xl font-bold text-slate-900">
-            ₹{formatInr((analytics?.total_discount_given_paise ?? 0) / 100)}
+            {formatInr((analytics?.total_discount_given_paise ?? 0) / 100)}
           </div>
           <div className="text-[11px] text-slate-500 font-medium">
             Base value savings credited
@@ -336,7 +336,7 @@ export default function AdminCouponsPage() {
             <Receipt className="h-4 w-4 text-emerald-600" />
           </div>
           <div className="text-2xl font-bold text-emerald-700">
-            ₹{formatInr((analytics?.total_revenue_realized_paise ?? 0) / 100)}
+            {formatInr((analytics?.total_revenue_realized_paise ?? 0) / 100)}
           </div>
           <div className="text-[11px] text-emerald-600 font-medium">
             Net collected via Razorpay
@@ -440,7 +440,7 @@ export default function AdminCouponsPage() {
                         <td className="px-6 py-4">
                           <span
                             className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 font-bold ${
-                              c.discount_percentage === 30
+                              c.discount_percentage >= 30
                                 ? "bg-amber-100 text-amber-800"
                                 : c.discount_percentage === 25
                                   ? "bg-purple-100 text-purple-800"
@@ -632,13 +632,13 @@ export default function AdminCouponsPage() {
                         {r.plan.replace("_", " ")}
                       </td>
                       <td className="px-6 py-4 text-slate-500">
-                        ₹{formatInr(r.original_base_amount_paise / 100)}
+                        {formatInr(r.original_base_amount_paise / 100)}
                       </td>
                       <td className="px-6 py-4 font-semibold text-emerald-600">
-                        −₹{formatInr(r.discount_amount_paise / 100)}
+                        −{formatInr(r.discount_amount_paise / 100)}
                       </td>
                       <td className="px-6 py-4 font-bold text-slate-900">
-                        ₹{formatInr(r.total_amount_paise / 100)}
+                        {formatInr(r.total_amount_paise / 100)}
                       </td>
                       <td className="px-6 py-4">
                         <span
@@ -674,7 +674,7 @@ export default function AdminCouponsPage() {
                   <Tag className="h-5 w-5 text-[#7B5CFA]" /> Create Promotional Coupon
                 </h2>
                 <p className="text-xs text-slate-500">
-                  Annual subscription discounts (strictly 20%, 25%, or 30%)
+                  Annual subscription discounts (strictly 20%, 25%, or 40%)
                 </p>
               </div>
               <button
@@ -712,7 +712,7 @@ export default function AdminCouponsPage() {
                   required
                   value={formCode}
                   onChange={(e) => setFormCode(e.target.value.toUpperCase())}
-                  placeholder="e.g. CA25, FIRM20, SPECIAL30"
+                  placeholder="e.g. CA25, FIRM20, SPECIAL40"
                   className="mt-1.5 w-full rounded-lg border border-slate-300 px-3.5 py-2 text-sm font-mono tracking-wider uppercase text-slate-900 placeholder:text-gray-400 focus:border-[#7B5CFA] focus:ring-1 focus:ring-[#7B5CFA] outline-none"
                 />
               </div>
@@ -723,13 +723,13 @@ export default function AdminCouponsPage() {
                   Discount Tier <span className="text-red-500">*</span>
                 </label>
                 <div className="grid grid-cols-3 gap-2.5 mt-1.5">
-                  {[20, 25, 30].map((tier) => (
+                  {[20, 25, 40].map((tier) => (
                     <button
                       key={tier}
                       type="button"
                       onClick={() => {
-                        setFormDiscount(tier as 20 | 25 | 30);
-                        if (tier !== 30) setFormFounderApproved(false);
+                        setFormDiscount(tier as 20 | 25 | 40);
+                        if (tier !== 40) setFormFounderApproved(false);
                       }}
                       className={`flex flex-col items-center justify-center p-3 rounded-xl border text-center transition ${
                         formDiscount === tier
@@ -746,12 +746,12 @@ export default function AdminCouponsPage() {
                 </div>
               </div>
 
-              {/* Founder Approval Section (Required for 30%) */}
-              {formDiscount === 30 && (
+              {/* Founder Approval Section (Required for 40%) */}
+              {formDiscount === 40 && (
                 <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-3.5 space-y-3">
                   <div className="flex items-center gap-2 text-xs font-bold text-amber-900">
                     <ShieldCheck className="h-4 w-4 text-amber-700" />
-                    <span>Founder-Level Approval Mandatory for 30% Discount</span>
+                    <span>Founder-Level Approval Mandatory for 40% Discount</span>
                   </div>
                   <label className="flex items-center gap-2 text-xs text-amber-900 font-medium cursor-pointer">
                     <input
@@ -768,7 +768,7 @@ export default function AdminCouponsPage() {
                     </label>
                     <input
                       type="text"
-                      required={formDiscount === 30}
+                      required={formDiscount === 40}
                       value={formFounderApprovedBy}
                       onChange={(e) => setFormFounderApprovedBy(e.target.value)}
                       placeholder="e.g. Omkar Kadam (Founder)"

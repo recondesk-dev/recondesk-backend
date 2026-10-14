@@ -200,6 +200,40 @@ def test_founder_can_assign_30_percent_private_offer(mock_founder_user):
     assert res["assigned_to_tenant_id"] == "ca-tenant-a-111"
 
 
+def test_founder_can_assign_40_percent_private_offer(mock_founder_user):
+    """Designated founder can successfully assign and activate a 40% private offer."""
+    mock_db = MagicMock()
+    mock_db.table().select().eq().limit().execute.return_value.data = [{
+        "id": "ca-tenant-a-111",
+        "email": "ca.rajesh@sharma-associates.in",
+        "full_name": "CA Rajesh Sharma",
+        "firm_name": "Sharma & Associates",
+    }]
+    mock_db.table().select().eq().eq().execute.return_value.data = []
+    mock_db.table().insert().execute.return_value.data = [{
+        "id": "cpn-priv-40",
+        "code": "CA-FIRM-40-X9Y2Z1",
+        "discount_percentage": 40,
+        "eligible_plans": ["firm"],
+        "is_active": True,
+        "offer_status": "active",
+        "assigned_to_tenant_id": "ca-tenant-a-111",
+        "founder_approved": True,
+        "founder_approved_by": "kadamomkar9988@gmail.com",
+    }]
+
+    req = PrivateCouponAssignRequest(
+        tenant_id="ca-tenant-a-111",
+        plan="firm",
+        discount_percentage=40,
+        founder_approval_notes="Special 40% enterprise discount approved by founder",
+    )
+    res = assign_private_ca_coupon(mock_db, req, mock_founder_user)
+    assert res["discount_percentage"] == 40
+    assert res["founder_approved"] is True
+    assert res["assigned_to_tenant_id"] == "ca-tenant-a-111"
+
+
 # ============================================================================
 # 2. Offer Creation, High-Entropy Code & Draft vs Active State
 # ============================================================================
