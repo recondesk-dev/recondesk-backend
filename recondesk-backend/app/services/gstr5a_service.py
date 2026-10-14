@@ -72,12 +72,13 @@ class Gstr5aRecordData:
     batch_id: str
     firm_id: str
     client_gstin_id: str
-    record_type: str  # "ORIGINAL" or "AMENDMENT"
+    record_type: str  # "ORIGINAL", "AMENDMENT", "B2B_RCM", "B2B_RCM_AMENDMENT", "GAMING", "GAMING_AMENDMENT"
     pos: str
     taxable_value: float
     rate_pct: float
     igst: float
     cess: float
+    recipient_gstin: Optional[str] = None
     original_period: Optional[str] = None
     original_pos: Optional[str] = None
     status: str = "ACTIVE"
@@ -211,6 +212,7 @@ def add_or_update_record_sync(
         cess=float(cess_calc),
         original_period=record_data.get("original_period"),
         original_pos=record_data.get("original_pos"),
+        recipient_gstin=record_data.get("recipient_gstin"),
         created_at=now,
         updated_at=now,
     )
@@ -230,12 +232,17 @@ def recompute_batch_sync(sb: Any, *, batch_id: str) -> Gstr5aBatchData:
         raise Gstr5aError(f"Batch '{batch_id}' not found.")
 
     records = _gstr5a_store.list_records(batch_id)
-    table5 = [r.__dict__ for r in records if r.record_type == "ORIGINAL"]
-    table5a = [r.__dict__ for r in records if r.record_type == "AMENDMENT"]
+    table5 = [r.__dict__ for r in records if r.record_type in ("ORIGINAL", "TABLE_5")]
+    table5a = [r.__dict__ for r in records if r.record_type in ("AMENDMENT", "TABLE_5A")]
+    table5d = [r.__dict__ for r in records if r.record_type in ("GAMING", "ONLINE_MONEY_GAMING", "TABLE_5D")]
+
+    # Tax calculation: Table 5 (B2C) + Table 5D (Gaming) require forward tax by overseas supplier
+    # Table 5B (B2B RCM) tax is paid by Indian registered recipient under RCM, not overseas supplier
+    combined_forward_supplies = table5 + table5d
 
     summary = summarize_gstr5a_supplies(
         period=batch.period,
-        table5_supplies=table5,
+        table5_supplies=combined_forward_supplies,
         table5a_amendments=table5a,
     )
 
@@ -243,7 +250,7 @@ def recompute_batch_sync(sb: Any, *, batch_id: str) -> Gstr5aBatchData:
     batch.total_igst = float(summary.total_igst)
     batch.total_cess = float(summary.total_cess)
     batch.net_tax_payable = float(summary.net_tax_payable)
-    batch.total_records = len(table5)
+    batch.total_records = len(records)
     batch.total_amendments = len(table5a)
 
     payload_for_digest = {
@@ -254,7 +261,7 @@ def recompute_batch_sync(sb: Any, *, batch_id: str) -> Gstr5aBatchData:
         "total_cess": batch.total_cess,
         "net_tax_payable": batch.net_tax_payable,
         "supplies": sorted(
-            [{"pos": r["pos"], "txval": r["taxable_value"], "igst": r["igst"]} for r in table5],
+            [{"pos": r["pos"], "txval": r["taxable_value"], "igst": r["igst"]} for r in combined_forward_supplies],
             key=lambda x: x["pos"],
         ),
     }
@@ -268,12 +275,17 @@ def get_batch_summary_sync(sb: Any, *, batch_id: str) -> dict[str, Any]:
     batch = recompute_batch_sync(sb, batch_id=batch_id)
     records = _gstr5a_store.list_records(batch_id)
 
-    table5 = [copy.deepcopy(r.__dict__) for r in records if r.record_type == "ORIGINAL"]
-    table5a = [copy.deepcopy(r.__dict__) for r in records if r.record_type == "AMENDMENT"]
+    table5 = [copy.deepcopy(r.__dict__) for r in records if r.record_type in ("ORIGINAL", "TABLE_5")]
+    table5a = [copy.deepcopy(r.__dict__) for r in records if r.record_type in ("AMENDMENT", "TABLE_5A")]
+    table5b = [copy.deepcopy(r.__dict__) for r in records if r.record_type in ("B2B_RCM", "TABLE_5B")]
+    table5c = [copy.deepcopy(r.__dict__) for r in records if r.record_type in ("B2B_RCM_AMENDMENT", "TABLE_5C")]
+    table5d = [copy.deepcopy(r.__dict__) for r in records if r.record_type in ("GAMING", "ONLINE_MONEY_GAMING", "TABLE_5D")]
+    table5e = [copy.deepcopy(r.__dict__) for r in records if r.record_type in ("GAMING_AMENDMENT", "TABLE_5E")]
 
+    combined_forward_supplies = table5 + table5d
     summary = summarize_gstr5a_supplies(
         period=batch.period,
-        table5_supplies=table5,
+        table5_supplies=combined_forward_supplies,
         table5a_amendments=table5a,
     )
 
@@ -282,16 +294,36 @@ def get_batch_summary_sync(sb: Any, *, batch_id: str) -> dict[str, Any]:
         "tax_summary": copy.deepcopy(summary.__dict__),
         "table5_supplies": table5,
         "table5a_amendments": table5a,
+        "table5b_b2b_rcm": table5b,
+        "table5c_b2b_rcm_amendments": table5c,
+        "table5d_gaming": table5d,
+        "table5e_gaming_amendments": table5e,
         "statutory_checks": {
             "eligible_itc": 0.00,
             "applicable_tax_head": "IGST Only (Section 14 of IGST Act)",
             "due_date_day": OIDAR_DUE_DATE_DAY,
+            "b2b_rcm_note": "Supplies in Table 5B/5C are paid by recipient under RCM (Section 5(3) IGST)",
+            "online_money_gaming_rate": "28.0% IGST under Section 14A of IGST Act",
         },
     }
 
 
 def build_gstr5a_offline_json(sb: Any, *, batch_id: str) -> dict[str, Any]:
-    """Generate official GSTN Form GSTR-5A offline JSON."""
+    """Generate internal audit and ASP data interchange JSON for Form GSTR-5A.
+
+    Operational Note:
+    The official GST Portal (gst.gov.in) does NOT support an offline JSON upload tool
+    or 'Prepare Offline' utility for Form GSTR-5A (OIDAR services). Official filing
+    on the GST Portal is conducted directly online via 'Prepare Online' or via
+    authorized GSP/ASP API integration. This JSON export provides complete internal
+    workpaper and ASP data interchange coverage across all statutory tables:
+    - Table 5 (sec5): B2C outward supplies to non-taxable online recipients
+    - Table 5A (sec5a): Amendments to Table 5
+    - Table 5B (sec5b): Supplies to registered persons in India under RCM (Section 5(3) IGST)
+    - Table 5C (sec5c): Amendments to Table 5B
+    - Table 5D (sec5d): Online money gaming supplies under Section 14A of IGST Act
+    - Table 5E (sec5e): Amendments to Table 5D
+    """
     summary = get_batch_summary_sync(sb, batch_id=batch_id)
     batch = summary["batch"]
 
@@ -299,7 +331,7 @@ def build_gstr5a_offline_json(sb: Any, *, batch_id: str) -> dict[str, Any]:
     fp = f"{parts[1]}{parts[0]}" if len(parts) == 2 else batch["period"]
 
     sec5 = []
-    for r in summary["table5_supplies"]:
+    for r in summary.get("table5_supplies", []):
         sec5.append({
             "pos": r["pos"],
             "txval": float(r["taxable_value"]),
@@ -309,10 +341,60 @@ def build_gstr5a_offline_json(sb: Any, *, batch_id: str) -> dict[str, Any]:
         })
 
     sec5a = []
-    for r in summary["table5a_amendments"]:
+    for r in summary.get("table5a_amendments", []):
         orig_fp = r.get("original_period") or batch["period"]
         omth = f"{orig_fp.split('-')[1]}{orig_fp.split('-')[0]}" if "-" in orig_fp else orig_fp
         sec5a.append({
+            "opos": r.get("original_pos") or r["pos"],
+            "omth": omth,
+            "pos": r["pos"],
+            "txval": float(r["taxable_value"]),
+            "rt": float(r["rate_pct"]),
+            "iamt": float(r["igst"]),
+            "csamt": float(r["cess"]),
+        })
+
+    sec5b = []
+    for r in summary.get("table5b_b2b_rcm", []):
+        sec5b.append({
+            "ctin": r.get("recipient_gstin") or "",
+            "pos": r["pos"],
+            "txval": float(r["taxable_value"]),
+            "rt": float(r["rate_pct"]),
+            "iamt": float(r["igst"]),
+            "csamt": float(r["cess"]),
+        })
+
+    sec5c = []
+    for r in summary.get("table5c_b2b_rcm_amendments", []):
+        orig_fp = r.get("original_period") or batch["period"]
+        omth = f"{orig_fp.split('-')[1]}{orig_fp.split('-')[0]}" if "-" in orig_fp else orig_fp
+        sec5c.append({
+            "ctin": r.get("recipient_gstin") or "",
+            "opos": r.get("original_pos") or r["pos"],
+            "omth": omth,
+            "pos": r["pos"],
+            "txval": float(r["taxable_value"]),
+            "rt": float(r["rate_pct"]),
+            "iamt": float(r["igst"]),
+            "csamt": float(r["cess"]),
+        })
+
+    sec5d = []
+    for r in summary.get("table5d_gaming", []):
+        sec5d.append({
+            "pos": r["pos"],
+            "txval": float(r["taxable_value"]),
+            "rt": float(r["rate_pct"]),
+            "iamt": float(r["igst"]),
+            "csamt": float(r["cess"]),
+        })
+
+    sec5e = []
+    for r in summary.get("table5e_gaming_amendments", []):
+        orig_fp = r.get("original_period") or batch["period"]
+        omth = f"{orig_fp.split('-')[1]}{orig_fp.split('-')[0]}" if "-" in orig_fp else orig_fp
+        sec5e.append({
             "opos": r.get("original_pos") or r["pos"],
             "omth": omth,
             "pos": r["pos"],
@@ -326,8 +408,10 @@ def build_gstr5a_offline_json(sb: Any, *, batch_id: str) -> dict[str, Any]:
         "gstin": batch["gstin"],
         "fp": fp,
         "sec5": sec5,
+        "sec5a": sec5a,
+        "sec5b": sec5b,
+        "sec5c": sec5c,
+        "sec5d": sec5d,
+        "sec5e": sec5e,
     }
-    if sec5a:
-        payload["sec5a"] = sec5a
-
     return payload

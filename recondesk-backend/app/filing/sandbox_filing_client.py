@@ -1514,7 +1514,7 @@ class SandboxFilingClient:
             if exc.status_code in (404, 405, 501):
                 raise FilingGstnError(
                     f"GSTR-5 Save endpoint is unsupported by the current GSTN/GSP API environment (HTTP {exc.status_code}). "
-                    "Use GSTN Offline Tool JSON Export for official upload.",
+                    "GST Portal requires direct online entry ('Prepare Online') or authorized GSP API.",
                     error_cd="UNSUPPORTED_BY_GSTN_API",
                 ) from exc
             raise
@@ -1586,7 +1586,7 @@ class SandboxFilingClient:
             if exc.status_code in (404, 405, 501):
                 raise FilingGstnError(
                     f"GSTR-5 File endpoint is unsupported by current GSTN API (HTTP {exc.status_code}). "
-                    "Upload via GST Portal Offline Utility.",
+                    "File directly on GST Portal ('Prepare Online') or via authorized GSP API.",
                     error_cd="UNSUPPORTED_BY_GSTN_API",
                 ) from exc
             raise
@@ -1622,7 +1622,7 @@ class SandboxFilingClient:
             if exc.status_code in (404, 405, 501):
                 raise FilingGstnError(
                     f"GSTR-5A Save endpoint is unsupported by the current GSTN/GSP API environment (HTTP {exc.status_code}). "
-                    "Use GSTN Offline Tool JSON Export for official upload.",
+                    "GST Portal requires direct online entry ('Prepare Online') or authorized GSP API.",
                     error_cd="UNSUPPORTED_BY_GSTN_API",
                 ) from exc
             raise
@@ -1694,7 +1694,7 @@ class SandboxFilingClient:
             if exc.status_code in (404, 405, 501):
                 raise FilingGstnError(
                     f"GSTR-5A File endpoint is unsupported by current GSTN API (HTTP {exc.status_code}). "
-                    "Upload via GST Portal Offline Utility.",
+                    "File directly on GST Portal ('Prepare Online') or via authorized GSP API.",
                     error_cd="UNSUPPORTED_BY_GSTN_API",
                 ) from exc
             raise

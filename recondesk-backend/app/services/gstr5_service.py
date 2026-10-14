@@ -404,7 +404,15 @@ def get_batch_summary_sync(sb: Any, *, batch_id: str) -> dict[str, Any]:
 
 
 def build_gstr5_offline_json(sb: Any, *, batch_id: str) -> dict[str, Any]:
-    """Generate official GSTN Form GSTR-5 offline JSON."""
+    """Generate internal audit and ASP data interchange JSON for Form GSTR-5.
+
+    Operational Note:
+    The official GST Portal (gst.gov.in) does NOT support an offline JSON upload tool
+    or 'Prepare Offline' utility for Form GSTR-5 (Non-Resident Taxable Persons).
+    Official filing on the GST Portal is conducted directly online via 'Prepare Online'
+    or programmatically via authorized GSP/ASP APIs. This generated JSON serves as
+    an internal record, CA workpaper, and ASP API interchange payload.
+    """
     summary = get_batch_summary_sync(sb, batch_id=batch_id)
     batch = summary["batch"]
 

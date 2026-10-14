@@ -1041,7 +1041,21 @@ def validate_gstr8_pre_filing(
             eco_state=eco_state,
             pos=pos or (supp_state or ""),
             supplier_state=supp_state,
+            transaction_date=r.get("transaction_date") or r.get("supply_date") or r.get("invoice_date"),
+            rate_basis=r.get("rate_basis"),
         )
+
+        if calc.requires_review:
+            violations.append(
+                ValidationViolation(
+                    code="G8_MISSING_RATE_BASIS_JULY_2024",
+                    message=f"Record #{idx}: {calc.review_reason}",
+                    category=ViolationCategory.STATUTORY_BREACH,
+                    severity=ValidationSeverity.CRITICAL_ERROR,
+                    details={"index": idx, "pos": pos, "supplier_gstin": supp_gstin},
+                )
+            )
+            statutory_checks["statutory_tcs_rate"] = "FAILED"
 
         t_igst = float(r.get("tcs_igst") or 0.0)
         t_cgst = float(r.get("tcs_cgst") or 0.0)

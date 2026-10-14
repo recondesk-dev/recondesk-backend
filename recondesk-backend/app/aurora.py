@@ -30,6 +30,12 @@ from sqlalchemy.pool import QueuePool
 
 from app.config import get_settings
 
+try:
+    import psycopg2.extras
+    psycopg2.extras.register_uuid()
+except Exception:
+    pass
+
 _log = logging.getLogger("recondesk.aurora")
 
 # Reentrant lock for thread-safe singleton initialization (prevents self-deadlock)

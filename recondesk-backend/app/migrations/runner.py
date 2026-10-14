@@ -253,6 +253,9 @@ class AuroraMigrationRunner:
     def _acquire_advisory_lock(self, conn: Connection) -> None:
         """Acquire a transaction-scoped advisory lock if running against PostgreSQL."""
         if conn.dialect.name == "postgresql":
+            # Enforce strict DDL lock_timeout and statement_timeout for migration transaction
+            conn.execute(sa.text("SET LOCAL lock_timeout = '5s'"))
+            conn.execute(sa.text("SET LOCAL statement_timeout = '60s'"))
             try:
                 res = conn.execute(
                     sa.text("SELECT pg_try_advisory_xact_lock(:lock_id)"),
@@ -456,6 +459,9 @@ class AuroraMigrationRunner:
 
         start = time.perf_counter()
         try:
+            if conn.dialect.name == "postgresql":
+                conn.execute(sa.text("SET LOCAL lock_timeout = '5s'"))
+                conn.execute(sa.text("SET LOCAL statement_timeout = '60s'"))
             sql_text = migration.up_path.read_text(encoding="utf-8")
             self._execute_sql_script(conn, sql_text)
             elapsed_ms = max(1, int((time.perf_counter() - start) * 1000))
@@ -533,6 +539,9 @@ class AuroraMigrationRunner:
 
         start = time.perf_counter()
         try:
+            if conn.dialect.name == "postgresql":
+                conn.execute(sa.text("SET LOCAL lock_timeout = '5s'"))
+                conn.execute(sa.text("SET LOCAL statement_timeout = '60s'"))
             sql_text = migration_file.down_path.read_text(encoding="utf-8")
             self._execute_sql_script(conn, sql_text)
             elapsed_ms = max(1, int((time.perf_counter() - start) * 1000))
