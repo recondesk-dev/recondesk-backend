@@ -550,6 +550,11 @@ def build_excel_workbook_bytes(
             "3B Table",
             "Match Confidence",
             "Match Rationale",
+            "Original GSTR-2B Invoice Number",
+            "Original PR Invoice Number",
+            "Normalized Invoice Number",
+            "GSTR-2B Source Ref",
+            "PR Source Ref",
         )
         hdr_fill = PatternFill("solid", fgColor=_HEADER_BLUE)
         hdr_font = Font(bold=True, color="FFFFFF")
@@ -722,6 +727,11 @@ def build_excel_workbook_bytes(
                 gstr3b_table,
                 _format_match_confidence(api_row.get("match_confidence")),
                 _format_match_rationale(api_row.get("compared_fields")),
+                api_row.get("original_gstr_invoice_number") or "",
+                api_row.get("original_pr_invoice_number") or "",
+                api_row.get("normalized_invoice_number") or "",
+                api_row.get("gstr_source_ref") or "",
+                api_row.get("pr_source_ref") or "",
             )
             for col, v in enumerate(vals, 1):
                 c = ws2.cell(row=r, column=col, value=v)
@@ -752,6 +762,9 @@ def build_excel_workbook_bytes(
             "WHAT IS WRONG",
             "WHY",
             "WHAT TO DO NEXT",
+            "Original GSTR-2B Invoice Number",
+            "Normalized Invoice Number",
+            "GSTR-2B Source Ref",
         )
         hdr_fill = PatternFill("solid", fgColor=_HEADER_GREEN)
         hdr_font = Font(bold=True, color="FFFFFF")
@@ -779,6 +792,9 @@ def build_excel_workbook_bytes(
                 _decision_cell(row.get("decision_what")),
                 _decision_cell(row.get("decision_why")),
                 _decision_cell(row.get("decision_next")),
+                row.get("original_gstr_invoice_number") or "",
+                row.get("normalized_invoice_number") or "",
+                row.get("gstr_source_ref") or "",
             )
             for col, v in enumerate(vals, 1):
                 ws3.cell(row=r, column=col, value=v)
@@ -803,6 +819,9 @@ def build_excel_workbook_bytes(
             "WHAT IS WRONG",
             "WHY",
             "WHAT TO DO NEXT",
+            "Original PR Invoice Number",
+            "Normalized Invoice Number",
+            "PR Source Ref",
         )
         hdr_fill = PatternFill("solid", fgColor=_HEADER_RED)
         hdr_font = Font(bold=True, color="FFFFFF")
@@ -825,6 +844,9 @@ def build_excel_workbook_bytes(
                 _decision_cell(row.get("decision_what")),
                 _decision_cell(row.get("decision_why")),
                 _decision_cell(row.get("decision_next")),
+                row.get("original_pr_invoice_number") or "",
+                row.get("normalized_invoice_number") or "",
+                row.get("pr_source_ref") or "",
             )
             for col, v in enumerate(vals, 1):
                 ws4.cell(row=r, column=col, value=v)
@@ -1045,20 +1067,24 @@ def build_excel_workbook_bytes(
         from app.services.review_priority import classify_review_priority, review_priority_sort_key
 
         ws_rev = wb.create_sheet("Review Required")
-        ws_rev.append(
-            [
-                "Supplier GSTIN",
-                "Invoice Number",
-                "Invoice Date",
-                "Reason",
-                "Amount",
-                "Priority",
-                "Match Confidence",
-                "Match Rationale",
-            ]
-        )
+        headers = [
+            "Supplier GSTIN",
+            "Invoice Number",
+            "Invoice Date",
+            "Reason",
+            "Amount",
+            "Priority",
+            "Match Confidence",
+            "Match Rationale",
+            "Original GSTR-2B Invoice Number",
+            "Original PR Invoice Number",
+            "Normalized Invoice Number",
+            "GSTR-2B Source Ref",
+            "PR Source Ref",
+        ]
+        ws_rev.append(headers)
         hdr_fill = PatternFill("solid", fgColor=_HEADER_ORANGE)
-        for c in range(1, 9):
+        for c in range(1, len(headers) + 1):
             ws_rev.cell(row=1, column=c).font = Font(bold=True, color="FFFFFF")
             ws_rev.cell(row=1, column=c).fill = hdr_fill
 
@@ -1076,6 +1102,11 @@ def build_excel_workbook_bytes(
                     prio,
                     _format_match_confidence(row.get("match_confidence")),
                     _format_match_rationale(row.get("compared_fields")),
+                    row.get("original_gstr_invoice_number") or "—",
+                    row.get("original_pr_invoice_number") or "—",
+                    row.get("normalized_invoice_number") or "—",
+                    row.get("gstr_source_ref") or "—",
+                    row.get("pr_source_ref") or "—",
                 ]
             )
             if prio in _PRIO_STYLE:

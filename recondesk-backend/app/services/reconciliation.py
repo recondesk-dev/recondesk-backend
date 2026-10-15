@@ -36,6 +36,8 @@ from app.services.matcher import (
     _RE_NOTE_IDENTIFIER,
     _RE_BRANCH_SUFFIX,
     _RE_BRANCH_NORM,
+    check_is_branch_variant,
+    get_invoice_base_sequence,
 )
 from app.services.vendor_name_matcher import find_best_vendor_match, vendor_name_similarity, l1_vendor_name_ok
 from app.services.gstr3b_reconciliation import _paise_to_rupees
@@ -607,6 +609,45 @@ def quarantine_pr_notes(state: ReconState, pr_records: list[dict]) -> list[dict]
     return invoice_prs
 
 
+def check_competing_branch_invoices(
+    gstr_record: dict,
+    best_pr: dict,
+    all_supplier_prs: list[dict],
+    consumed_pr_ids: set[str],
+) -> bool:
+    """Check if other PR records from the same supplier compete with best_pr for a branch match.
+
+    A competing invoice exists if another PR row:
+    1. Shares the base invoice sequence (sequence collision e.g. INV-001 vs INV-001-BR01 or INV-001-BR01 vs INV-001-BR02).
+    2. Or is another unconsumed eligible counterpart that could match this GSTR record.
+    """
+    best_id = str(best_pr.get("id") or "")
+    best_raw = str(best_pr.get("invoice_number_raw") or best_pr.get("invoice_number") or "").strip()
+    best_base = get_invoice_base_sequence(best_raw)
+    gstr_raw = str(gstr_record.get("invoice_number_raw") or gstr_record.get("invoice_number") or "").strip()
+    gstr_base = get_invoice_base_sequence(gstr_raw)
+
+    for other_p in all_supplier_prs:
+        other_id = str(other_p.get("id") or "")
+        if not other_id or other_id == best_id:
+            continue
+        other_raw = str(other_p.get("invoice_number_raw") or other_p.get("invoice_number") or "").strip()
+        other_base = get_invoice_base_sequence(other_raw)
+
+        # 1. Base invoice collision (e.g. INV-100 and INV-100-BR01, or INV-100-BR01 and INV-100-BR02)
+        if best_base and other_base and best_base == other_base:
+            return True
+        if gstr_base and other_base and gstr_base == other_base:
+            return True
+
+        # 2. Another unconsumed PR row that also matches this GSTR record
+        if other_id not in consumed_pr_ids:
+            mr = match_gstr_to_pr(gstr_record, [other_p])
+            if mr and mr.matched and mr.level in (1, 2, 3) and _accept_reconciliation_pair(gstr_record, other_p, mr):
+                return True
+
+    return False
+
 
 def _push_clean_matched(
     state,
@@ -636,6 +677,8 @@ def _push_clean_matched(
     match_dict = {
         "gstr_id": str(gstr_id),
         "pr_id": str(pr_id),
+        "gstr_source_ref": str(gstr_id),
+        "pr_source_ref": str(pr_id),
         "confidence_score": score,
         "match_reasons": _match_reasons_from_result(best_result),
         "is_late_filing": is_late_filing,
@@ -665,14 +708,25 @@ def _push_clean_matched(
     if p_taxable is not None:
         match_dict["pr_taxable_amount_paise"] = p_taxable
     if gstr_rec is not None:
-        g_inv = str(gstr_rec.get("invoice_number") or "").strip()
+        g_inv = str(gstr_rec.get("invoice_number_raw") or gstr_rec.get("invoice_number") or "").strip()
+        g_norm = str(gstr_rec.get("invoice_number_normalized") or "").strip()
         if g_inv:
             match_dict["gstr_invoice_number"] = g_inv
+            match_dict["original_gstr_invoice_number"] = g_inv
             match_dict["invoice_number"] = g_inv
+        if g_norm:
+            match_dict["invoice_number_normalized"] = g_norm
+            match_dict["normalized_invoice_number"] = g_norm
     if pr_rec is not None:
-        p_inv = str(pr_rec.get("invoice_number") or "").strip()
+        p_inv = str(pr_rec.get("invoice_number_raw") or pr_rec.get("invoice_number") or "").strip()
+        p_norm = str(pr_rec.get("invoice_number_normalized") or "").strip()
         if p_inv:
             match_dict["pr_invoice_number"] = p_inv
+            match_dict["original_pr_invoice_number"] = p_inv
+            if not match_dict.get("invoice_number"):
+                match_dict["invoice_number"] = p_inv
+        if p_norm and not match_dict.get("normalized_invoice_number"):
+            match_dict["normalized_invoice_number"] = p_norm
     state.clean_matched.append(match_dict)
     state.consumed_pr_ids.add(str(pr_id))
     state.consumed_gstr_ids.add(str(gstr_id))
@@ -740,6 +794,8 @@ def _push_review_required(
     match_dict = {
         "gstr_id": str(gstr_id),
         "pr_id": str(pr_id),
+        "gstr_source_ref": str(gstr_id),
+        "pr_source_ref": str(pr_id),
         "confidence_score": score,
         "match_reasons": _match_reasons_from_result(best_result) if best_result else [],
         "match_status": "review_required",
@@ -766,8 +822,26 @@ def _push_review_required(
         match_dict["is_debit_note"] = (g_doc == "DEBIT_NOTE" or p_doc == "DEBIT_NOTE")
     if gstr_rec is not None:
         match_dict["gstr_invoice_date"] = gstr_rec.get("invoice_date")
+        g_inv = str(gstr_rec.get("invoice_number_raw") or gstr_rec.get("invoice_number") or "").strip()
+        g_norm = str(gstr_rec.get("invoice_number_normalized") or "").strip()
+        if g_inv:
+            match_dict["gstr_invoice_number"] = g_inv
+            match_dict["original_gstr_invoice_number"] = g_inv
+            match_dict["invoice_number"] = g_inv
+        if g_norm:
+            match_dict["invoice_number_normalized"] = g_norm
+            match_dict["normalized_invoice_number"] = g_norm
     if pr_rec is not None:
         match_dict["pr_invoice_date"] = pr_rec.get("invoice_date")
+        p_inv = str(pr_rec.get("invoice_number_raw") or pr_rec.get("invoice_number") or "").strip()
+        p_norm = str(pr_rec.get("invoice_number_normalized") or "").strip()
+        if p_inv:
+            match_dict["pr_invoice_number"] = p_inv
+            match_dict["original_pr_invoice_number"] = p_inv
+            if not match_dict.get("invoice_number"):
+                match_dict["invoice_number"] = p_inv
+        if p_norm and not match_dict.get("normalized_invoice_number"):
+            match_dict["normalized_invoice_number"] = p_norm
     if gstr_rec is not None and gstr_rec.get("gstin_format_invalid"):
         match_dict["gstin_format_invalid"] = True
     if best_result is not None:
@@ -2345,6 +2419,15 @@ def process_gstr_records_chunk(
                 break # Exact match, greedily pick
 
         if best_result is not None and best_pr is not None:
+            if getattr(best_result, "is_branch_variant", False):
+                all_supplier_prs = pr_index.get(gstin, [])
+                if check_competing_branch_invoices(gstr_record, best_pr, all_supplier_prs, state.consumed_pr_ids):
+                    best_result.level = 3
+                    best_result.requires_human_review = True
+                    best_result.review_reason = "BRANCH_SUFFIX_REVIEW"
+                    best_result.decision_what = "Branch suffix invoice requires review"
+                    best_result.decision_why = "Multiple competing invoices or sequence collisions exist for this branch-suffixed document"
+
             score = compute_match_score(best_result)
             if best_result.requires_human_review:
                 _push_review_required(
@@ -2386,6 +2469,15 @@ def process_gstr_records_chunk(
                 # Pick the best one
                 acceptable.sort(key=lambda x: _tie_key(x[0], gstr_record, x[1]))
                 best_r, best_p = acceptable[0]
+                if getattr(best_r, "is_branch_variant", False):
+                    all_period_prs = pr_index_by_period.get(period, {}).get(gstin, [])
+                    if check_competing_branch_invoices(gstr_record, best_p, all_period_prs, state.consumed_pr_ids):
+                        best_r.level = 3
+                        best_r.requires_human_review = True
+                        best_r.review_reason = "BRANCH_SUFFIX_REVIEW"
+                        best_r.decision_what = "Branch suffix invoice requires review"
+                        best_r.decision_why = "Multiple competing invoices or sequence collisions exist for this branch-suffixed document"
+
                 score = compute_match_score(best_r)
                 late_months = (gstr_period.year - period.year) * 12 + (gstr_period.month - period.month)
                 if best_r.requires_human_review:
@@ -2423,13 +2515,18 @@ def build_wrongful_itc_risk(
             continue
         ttp = pr_rec.get("total_tax_paise")
         tap = _taxable_paise(pr_rec)
+        raw_inv = str(pr_rec.get("invoice_number_raw") or pr_rec.get("invoice_number") or "").strip()
+        norm_inv = str(pr_rec.get("invoice_number_normalized") or "").strip()
         out.append(
             {
                 "id": pr_id,
                 "supplier_gstin": str(pr_rec.get("supplier_gstin") or ""),
-                "invoice_number_normalized": str(
-                    pr_rec.get("invoice_number_normalized") or ""
-                ),
+                "invoice_number": raw_inv or norm_inv,
+                "original_pr_invoice_number": raw_inv,
+                "invoice_number_raw": raw_inv,
+                "invoice_number_normalized": norm_inv,
+                "normalized_invoice_number": norm_inv,
+                "pr_source_ref": pr_id,
                 "invoice_date": pr_rec.get("invoice_date"),
                 "taxable_amount_paise": int(tap) if tap is not None else 0,
                 "total_tax_paise": int(ttp) if ttp is not None else 0,
@@ -3496,10 +3593,17 @@ def execute_phase2_and_3(
     for g in unconsumed_gstr:
         ttp = g.get("total_tax_paise")
         tap = _taxable_paise(g)
+        raw_inv = str(g.get("invoice_number_raw") or g.get("invoice_number") or "").strip()
+        norm_inv = str(g.get("invoice_number_normalized") or "").strip()
         entry = {
             "gstr_id": str(g["id"]),
             "supplier_gstin": str(g.get("supplier_gstin") or ""),
-            "invoice_number_normalized": str(g.get("invoice_number_normalized") or ""),
+            "invoice_number": raw_inv or norm_inv,
+            "original_gstr_invoice_number": raw_inv,
+            "invoice_number_raw": raw_inv,
+            "invoice_number_normalized": norm_inv,
+            "normalized_invoice_number": norm_inv,
+            "gstr_source_ref": str(g["id"]),
             "invoice_date": g.get("invoice_date"),
             "taxable_amount_paise": int(tap) if tap is not None else 0,
             "total_tax_paise": int(ttp) if ttp is not None else 0,

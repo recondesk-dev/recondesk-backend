@@ -3482,10 +3482,35 @@ def _build_missed_itc_records(
                 "supplier_gstin": str(mi.get("supplier_gstin") or mt.get("supplier_gstin") or ""),
                 "trade_name": trade_name or None,
                 "invoice_number": str(
-                    mi.get("invoice_number_normalized")
+                    mi.get("invoice_number")
+                    or mi.get("original_gstr_invoice_number")
+                    or mi.get("invoice_number_raw")
+                    or mt.get("invoice_number_raw")
+                    or mt.get("invoice_number")
+                    or rd.get("invoice_number")
+                    or rd.get("invoice_no")
+                    or mi.get("invoice_number_normalized")
                     or mt.get("invoice_number_normalized")
                     or ""
-                ),
+                ).strip(),
+                "original_gstr_invoice_number": str(
+                    mi.get("original_gstr_invoice_number")
+                    or mi.get("invoice_number_raw")
+                    or mt.get("invoice_number_raw")
+                    or mt.get("invoice_number")
+                    or rd.get("invoice_number")
+                    or rd.get("invoice_no")
+                    or ""
+                ).strip(),
+                "original_pr_invoice_number": "",
+                "normalized_invoice_number": str(
+                    mi.get("normalized_invoice_number")
+                    or mi.get("invoice_number_normalized")
+                    or mt.get("invoice_number_normalized")
+                    or ""
+                ).strip(),
+                "gstr_source_ref": gid,
+                "pr_source_ref": "",
                 "invoice_date": str(mi.get("invoice_date") or mt.get("invoice_date") or "")[:40],
                 "amount": amt,
                 "category": cat,
@@ -3611,8 +3636,35 @@ def _build_wrongful_risk_records(
                 "supplier_gstin": str(w.get("supplier_gstin") or mt.get("supplier_gstin") or ""),
                 "trade_name": trade_name or None,
                 "invoice_number": str(
-                    w.get("invoice_number_normalized") or mt.get("invoice_number_normalized") or ""
-                ),
+                    w.get("invoice_number")
+                    or w.get("original_pr_invoice_number")
+                    or w.get("invoice_number_raw")
+                    or mt.get("invoice_number_raw")
+                    or mt.get("invoice_number")
+                    or rd.get("invoice_number")
+                    or rd.get("invoice_no")
+                    or w.get("invoice_number_normalized")
+                    or mt.get("invoice_number_normalized")
+                    or ""
+                ).strip(),
+                "original_gstr_invoice_number": "",
+                "original_pr_invoice_number": str(
+                    w.get("original_pr_invoice_number")
+                    or w.get("invoice_number_raw")
+                    or mt.get("invoice_number_raw")
+                    or mt.get("invoice_number")
+                    or rd.get("invoice_number")
+                    or rd.get("invoice_no")
+                    or ""
+                ).strip(),
+                "normalized_invoice_number": str(
+                    w.get("normalized_invoice_number")
+                    or w.get("invoice_number_normalized")
+                    or mt.get("invoice_number_normalized")
+                    or ""
+                ).strip(),
+                "gstr_source_ref": "",
+                "pr_source_ref": pid,
                 "invoice_date": str(w.get("invoice_date") or mt.get("invoice_date") or "")[:40],
                 "amount": amt,
                 "match_level": "UNMATCHED",
@@ -4071,15 +4123,47 @@ def _build_matched_pair_records(
                 final_d_why = d_why if d_why else (str(getattr(orow, "decision_why", "")) if orow else None)
                 final_d_next = d_next if d_next else (str(getattr(orow, "decision_next", "")) if orow else None)
 
+            raw_g_inv = str(
+                en_row.get("original_gstr_invoice_number")
+                or en_row.get("gstr_invoice_number")
+                or gm.get("invoice_number_raw")
+                or gm.get("invoice_number")
+                or grd_raw.get("invoice_number")
+                or grd_raw.get("invoice_no")
+                or ""
+            ).strip()
+            raw_p_inv = str(
+                en_row.get("original_pr_invoice_number")
+                or en_row.get("pr_invoice_number")
+                or pm.get("invoice_number_raw")
+                or pm.get("invoice_number")
+                or prd_raw.get("invoice_number")
+                or prd_raw.get("invoice_no")
+                or ""
+            ).strip()
+            norm_inv = str(
+                en_row.get("normalized_invoice_number")
+                or en_row.get("invoice_number_normalized")
+                or gm.get("invoice_number_normalized")
+                or pm.get("invoice_number_normalized")
+                or ""
+            ).strip()
+            display_inv = (
+                str(en_row.get("invoice_number") or "").strip()
+                or raw_g_inv
+                or raw_p_inv
+                or norm_inv
+            )
+
             api_row = {
                 "id": rid_str,
                 "supplier_gstin": str(en_row.get("supplier_gstin") or gm.get("supplier_gstin") or pm.get("supplier_gstin") or ""),
-                "invoice_number": str(
-                    en_row.get("invoice_number_normalized")
-                    or gm.get("invoice_number_normalized")
-                    or pm.get("invoice_number_normalized")
-                    or ""
-                ),
+                "invoice_number": display_inv,
+                "original_gstr_invoice_number": raw_g_inv,
+                "original_pr_invoice_number": raw_p_inv,
+                "normalized_invoice_number": norm_inv,
+                "gstr_source_ref": str(gid or ""),
+                "pr_source_ref": str(pid or ""),
                 "invoice_date": str(
                     en_row.get("invoice_date") or gm.get("invoice_date") or pm.get("invoice_date") or ""
                 )[:40],
