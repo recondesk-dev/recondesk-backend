@@ -1263,9 +1263,57 @@ class MatchResult:
     original_period: date | None = None
     late_months: int = 0
     vendor_similarity_score: float | None = None
+    is_branch_variant: bool = False
     # Field-by-field comparison snapshot for the CA rationale drawer.
     # Additive / observational only — never feeds matching decisions.
     compared_fields: list[dict[str, Any]] = field(default_factory=list)
+
+
+def check_is_branch_variant(
+    a: str | None,
+    b: str | None,
+    a_raw: str | None = None,
+    b_raw: str | None = None,
+) -> bool:
+    """Return True if invoices a and b differ by a recognized branch suffix."""
+    raw_a_str = str(a_raw or a or "").strip()
+    raw_b_str = str(b_raw or b or "").strip()
+    if not raw_a_str or not raw_b_str:
+        return False
+    na = normalize_invoice(raw_a_str)
+    nb = normalize_invoice(raw_b_str)
+    raw_a_s = _RE_BRANCH_SUFFIX.sub("", raw_a_str)
+    raw_b_s = _RE_BRANCH_SUFFIX.sub("", raw_b_str)
+    has_branch_regex = bool(
+        _RE_BRANCH_SUFFIX.search(raw_a_str)
+        or _RE_BRANCH_SUFFIX.search(raw_b_str)
+        or _RE_BRANCH_NORM.search(na)
+        or _RE_BRANCH_NORM.search(nb)
+    )
+    if not has_branch_regex:
+        return False
+    if raw_a_s == raw_b_s:
+        return True
+    norm_as = normalize_invoice(raw_a_s)
+    norm_bs = normalize_invoice(raw_b_s)
+    if norm_as and norm_bs and norm_as == norm_bs:
+        return True
+    if norm_as and norm_bs and ocr_canonical_invoice(norm_as) == ocr_canonical_invoice(norm_bs):
+        return True
+    if is_invoice_format_variant(norm_as, norm_bs, raw_a_s, raw_b_s):
+        return True
+    if count_ocr_substitutions(norm_as, norm_bs, a_raw=raw_a_s, b_raw=raw_b_s)[0] > 0:
+        return True
+    return False
+
+
+def get_invoice_base_sequence(inv: str | None, inv_raw: str | None = None) -> str:
+    """Extract normalized base invoice string after stripping branch suffixes."""
+    raw = str(inv_raw or inv or "").strip()
+    if not raw:
+        return ""
+    no_sfx = _RE_BRANCH_NORM.sub("", _RE_BRANCH_SUFFIX.sub("", raw))
+    return normalize_invoice(no_sfx)
 
 
 def _field_entry(
@@ -2136,6 +2184,8 @@ def _match_gstr_to_pr_pair(
     gstr_rec: Mapping[str, Any],
     pr_rec: Mapping[str, Any],
     gstr_by_invoice: Mapping[str, Mapping[str, Any]] | None = None,
+    *,
+    has_competing_invoices: bool = False,
 ) -> MatchResult:
     # Strict semantic compatibility gate: reject invoice <-> note or incompatible note types
     compat, compat_reason = are_document_types_compatible(gstr_rec, pr_rec)
@@ -2292,8 +2342,11 @@ def _match_gstr_to_pr_pair(
     # Observational snapshot for the CA rationale drawer — does not affect tiers.
     compared = build_compared_fields(gstr_rec, pr_rec)
 
+    is_branch_variant = check_is_branch_variant(g_inv, p_inv, g_inv_raw, p_inv_raw)
+
     def _ret(**kwargs: Any) -> MatchResult:
         kwargs.setdefault("compared_fields", compared)
+        kwargs.setdefault("is_branch_variant", is_branch_variant)
         return MatchResult(**kwargs)
 
     # Financial severity classification
@@ -2522,19 +2575,32 @@ def _match_gstr_to_pr_pair(
     is_term_del = is_terminal_sequence_deletion(g_inv, p_inv, a_raw=g_inv_raw, b_raw=p_inv_raw)
     is_risky_ocr = ocr_only_match and ((ocr_subs >= 2) or ocr_pfx or is_short_risk)
 
-    is_branch_variant = bool(
-        (_RE_BRANCH_SUFFIX.search(g_inv_raw) or _RE_BRANCH_SUFFIX.search(p_inv_raw) or _RE_BRANCH_NORM.search(norm_g) or _RE_BRANCH_NORM.search(norm_p))
-        and (
-            _RE_BRANCH_SUFFIX.sub("", g_inv_raw) == _RE_BRANCH_SUFFIX.sub("", p_inv_raw)
-            or g_norm_nobr == p_norm_nobr
-            or (g_norm_nobr and p_norm_nobr and ocr_canonical_invoice(g_norm_nobr) == ocr_canonical_invoice(p_norm_nobr))
-        )
-    )
+    is_branch_variant = check_is_branch_variant(g_inv, p_inv, g_inv_raw, p_inv_raw)
     is_note = (
         _is_note_doc(gstr_rec)
         or _is_note_doc(pr_rec)
         or (ev_inv.prefix_a in ("CN", "DN", "CRN", "DRN", "CR", "DR", "CDN") and not ev_inv.prefix_b)
         or (ev_inv.prefix_b in ("CN", "DN", "CRN", "DRN", "CR", "DR", "CDN") and not ev_inv.prefix_a)
+    )
+    has_competing = bool(
+        has_competing_invoices
+        or pr_rec.get("has_competing_invoices")
+        or gstr_rec.get("has_competing_invoices")
+    )
+    g_doc_s = str(gstr_rec.get("doc_type") or gstr_rec.get("document_type") or "").upper().strip()
+    p_doc_s = str(pr_rec.get("doc_type") or pr_rec.get("document_type") or "").upper().strip()
+    doc_type_agrees = not (g_doc_s and p_doc_s and g_doc_s != p_doc_s)
+    is_branch_safe = bool(
+        is_branch_variant
+        and gstin_match
+        and doc_type_agrees
+        and not is_note
+        and not note_in_b2b
+        and not is_term_del
+        and not is_short_risk
+        and not is_seq_mismatch
+        and ocr_subs == 0
+        and not has_competing
     )
 
     if (
@@ -2595,7 +2661,7 @@ def _match_gstr_to_pr_pair(
                 financial_status="Exact",
                 review_reason="TYPO_MISMATCH",
             )
-        if is_risky_ocr or ocr_subs >= 2:
+        if is_risky_ocr or ocr_subs >= 2 or (is_branch_variant and ocr_subs >= 1):
             ocr_discrepancies = list(discrepancies) + [
                 f"ocr_review: Invoice numbers differ by {ocr_subs} OCR character(s) ({g_inv_raw or g_inv} vs {p_inv_raw or p_inv})"
             ]
@@ -2614,6 +2680,26 @@ def _match_gstr_to_pr_pair(
                 identity_confidence="Medium",
                 financial_status="Exact",
                 review_reason="OCR_CONFIDENCE_REVIEW",
+            )
+        if is_branch_variant and not is_branch_safe:
+            branch_discrepancies = list(discrepancies) + [
+                f"branch_review: Branch suffix variation ({g_inv_raw or g_inv} vs {p_inv_raw or p_inv}) requires review due to competing supplier invoices or ambiguity"
+            ]
+            return _ret(
+                level=3,
+                matched=True,
+                confidence=75,
+                requires_human_review=True,
+                decision_what="Branch suffix invoice requires review",
+                decision_why=(
+                    f"Invoice numbers {g_inv_raw or g_inv} (GSTR-2B) and {p_inv_raw or p_inv} (PR) differ by branch suffix "
+                    "with competing same-supplier invoices or sequence ambiguity. Physical invoice review required."
+                ),
+                decision_next="Confirm physical document and branch allocation before claiming ITC.",
+                discrepancies=branch_discrepancies,
+                identity_confidence="Medium",
+                financial_status="Exact",
+                review_reason="BRANCH_SUFFIX_REVIEW",
             )
         if not is_note and not is_branch_variant and not is_amendment_match and ev_inv.prefix_changed and ev_inv.terminal_sequence_match:
             prefix_discrepancies = list(discrepancies) + [
@@ -2774,10 +2860,14 @@ def _match_gstr_to_pr_pair(
             # A genuinely zero-discrepancy pair is already handled by the
             # zero-discrepancy invariant above and never reaches this branch;
             # anything landing here has a real (if small) amount/date diff.
-            if is_risky_ocr or ocr_subs >= 2:
+            if is_risky_ocr or ocr_subs >= 2 or (is_branch_variant and ocr_subs >= 1):
                 rr = "OCR_CONFIDENCE_REVIEW"
                 d_what = f"Invoice matched via OCR correction with {ocr_subs} character substitutions"
                 d_why = f"Same normalized invoice identity via OCR transliteration ({ocr_subs} corrections); verification required"
+            elif is_branch_variant and not is_branch_safe:
+                rr = "BRANCH_SUFFIX_REVIEW"
+                d_what = "Branch suffix invoice requires review"
+                d_why = f"Invoice numbers {g_inv_raw or g_inv} and {p_inv_raw or p_inv} have branch suffix variations requiring manual review"
             elif is_short_risk:
                 ocr_c = ocr_subs if ocr_subs > 0 else count_ocr_substitutions(g_inv, p_inv, a_raw=g_inv_raw, b_raw=p_inv_raw)[0]
                 rr = "OCR_CONFIDENCE_REVIEW" if (ocr_c > 0 or ocr_only_match) else "TYPO_MISMATCH"
@@ -2818,15 +2908,15 @@ def _match_gstr_to_pr_pair(
                 rr = "REVIEW_REQUIRED"
 
             return _ret(
-                level=3 if rr == "PREFIX_ALTERATION_REVIEW" else 2,
+                level=3 if rr in ("PREFIX_ALTERATION_REVIEW", "OCR_CONFIDENCE_REVIEW", "BRANCH_SUFFIX_REVIEW") else 2,
                 matched=True,
-                confidence=75 if rr == "PREFIX_ALTERATION_REVIEW" else 90,
+                confidence=75 if rr in ("PREFIX_ALTERATION_REVIEW", "OCR_CONFIDENCE_REVIEW", "BRANCH_SUFFIX_REVIEW") else 90,
                 requires_human_review=True,
                 decision_what=d_what,
                 decision_why=d_why,
                 decision_next="Verify if needed",
                 discrepancies=discrepancies,
-                identity_confidence="Medium" if rr == "PREFIX_ALTERATION_REVIEW" else "High",
+                identity_confidence="Medium" if rr in ("PREFIX_ALTERATION_REVIEW", "OCR_CONFIDENCE_REVIEW", "BRANCH_SUFFIX_REVIEW") else "High",
                 financial_status=financial_status,
                 review_reason=rr,
             )
@@ -2932,6 +3022,8 @@ def match_gstr_to_pr(
     gstr_rec: Mapping[str, Any],
     pr_records: list[Mapping[str, Any]],
     gstr_by_invoice: Mapping[str, Mapping[str, Any]] | None = None,
+    *,
+    has_competing_invoices: bool = False,
 ) -> MatchResult | None:
     """Compare one GSTR row to many PR rows; return the best match or ``None``.
 
@@ -2951,7 +3043,12 @@ def match_gstr_to_pr(
         # This caused 0 matched records on runs with early test data.  The callers
         # (process_gstr_records_chunk, execute_phase2_and_3) already control which
         # records are passed in; no status guard is needed or correct here.
-        r = _match_gstr_to_pr_pair(gstr_rec, pr_rec, gstr_by_invoice)
+        r = _match_gstr_to_pr_pair(
+            gstr_rec,
+            pr_rec,
+            gstr_by_invoice,
+            has_competing_invoices=has_competing_invoices,
+        )
         if r is None:
             continue
         if not r.matched:

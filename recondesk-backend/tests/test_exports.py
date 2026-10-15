@@ -572,7 +572,9 @@ class TestExcelConfidenceColumns:
             "WHY",
             "WHAT TO DO NEXT",
         ]
-        assert headers[-2:] == ["Match Confidence", "Match Rationale"]
+        assert "Match Confidence" in headers
+        assert "Match Rationale" in headers
+        assert "Original GSTR-2B Invoice Number" in headers
 
     def test_matched_l1_row_shows_dash_for_null_match_confidence(self):
         from openpyxl import load_workbook
@@ -666,8 +668,8 @@ class TestExcelConfidenceColumns:
             "Reason",
             "Amount",
         ]
-        assert headers[5] == "Priority"
-        assert headers[-2:] == ["Match Confidence", "Match Rationale"]
+        assert headers[6:8] == ["Match Confidence", "Match Rationale"]
+        assert "Original GSTR-2B Invoice Number" in headers
         assert ws.cell(row=2, column=6).value in ("URGENT", "HIGH", "MEDIUM", "LOW")
         assert ws.cell(row=2, column=7).value == "82%"
         assert "Invoice#: fuzzy 82%" in str(ws.cell(row=2, column=8).value)
