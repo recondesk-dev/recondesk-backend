@@ -19,3 +19,6 @@ supabase_migration_dump*.sql
 # Worktrees
 .worktrees/
 
+# Scratch & temporary test scripts
+scratch/
+

@@ -19,4 +19,5 @@ jobs:
           script: |
             cd /home/ubuntu/recondesk-backend
             git pull origin main
-            docker compose -f docker-compose.prod.yml up -d --build web worker
+            # Safe container restart without on-instance build spikes (protects against low RAM OOM crashes)
+            docker compose -f docker-compose.prod.yml up -d --no-build web worker || docker compose -f docker-compose.prod.yml up -d web worker
