@@ -2787,7 +2787,7 @@ def _match_gstr_to_pr_pair(
                             f"(GSTR: {_rs_str(gstr_total)}, PR: {_rs_str(pr_total)}); date difference is {delta_str} "
                             f"(within {DATE_TOLERANCE_L1_DAYS}-day tolerance)"
                         ),
-                        decision_next="ITC claim is safe under Section 16(2)(aa). Verify commercial terms with supplier for post-tax gross variance.",
+                        decision_next="Section 16(2)(aa) GSTR-2B reflection condition is satisfied. Avail ITC in GSTR-3B subject to invoice possession, actual receipt of supply, 180-day payment, and Section 17(5) eligibility. Verify commercial terms with supplier for post-tax gross variance.",
                         discrepancies=discrepancies,
                         identity_confidence="High", financial_status="Exact",
                         review_reason=None,
@@ -2812,7 +2812,7 @@ def _match_gstr_to_pr_pair(
                         f"Taxable and tax amounts align for ITC claim; gross invoice value differs by {_rs_str(total_diff)} "
                         f"(GSTR: {_rs_str(gstr_total)}, PR: {_rs_str(pr_total)})"
                     ),
-                    decision_next="ITC claim is safe under Section 16(2)(aa). Verify commercial terms with supplier for post-tax gross variance.",
+                    decision_next="Section 16(2)(aa) GSTR-2B reflection condition is satisfied. Avail ITC in GSTR-3B subject to invoice possession, actual receipt of supply, 180-day payment, and Section 17(5) eligibility. Verify commercial terms with supplier for post-tax gross variance.",
                     discrepancies=discrepancies,
                     identity_confidence="High", financial_status="Exact",
                     review_reason=None,
@@ -2834,7 +2834,7 @@ def _match_gstr_to_pr_pair(
                 f"Invoice numbers match after normalization or format variant; taxable and tax amounts align for ITC claim; "
                 f"gross invoice value differs by {_rs_str(total_diff)} (GSTR: {_rs_str(gstr_total)}, PR: {_rs_str(pr_total)})"
             )
-            next_text = "ITC claim is safe under Section 16(2)(aa). Verify commercial terms with supplier for post-tax gross variance."
+            next_text = "Section 16(2)(aa) GSTR-2B reflection condition is satisfied. Avail ITC in GSTR-3B subject to invoice possession, actual receipt of supply, 180-day payment, and Section 17(5) eligibility. Verify commercial terms with supplier for post-tax gross variance."
         elif skip_date or date_diff_days == 0:
             why_text = "Invoice numbers match after normalization or format variant; amounts and dates align"
         else:
@@ -2871,7 +2871,7 @@ def _match_gstr_to_pr_pair(
                             f"(GSTR: {_rs_str(gstr_total)}, PR: {_rs_str(pr_total)}); date difference is {delta_str} "
                             f"(within {DATE_TOLERANCE_L1_DAYS}-day tolerance)"
                         ),
-                        decision_next="ITC claim is safe under Section 16(2)(aa). Verify commercial terms with supplier for post-tax gross variance.",
+                        decision_next="Section 16(2)(aa) GSTR-2B reflection condition is satisfied. Avail ITC in GSTR-3B subject to invoice possession, actual receipt of supply, 180-day payment, and Section 17(5) eligibility. Verify commercial terms with supplier for post-tax gross variance.",
                         discrepancies=discrepancies,
                         identity_confidence="High", financial_status=financial_status,
                     )
@@ -2894,7 +2894,7 @@ def _match_gstr_to_pr_pair(
                         f"Taxable and tax amounts align for ITC claim; gross invoice value differs by {_rs_str(total_diff)} "
                         f"(GSTR: {_rs_str(gstr_total)}, PR: {_rs_str(pr_total)})"
                     ),
-                    decision_next="ITC claim is safe under Section 16(2)(aa). Verify commercial terms with supplier for post-tax gross variance.",
+                    decision_next="Section 16(2)(aa) GSTR-2B reflection condition is satisfied. Avail ITC in GSTR-3B subject to invoice possession, actual receipt of supply, 180-day payment, and Section 17(5) eligibility. Verify commercial terms with supplier for post-tax gross variance.",
                     discrepancies=discrepancies,
                     identity_confidence="High", financial_status=financial_status,
                 )

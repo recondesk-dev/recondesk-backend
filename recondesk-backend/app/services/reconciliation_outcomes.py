@@ -478,7 +478,7 @@ def _mr_to_decisions(
         else:
             d_what = "Exact match found"
             d_why = "Invoice number, amount, and date align"
-            d_next = "ITC can be claimed as filed"
+            d_next = "Section 16(2)(aa) reflection condition is satisfied. Avail ITC subject to statutory conditions under Section 16/17."
     return (d_what, d_why, d_next, tvd, igd, cgd, sgd, ttd, st)
 
 
@@ -885,6 +885,7 @@ def build_outcome_rows(
             reporting_period=payload.get("period") or payload.get("return_period"),
         )
 
+        from app.services.matcher import _extract_branch_suffix
         if wr.get("gstin_typo_in_pr") or wr.get("risk_reason") == "GSTIN_TYPO_IN_PR":
             itc_amt_paise = _opt_int(wr.get("total_tax_paise")) or 0
             itc_amt_str = f"₹{abs(itc_amt_paise) / 100:,.2f}"
@@ -892,6 +893,25 @@ def build_outcome_rows(
             d_what = dec.what
             d_why = dec.why
             d_next = dec.next
+        elif (
+            wr.get("risk_reason") == "BRANCH_ALLOCATION_RISK"
+            or wr.get("branch_allocation_risk")
+            or _extract_branch_suffix(invn, str(rd.get("invoice_number") or p.get("invoice_number") or ""))
+        ):
+            itc_amt_paise = _opt_int(wr.get("total_tax_paise")) or 0
+            itc_amt_str = f"₹{abs(itc_amt_paise) / 100:,.2f}"
+            dec = generate_decision(
+                "WRONGFUL_ITC_BRANCH_ALLOCATION",
+                supplier_gstin=str(wr.get("supplier_gstin") or p.get("supplier_gstin") or "?"),
+                itc_amount=itc_amt_str,
+            )
+            d_what = dec.what
+            d_why = dec.why
+            d_next = dec.next
+        elif wr.get("decision_what"):
+            d_what = wr["decision_what"]
+            d_why = wr.get("decision_why") or sc_pr.decision_why
+            d_next = wr.get("decision_next") or sc_pr.decision_next
         else:
             d_what = sc_pr.decision_what
             d_why = sc_pr.decision_why

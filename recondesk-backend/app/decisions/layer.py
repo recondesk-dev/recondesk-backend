@@ -215,6 +215,16 @@ def _decision_for_row(row: dict[str, Any], scheme_type: str = "regular") -> Deci
         )
 
     if row.get("is_wrongful_itc") or mismatch_type == "WRONGFUL_ITC":
+        if row.get("risk_reason") == "BRANCH_ALLOCATION_RISK" or row.get("branch_allocation_risk"):
+            return generate_decision(
+                "WRONGFUL_ITC_BRANCH_ALLOCATION",
+                confidence="MEDIUM",
+                matched_fields=_row_identity_fields(row),
+                differed_fields=[],
+                normalized_pairs=[],
+                supplier_gstin=supplier_gstin,
+                itc_amount=itc_amount,
+            )
         # Bug-3 fix: GSTIN-typo ITC-at-risk records must use a separate template.
         # These records have their invoice number present in GSTR-2B under a
         # different supplier GSTIN — the issue is a data-entry error in the PR,

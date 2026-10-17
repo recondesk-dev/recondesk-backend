@@ -2525,6 +2525,9 @@ def build_wrongful_itc_risk(
     matched_pr_ids: set[str],
 ) -> list[dict]:
     """PR rows in the current run that had no GSTR match."""
+    from app.services.decision_templates import generate_decision
+    from app.services.matcher import _extract_branch_suffix
+
     out: list[dict] = []
     for pr_rec in pr_records:
         pr_id = str(pr_rec["id"])
@@ -2534,6 +2537,26 @@ def build_wrongful_itc_risk(
         tap = _taxable_paise(pr_rec)
         raw_inv = str(pr_rec.get("invoice_number_raw") or pr_rec.get("invoice_number") or "").strip()
         norm_inv = str(pr_rec.get("invoice_number_normalized") or "").strip()
+        sfx = _extract_branch_suffix(norm_inv, raw_inv)
+        amt_paise = int(ttp) if ttp is not None else 0
+        amt_str = f"₹{abs(amt_paise) / 100:,.2f}"
+        if sfx:
+            dec = generate_decision(
+                "WRONGFUL_ITC_BRANCH_ALLOCATION",
+                supplier_gstin=str(pr_rec.get("supplier_gstin") or "?"),
+                itc_amount=amt_str,
+            )
+            risk_reason = "BRANCH_ALLOCATION_RISK"
+            is_branch = True
+        else:
+            dec = generate_decision(
+                "WRONGFUL_ITC",
+                supplier_gstin=str(pr_rec.get("supplier_gstin") or "?"),
+                itc_amount=amt_str,
+            )
+            risk_reason = "PR_ONLY"
+            is_branch = False
+
         out.append(
             {
                 "id": pr_id,
@@ -2546,7 +2569,13 @@ def build_wrongful_itc_risk(
                 "pr_source_ref": pr_id,
                 "invoice_date": pr_rec.get("invoice_date"),
                 "taxable_amount_paise": int(tap) if tap is not None else 0,
-                "total_tax_paise": int(ttp) if ttp is not None else 0,
+                "total_tax_paise": amt_paise,
+                "amount": abs(amt_paise) / 100.0,
+                "risk_reason": risk_reason,
+                "branch_allocation_risk": is_branch,
+                "decision_what": dec.what,
+                "decision_why": dec.why,
+                "decision_next": dec.next,
             }
         )
     return out
@@ -3821,6 +3850,8 @@ def _finalize_reconciliation_result(
         {
             "id": str(p["id"]),
             "supplier_gstin": str(p.get("supplier_gstin") or ""),
+            "invoice_number": str(p.get("invoice_number_raw") or p.get("invoice_number") or ""),
+            "original_pr_invoice_number": str(p.get("original_invoice_number") or p.get("invoice_number_raw") or p.get("invoice_number") or ""),
             "invoice_number_normalized": str(
                 p.get("invoice_number_normalized") or ""
             ),
@@ -3857,12 +3888,17 @@ def _finalize_reconciliation_result(
                 sfx = _extract_branch_suffix(inv_norm, inv_raw)
                 if sfx:
                     risk_row["risk_reason"] = "BRANCH_ALLOCATION_RISK"
-                    risk_row["decision_what"] = "Branch Allocation Risk: Unmatched Branch Invoice"
-                    risk_row["decision_why"] = (
-                        f"Invoice recorded for branch {sfx} in PR, but supplier did not file a matching branch "
-                        "document in GSTR-2B (or base sequence was claimed under another branch/GSTIN)."
+                    risk_row["branch_allocation_risk"] = True
+                    risk_row["branch_suffix"] = sfx
+                    from app.services.decision_templates import generate_decision
+                    dec = generate_decision(
+                        "WRONGFUL_ITC_BRANCH_ALLOCATION",
+                        supplier_gstin=str(risk_row.get("supplier_gstin") or "?"),
+                        itc_amount=f"₹{int(risk_row.get('total_tax_paise') or 0) / 100:,.2f}",
                     )
-                    risk_row["decision_next"] = "Verify inter-branch billing and supplier GSTR-1. Confirm branch allocation before claiming ITC."
+                    risk_row["decision_what"] = dec.what
+                    risk_row["decision_why"] = dec.why
+                    risk_row["decision_next"] = dec.next
 
     filing_status_risk = build_filing_status_itc_risk(gstr_records or [])
     wrongful_itc_risk = pr_wrongful_itc_risk + filing_status_risk

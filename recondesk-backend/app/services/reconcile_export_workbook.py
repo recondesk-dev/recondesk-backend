@@ -839,16 +839,37 @@ def build_excel_workbook_bytes(
         sum_risk = 0.0
         for row in risk_rows:
             am = float(row.get("amount") or 0)
+            if am == 0 and row.get("total_tax_paise"):
+                am = abs(int(row["total_tax_paise"])) / 100.0
             sum_risk += am
+            dec_what = row.get("decision_what")
+            dec_why = row.get("decision_why")
+            dec_next = row.get("decision_next")
+            if not dec_what:
+                from app.services.decision_templates import generate_decision
+                from app.services.matcher import _extract_branch_suffix
+                norm_inv = str(row.get("normalized_invoice_number") or row.get("invoice_number_normalized") or "")
+                raw_inv = str(row.get("original_pr_invoice_number") or row.get("invoice_number") or "")
+                sfx = _extract_branch_suffix(norm_inv, raw_inv)
+                amt_str = f"₹{am:,.2f}"
+                if sfx or row.get("risk_reason") == "BRANCH_ALLOCATION_RISK" or row.get("branch_allocation_risk"):
+                    dec = generate_decision("WRONGFUL_ITC_BRANCH_ALLOCATION", supplier_gstin=row.get("supplier_gstin", "?"), itc_amount=amt_str)
+                elif row.get("risk_reason") == "GSTIN_TYPO_IN_PR" or row.get("gstin_typo_in_pr"):
+                    dec = generate_decision("WRONGFUL_ITC_GSTIN_TYPO", supplier_gstin=row.get("supplier_gstin", "?"), itc_amount=amt_str)
+                else:
+                    dec = generate_decision("WRONGFUL_ITC", supplier_gstin=row.get("supplier_gstin", "?"), itc_amount=amt_str)
+                dec_what = dec.what
+                dec_why = dec.why
+                dec_next = dec.next
             vals = (
                 row.get("supplier_gstin", ""),
                 row.get("invoice_number", ""),
                 row.get("invoice_date", ""),
                 _doc_type_display(row.get("document_type"), row),
                 _comma_int(am),
-                _decision_cell(row.get("decision_what")),
-                _decision_cell(row.get("decision_why")),
-                _decision_cell(row.get("decision_next")),
+                _decision_cell(dec_what),
+                _decision_cell(dec_why),
+                _decision_cell(dec_next),
                 row.get("original_pr_invoice_number") or "",
                 row.get("normalized_invoice_number") or "",
                 row.get("pr_source_ref") or "",

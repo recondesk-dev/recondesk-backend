@@ -37,6 +37,7 @@ from app.services.reconcile_export_workbook import (
     build_excel_workbook_bytes,
 )
 from app.matching.engine import run_bidirectional_reconciliation
+from app.services.decision_templates import generate_decision
 
 
 # ===========================================================================
@@ -517,4 +518,77 @@ class TestDocumentTypeEdgeCases:
         compat, reason = are_document_types_compatible(inv_row, note_row)
         assert compat is False
         assert reason == "CROSS_DOCUMENT_TYPE_REJECTED"
+
+
+# ===========================================================================
+# Report Clarity Hardening: Branch Allocation Risk & Conditional ITC Language
+# ===========================================================================
+class TestReportClarityHardening:
+    def test_branch_allocation_risk_decision_template_clarity(self):
+        d = generate_decision("WRONGFUL_ITC_BRANCH_ALLOCATION", itc_amount="₹18,000.00")
+        assert d.what == "Branch Allocation Risk: Competing Branch Booking in PR"
+        assert "shares a base sequence with an invoice in GSTR-2B" in d.why
+        assert "competing branch booking" in d.why
+        assert "not filed" not in d.why.lower()  # Non-prejudicial: does not claim supplier did not file
+        assert "filed by supplier" not in d.why.lower()  # Does not assert unverified supplier filing as fact
+        assert "Verify inter-branch billing" in d.next
+        assert "recipient GSTIN" in d.next
+
+    def test_conditional_itc_eligibility_wording(self):
+        # L1 Exact must be conditional on statutory Section 16/17 conditions
+        d_exact = generate_decision("L1_EXACT")
+        assert "Section 16(2)(aa)" in d_exact.next
+        assert "safe to claim" not in d_exact.next.lower()
+        assert "subject to invoice possession" in d_exact.next
+
+        # Missed ITC must advise verifying Section 16/17 eligibility
+        d_missed = generate_decision("MISSED_ITC", itc_amount="₹5,000.00", source_software="Books")
+        assert "verify eligibility under Section 16/17" in d_missed.next
+
+        # Late Filing must reference Section 16(4) time limit
+        d_late = generate_decision("LATE_FILING", original_period="Jul 2026", gstr_period="Sep 2026", late_months="2")
+        assert "Section 16(4)" in d_late.next
+        assert "Section 16(2)(aa)" in d_late.next
+
+    def test_excel_export_compliance_risk_sheet_has_branch_clarity(self):
+        risk_row = {
+            "supplier_gstin": "07ABBLD1037F1ZM",
+            "invoice_number": "AX/00451/26-BR02",
+            "invoice_date": "2026-09-08",
+            "document_type": "INVOICE",
+            "amount": 1800.0,
+            "risk_reason": "BRANCH_ALLOCATION_RISK",
+            "branch_allocation_risk": True,
+            "original_pr_invoice_number": "AX/00451/26-BR02",
+            "normalized_invoice_number": "AX45126BR2",
+            "pr_source_ref": "PR_001",
+        }
+        wb_bytes, _ = build_excel_workbook_bytes(
+            run_id="test-clarity-export",
+            firm_name="Test CA Firm",
+            client_trade_name="Test Client",
+            period_raw="2026-09",
+            summary={"matched_count": 0, "total_records": 1},
+            matched_pairs=[],
+            missed_rows=[],
+            risk_rows=[risk_row],
+            rule37_rows=[],
+            section17_rows=[],
+            review_required_rows=[],
+            duplicate_rows=[],
+            unmatched_note_rows=[],
+            generated_at=datetime.datetime.now(datetime.timezone.utc),
+            generated_by_name="Test CA",
+        )
+        import openpyxl, io
+        wb = openpyxl.load_workbook(io.BytesIO(wb_bytes))
+        ws4 = wb["Compliance Risk"]
+        assert ws4.cell(row=2, column=2).value == "AX/00451/26-BR02"
+        what_cell = ws4.cell(row=2, column=6).value
+        why_cell = ws4.cell(row=2, column=7).value
+        next_cell = ws4.cell(row=2, column=8).value
+        assert "Branch Allocation Risk" in what_cell
+        assert "competing branch booking" in why_cell
+        assert "Verify inter-branch billing" in next_cell
+
 

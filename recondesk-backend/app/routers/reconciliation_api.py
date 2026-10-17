@@ -3598,7 +3598,38 @@ def _build_wrongful_risk_records(
             or (isinstance(rd, dict) and rd.get("is_credit_note"))
             or str(doc_type_val or "").upper().replace(" ", "_") in ("CREDIT_NOTE", "CREDIT", "CRN", "CN", "CDN", "C", "CBT")
         )
-        if is_dn:
+        from app.services.matcher import _extract_branch_suffix
+
+        raw_num = str(
+            w.get("original_pr_invoice_number")
+            or w.get("invoice_number_raw")
+            or mt.get("invoice_number_raw")
+            or w.get("invoice_number")
+            or mt.get("invoice_number")
+            or rd.get("invoice_number")
+            or rd.get("invoice_no")
+            or ""
+        ).strip()
+        norm_num = str(
+            w.get("invoice_number_normalized") or mt.get("invoice_number_normalized") or ""
+        ).strip()
+
+        is_branch = bool(
+            w.get("branch_allocation_risk")
+            or w.get("risk_reason") == "BRANCH_ALLOCATION_RISK"
+            or _extract_branch_suffix(norm_num, raw_num)
+        )
+        is_gstin_typo = bool(
+            w.get("gstin_typo_in_pr")
+            or w.get("risk_reason") == "GSTIN_TYPO_IN_PR"
+        )
+        if is_branch:
+            final_doc_type = "INVOICE"
+            rule_name = "WRONGFUL_ITC_BRANCH_ALLOCATION"
+        elif is_gstin_typo:
+            final_doc_type = "INVOICE"
+            rule_name = "WRONGFUL_ITC_GSTIN_TYPO"
+        elif is_dn:
             final_doc_type = "DEBIT_NOTE"
             rule_name = "WRONGFUL_ITC_DEBIT_NOTE"
         elif is_cn:
@@ -3670,9 +3701,9 @@ def _build_wrongful_risk_records(
                 "match_level": "UNMATCHED",
                 "confidence_score": 0.0,
                 "discrepancy_note": None,
-                "decision_what": dout.what,
-                "decision_why": dout.why,
-                "decision_next": dout.next,
+                "decision_what": w.get("decision_what") or dout.what,
+                "decision_why": w.get("decision_why") or dout.why,
+                "decision_next": w.get("decision_next") or dout.next,
                 "decision_rule": dout.rule,
                 "decision_confidence": dout.confidence,
                 "decision_matched_fields": list(dout.matched_fields),

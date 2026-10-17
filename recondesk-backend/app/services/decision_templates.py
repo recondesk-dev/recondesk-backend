@@ -21,7 +21,7 @@ TEMPLATES: dict[str, dict[str, str]] = {
     "L1_EXACT": {
         "what": "Exact match found",
         "why": "Invoice number, amount, and date all match within rounding tolerance",
-        "next": "No action required. ITC can be claimed as filed.",
+        "next": "No action required for reconciliation. Section 16(2)(aa) reflection condition is satisfied. Avail ITC subject to invoice possession, actual receipt of supply, and other statutory conditions under Section 16/17.",
     },
     "L1_CREDIT_NOTE_EXACT": {
         "what": "Exact match found for Credit Note",
@@ -72,7 +72,7 @@ TEMPLATES: dict[str, dict[str, str]] = {
     "MISSED_ITC": {
         "what": "Available in 2B but Missing in Books",
         "why": "Invoice not entered in {source_software} or entered under a different GSTIN",
-        "next": "Locate physical invoice. If genuine, add to purchase register and claim ITC of {itc_amount}.",
+        "next": "Locate physical invoice. If genuine, add to purchase register and verify eligibility under Section 16/17 before claiming ITC of {itc_amount}.",
     },
     "MISSED_ITC_CREDIT_NOTE": {
         "what": "Credit Note in 2B but Missing in Books",
@@ -98,6 +98,19 @@ TEMPLATES: dict[str, dict[str, str]] = {
             "ITC of {itc_amount} cannot be claimed until it appears in GSTR-2B."
         ),
         "next": "Contact {supplier_gstin} to confirm filing status. Do not claim this ITC in GSTR-3B until it appears in GSTR-2B.",
+    },
+    "WRONGFUL_ITC_BRANCH_ALLOCATION": {
+        "what": "Branch Allocation Risk: Competing Branch Booking in PR",
+        "why": (
+            "Invoice shares a base sequence with an invoice in GSTR-2B or with a competing branch "
+            "booking in PR. Reconciliation cannot determine without verification whether this booking "
+            "represents a distinct physical supply or an unreflected branch document, creating a risk "
+            "of duplicate or mismatched branch ITC."
+        ),
+        "next": (
+            "Verify inter-branch billing, physical delivery location, and recipient GSTIN. Confirm "
+            "whether a separate tax invoice was issued for this branch before availing ITC in GSTR-3B."
+        ),
     },
     "WRONGFUL_ITC_CREDIT_NOTE": {
         "what": "Credit Note in Books but not reflected in GSTR-2B",
@@ -178,7 +191,7 @@ TEMPLATES: dict[str, dict[str, str]] = {
     "LATE_FILING": {
         "what": "Invoice dated {original_period} appeared in {gstr_period} GSTR-2B ({late_months} months late)",
         "why": "Supplier filed this invoice late with the GST portal",
-        "next": "ITC can still be claimed as the invoice is now in GSTR-2B. Verify the purchase register entry matches.",
+        "next": "Section 16(2)(aa) condition is now satisfied as invoice appears in GSTR-2B. Avail ITC subject to Section 16(4) time limit and other statutory conditions under Section 16/17.",
     },
     # ── Review Required templates ──────────────────────────────────────────
     "REVIEW_AMOUNT_MISMATCH": {
