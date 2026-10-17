@@ -38,6 +38,8 @@ from app.services.matcher import (
     _RE_BRANCH_NORM,
     check_is_branch_variant,
     get_invoice_base_sequence,
+    _extract_branch_suffix,
+    _normalize_branch_suffix,
 )
 from app.services.vendor_name_matcher import find_best_vendor_match, vendor_name_similarity, l1_vendor_name_ok
 from app.services.gstr3b_reconciliation import _paise_to_rupees
@@ -695,6 +697,9 @@ def _push_clean_matched(
         "compared_fields": list(getattr(best_result, "compared_fields", None) or []),
         "taxable_diff_paise": taxable_diff,
         "amount_difference_paise": taxable_diff,
+        "decision_what": getattr(best_result, "decision_what", None),
+        "decision_why": getattr(best_result, "decision_why", None),
+        "decision_next": getattr(best_result, "decision_next", None),
     }
     g_doc = str((gstr_rec or {}).get("doc_type") or "").strip().upper()
     p_doc = str((pr_rec or {}).get("doc_type") or (pr_rec or {}).get("document_type") or "").strip().upper()
@@ -812,6 +817,9 @@ def _push_review_required(
         "note": note,
         "match_confidence": match_confidence,  # invoice_similarity score for L5/fuzzy matches
         "compared_fields": compared_fields or None,
+        "decision_what": getattr(best_result, "decision_what", None) if best_result else None,
+        "decision_why": getattr(best_result, "decision_why", None) if best_result else None,
+        "decision_next": getattr(best_result, "decision_next", None) if best_result else None,
     }
     g_doc = str((gstr_rec or {}).get("doc_type") or "").strip().upper()
     p_doc = str((pr_rec or {}).get("doc_type") or (pr_rec or {}).get("document_type") or "").strip().upper()
@@ -1455,6 +1463,13 @@ def _same_canonical_invoice_identity(
         return True
     raw_a = a_raw or a_inv
     raw_b = b_raw or b_inv
+
+    # Branch suffix guard: differing branch suffixes (e.g. BR01 vs BR02 or BR01 vs no branch)
+    # represent distinct branch bookings, never duplicate entries of the same invoice
+    br_a = _normalize_branch_suffix(_extract_branch_suffix(a_inv, raw_a))
+    br_b = _normalize_branch_suffix(_extract_branch_suffix(b_inv, raw_b))
+    if (br_a or br_b) and br_a != br_b:
+        return False
 
     # Terminal alphabetic suffix guard: suffixes like A and B must remain distinct
     sfx_a = _terminal_alpha_suffix(a_inv, raw_a)
@@ -2427,6 +2442,7 @@ def process_gstr_records_chunk(
                     best_result.review_reason = "BRANCH_SUFFIX_REVIEW"
                     best_result.decision_what = "Branch suffix invoice requires review"
                     best_result.decision_why = "Multiple competing invoices or sequence collisions exist for this branch-suffixed document"
+                    best_result.decision_next = "Verify physical invoice and confirm correct branch allocation before claiming ITC."
 
             score = compute_match_score(best_result)
             if best_result.requires_human_review:
@@ -2477,6 +2493,7 @@ def process_gstr_records_chunk(
                         best_r.review_reason = "BRANCH_SUFFIX_REVIEW"
                         best_r.decision_what = "Branch suffix invoice requires review"
                         best_r.decision_why = "Multiple competing invoices or sequence collisions exist for this branch-suffixed document"
+                        best_r.decision_next = "Verify physical invoice and confirm correct branch allocation before claiming ITC."
 
                 score = compute_match_score(best_r)
                 late_months = (gstr_period.year - period.year) * 12 + (gstr_period.month - period.month)
@@ -3835,6 +3852,17 @@ def _finalize_reconciliation_result(
                 # The invoice IS in GSTR-2B, just under a different GSTIN
                 risk_row["risk_reason"] = "GSTIN_TYPO_IN_PR"
                 risk_row["gstin_typo_in_pr"] = True
+            else:
+                inv_raw = str(risk_row.get("original_pr_invoice_number") or risk_row.get("invoice_number") or "")
+                sfx = _extract_branch_suffix(inv_norm, inv_raw)
+                if sfx:
+                    risk_row["risk_reason"] = "BRANCH_ALLOCATION_RISK"
+                    risk_row["decision_what"] = "Branch Allocation Risk: Unmatched Branch Invoice"
+                    risk_row["decision_why"] = (
+                        f"Invoice recorded for branch {sfx} in PR, but supplier did not file a matching branch "
+                        "document in GSTR-2B (or base sequence was claimed under another branch/GSTIN)."
+                    )
+                    risk_row["decision_next"] = "Verify inter-branch billing and supplier GSTR-1. Confirm branch allocation before claiming ITC."
 
     filing_status_risk = build_filing_status_itc_risk(gstr_records or [])
     wrongful_itc_risk = pr_wrongful_itc_risk + filing_status_risk

@@ -15,6 +15,7 @@ Verifies:
 from __future__ import annotations
 
 import os
+from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
@@ -393,7 +394,21 @@ def test_maker_checker_blocking_exception_preserved():
 
 
 # 7. FOLLOW-UP SCHEDULING
-def test_schedule_work_item_followup():
+@pytest.fixture
+def deterministic_clock(monkeypatch):
+    """Deterministic clock fixture fixing the current UTC time for SLA calculations."""
+    fixed_now = datetime(2026, 10, 10, 12, 0, 0, tzinfo=timezone.utc)
+    class FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            if tz:
+                return fixed_now.astimezone(tz)
+            return fixed_now
+    monkeypatch.setattr("app.services.itc_work_item_service.datetime", FixedDatetime)
+    return fixed_now
+
+
+def test_schedule_work_item_followup(deterministic_clock):
     sb, wid, _ = setup_mock_db()
     admin_user = {"id": ADMIN_USER_ID, "role": "admin", "full_name": "Admin CA"}
 

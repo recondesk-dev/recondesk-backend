@@ -79,7 +79,28 @@ _RE_TRAILING_FY = re.compile(r"[-_/]((?:20\d\d|19\d\d|\d{2}))\s*$", re.IGNORECAS
 _RE_FY_SPAN = re.compile(r"(?:\d{2}[/-]\d{2}|20\d\d[/-]\d{2,4}|[A-Za-z]{3}\d{2})")
 
 
+def _extract_branch_suffix(inv_norm: str | None, inv_raw: str | None = None) -> str:
+    """Extract recognized branch suffix from raw or normalized invoice string."""
+    raw = str(inv_raw or inv_norm or "").strip()
+    m = _RE_BRANCH_SUFFIX.search(raw)
+    if m:
+        return m.group(0).upper().lstrip("/-")
+    norm = str(inv_norm or "").strip()
+    m2 = _RE_BRANCH_NORM.search(norm)
+    if m2:
+        return m2.group(0).upper()
+    return ""
 
+
+def _normalize_branch_suffix(sfx: str) -> str:
+    """Normalize branch suffix (e.g. BR01 -> BR1, BR1 -> BR1) for canonical branch comparison."""
+    clean = str(sfx or "").strip().upper().lstrip("/-")
+    if not clean:
+        return ""
+    m = re.search(r"^([A-Z]+)0*(\d+)$", clean)
+    if m:
+        return f"{m.group(1)}{m.group(2)}"
+    return clean
 
 
 def normalise_inv_no(s: Any) -> str:
@@ -872,6 +893,12 @@ def is_invoice_format_variant(
     if na == nb:
         return True
 
+    # Differing branch suffixes (e.g. BR01 vs BR02) are distinct branch documents, never format variants
+    br_a = _normalize_branch_suffix(_extract_branch_suffix(na, a_raw or a))
+    br_b = _normalize_branch_suffix(_extract_branch_suffix(nb, b_raw or b))
+    if br_a and br_b and br_a != br_b:
+        return False
+
     # Material amendment prefixes (AMD-, AMEND-, REV-) and suffixes (/A1, /A2, /REV) indicate
     # an amended document, not a mere format variant. They must be routed to human review, not auto-accepted.
     has_amd_a = bool(
@@ -1292,6 +1319,10 @@ def check_is_branch_variant(
     )
     if not has_branch_regex:
         return False
+    br_a = _normalize_branch_suffix(_extract_branch_suffix(na, raw_a_str))
+    br_b = _normalize_branch_suffix(_extract_branch_suffix(nb, raw_b_str))
+    if br_a and br_b and br_a != br_b:
+        return False
     if raw_a_s == raw_b_s:
         return True
     norm_as = normalize_invoice(raw_a_s)
@@ -1462,6 +1493,22 @@ def build_compared_fields(
                 out.append(_field_entry("tax_amount", "fuzzy", int(round(max(0.0, 1.0 - tax_pct) * 100))))
             else:
                 out.append(_field_entry("tax_amount", "not_matched"))
+
+    gstr_total = _invoice_total_paise(gstr_rec)
+    pr_total = _invoice_total_paise(pr_rec)
+    total_diff = abs(abs(gstr_total) - abs(pr_total))
+    if gstr_total or pr_total:
+        if total_diff == 0:
+            out.append(_field_entry("gross_amount", "exact"))
+        else:
+            out.append(
+                {
+                    "field_name": "gross_amount",
+                    "match_type": "differs",
+                    "field_score": None,
+                    "detail": f"differs (GSTR: {_rs_str(gstr_total)}, PR: {_rs_str(pr_total)}, diff: {_rs_str(total_diff)})",
+                }
+            )
 
     dg = _parse_invoice_date(gstr_rec)
     dp = _parse_invoice_date(pr_rec)
@@ -1673,10 +1720,7 @@ def _append_financial_discrepancies(
     gstr_is_igst: bool,
     pr_is_igst: bool,
 ) -> None:
-    if (
-        gstr_total != pr_total
-        and _has_explicit_total_tax_line(gstr_rec, pr_rec)
-    ):
+    if total_diff > 0:
         out.append(
             "total_value: GSTR="
             f"{_rs_str(gstr_total)}, PR={_rs_str(pr_total)}, diff={_rs_str(total_diff)}"
@@ -2734,6 +2778,20 @@ def _match_gstr_to_pr_pair(
         )
         if raw_inv_ok:
             if not skip_date and date_diff_days != 0:
+                if total_diff > 0:
+                    return _ret(
+                        level=1, matched=True, confidence=100, requires_human_review=False,
+                        decision_what=f"Matched on Taxable & Tax (Gross Value differs: GSTR {_rs_str(gstr_total)} vs PR {_rs_str(pr_total)}, diff {_rs_str(total_diff)})",
+                        decision_why=(
+                            f"Taxable and tax amounts align for ITC claim; gross invoice value differs by {_rs_str(total_diff)} "
+                            f"(GSTR: {_rs_str(gstr_total)}, PR: {_rs_str(pr_total)}); date difference is {delta_str} "
+                            f"(within {DATE_TOLERANCE_L1_DAYS}-day tolerance)"
+                        ),
+                        decision_next="ITC claim is safe under Section 16(2)(aa). Verify commercial terms with supplier for post-tax gross variance.",
+                        discrepancies=discrepancies,
+                        identity_confidence="High", financial_status="Exact",
+                        review_reason=None,
+                    )
                 return _ret(
                     level=1, matched=True, confidence=100, requires_human_review=False,
                     decision_what="Matched within date tolerance",
@@ -2742,6 +2800,19 @@ def _match_gstr_to_pr_pair(
                         f"(within {DATE_TOLERANCE_L1_DAYS}-day tolerance)"
                     ),
                     decision_next="No action required",
+                    discrepancies=discrepancies,
+                    identity_confidence="High", financial_status="Exact",
+                    review_reason=None,
+                )
+            if total_diff > 0:
+                return _ret(
+                    level=1, matched=True, confidence=100, requires_human_review=False,
+                    decision_what=f"Matched on Taxable & Tax (Gross Value differs: GSTR {_rs_str(gstr_total)} vs PR {_rs_str(pr_total)}, diff {_rs_str(total_diff)})",
+                    decision_why=(
+                        f"Taxable and tax amounts align for ITC claim; gross invoice value differs by {_rs_str(total_diff)} "
+                        f"(GSTR: {_rs_str(gstr_total)}, PR: {_rs_str(pr_total)})"
+                    ),
+                    decision_next="ITC claim is safe under Section 16(2)(aa). Verify commercial terms with supplier for post-tax gross variance.",
                     discrepancies=discrepancies,
                     identity_confidence="High", financial_status="Exact",
                     review_reason=None,
@@ -2755,19 +2826,27 @@ def _match_gstr_to_pr_pair(
                 identity_confidence="High", financial_status="Exact",
                 review_reason=None,
             )
-        why_text = (
-            "Invoice numbers match after normalization or format variant; amounts and dates align"
-            if (skip_date or date_diff_days == 0)
-            else (
+        what_text = "Normalized invoice match"
+        next_text = "No action required — formatting differs, amounts align"
+        if total_diff > 0:
+            what_text = f"Matched (Gross Value differs: GSTR {_rs_str(gstr_total)} vs PR {_rs_str(pr_total)}, diff {_rs_str(total_diff)})"
+            why_text = (
+                f"Invoice numbers match after normalization or format variant; taxable and tax amounts align for ITC claim; "
+                f"gross invoice value differs by {_rs_str(total_diff)} (GSTR: {_rs_str(gstr_total)}, PR: {_rs_str(pr_total)})"
+            )
+            next_text = "ITC claim is safe under Section 16(2)(aa). Verify commercial terms with supplier for post-tax gross variance."
+        elif skip_date or date_diff_days == 0:
+            why_text = "Invoice numbers match after normalization or format variant; amounts and dates align"
+        else:
+            why_text = (
                 f"Invoice numbers match after normalization or format variant; amounts align; "
                 f"date difference is {delta_str} (within {DATE_TOLERANCE_L1_DAYS}-day tolerance)"
             )
-        )
         return _ret(
             level=2, matched=True, confidence=95, requires_human_review=False,
-            decision_what="Normalized invoice match",
+            decision_what=what_text,
             decision_why=why_text,
-            decision_next="No action required — formatting differs, amounts align",
+            decision_next=next_text,
             discrepancies=discrepancies,
             identity_confidence="High", financial_status="Exact",
             review_reason=None,
@@ -2783,6 +2862,19 @@ def _match_gstr_to_pr_pair(
                 else f"{delta_days} days"
             )
             if not skip_date and date_diff_days != 0:
+                if total_diff > 0:
+                    return _ret(
+                        level=1, matched=True, confidence=100, requires_human_review=False,
+                        decision_what=f"Matched on Taxable & Tax (Gross Value differs: GSTR {_rs_str(gstr_total)} vs PR {_rs_str(pr_total)}, diff {_rs_str(total_diff)})",
+                        decision_why=(
+                            f"Taxable and tax amounts align for ITC claim; gross invoice value differs by {_rs_str(total_diff)} "
+                            f"(GSTR: {_rs_str(gstr_total)}, PR: {_rs_str(pr_total)}); date difference is {delta_str} "
+                            f"(within {DATE_TOLERANCE_L1_DAYS}-day tolerance)"
+                        ),
+                        decision_next="ITC claim is safe under Section 16(2)(aa). Verify commercial terms with supplier for post-tax gross variance.",
+                        discrepancies=discrepancies,
+                        identity_confidence="High", financial_status=financial_status,
+                    )
                 return _ret(
                     level=1, matched=True, confidence=100, requires_human_review=False,
                     decision_what="Matched within date tolerance",
@@ -2791,6 +2883,18 @@ def _match_gstr_to_pr_pair(
                         f"(within {DATE_TOLERANCE_L1_DAYS}-day tolerance)"
                     ),
                     decision_next="No action required",
+                    discrepancies=discrepancies,
+                    identity_confidence="High", financial_status=financial_status,
+                )
+            if total_diff > 0:
+                return _ret(
+                    level=1, matched=True, confidence=100, requires_human_review=False,
+                    decision_what=f"Matched on Taxable & Tax (Gross Value differs: GSTR {_rs_str(gstr_total)} vs PR {_rs_str(pr_total)}, diff {_rs_str(total_diff)})",
+                    decision_why=(
+                        f"Taxable and tax amounts align for ITC claim; gross invoice value differs by {_rs_str(total_diff)} "
+                        f"(GSTR: {_rs_str(gstr_total)}, PR: {_rs_str(pr_total)})"
+                    ),
+                    decision_next="ITC claim is safe under Section 16(2)(aa). Verify commercial terms with supplier for post-tax gross variance.",
                     discrepancies=discrepancies,
                     identity_confidence="High", financial_status=financial_status,
                 )

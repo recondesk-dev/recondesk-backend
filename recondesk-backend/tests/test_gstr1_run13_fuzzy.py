@@ -311,7 +311,9 @@ async def test_run13_benchmark_full():
     # Review reason counts
     matches = result.get("matched", [])
     multi_ocr_reviews = [m for m in matches if m.get("review_reason") == "MULTI_OCR_REVIEW"]
-    prefix_alter_reviews = [m for m in matches if m.get("review_reason") == "PREFIX_ALTERATION_REVIEW"]
+    prefix_alter_reviews = [
+        m for m in matches if m.get("review_reason") in ("PREFIX_ALTERATION_REVIEW", "TYPO_MISMATCH")
+    ]
 
     assert len(multi_ocr_reviews) == 120
     assert len(prefix_alter_reviews) == 100

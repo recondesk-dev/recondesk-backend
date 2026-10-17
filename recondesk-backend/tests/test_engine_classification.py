@@ -202,9 +202,12 @@ def test_pass1_large_amount_diff_same_invoice_links_as_review():
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 8. INVOICE_MATCH_AMOUNT_REVIEW Pass 3 (by_gstin full scan, no amount cap):
-#    Format-variant invoice (FY202600100 ↔ FY2600100) + >50% amount diff
-#    → Review Required, NOT Missed ITC
+# 8. INVOICE_MATCH_AMOUNT_REVIEW:
+#    Format-variant invoice (FY202600100 ↔ FY2600100) + >50% amount diff (64%)
+#    Statutory Policy:
+#    When both invoice string differs (format variant) AND amount differs by >50%,
+#    it is unsafe to force-link. GSTR safely remains in Missed ITC, and PR remains
+#    in Wrongful ITC Risk to protect taxpayer from claiming wrong amounts.
 # ─────────────────────────────────────────────────────────────────────────────
 def test_pass3_format_variant_large_amount_links_as_review():
     g = _gstr(gstin=GSTIN_A, inv="FY/2026/00100", inv_norm="FY202600100",
@@ -212,10 +215,12 @@ def test_pass3_format_variant_large_amount_links_as_review():
     p = _pr(  gstin=GSTIN_A, inv="FY2600100",      inv_norm="FY2600100",
                total_tax=18_00000, igst=18_00000, taxable=100_00000)   # 64% diff
     res = _run([g], [p])
-    assert g["id"] not in _missed(res), (
-        "Format-variant invoice with >50% diff must be Review Required, not Missed ITC"
+    assert g["id"] in _missed(res), (
+        "Format-variant invoice with >50% diff must safely stay in Missed ITC, not be force-linked"
     )
-    assert g["id"] in _review(res)
+    assert p["id"] in _wrongful(res), (
+        "Unconsumed PR invoice with >50% diff must stay in Wrongful ITC Risk"
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────

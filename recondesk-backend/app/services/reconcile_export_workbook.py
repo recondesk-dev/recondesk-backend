@@ -66,6 +66,8 @@ _FIELD_LABELS = {
     "credit_note_number": "Credit Note#",
     "debit_note_number": "Debit Note#",
     "taxable_amount": "Amount",
+    "gross_amount": "Gross Value",
+    "tax_amount": "Tax Amount",
     "date": "Date",
     "vendor_name": "Vendor",
 }
@@ -87,7 +89,10 @@ def _format_match_rationale(compared_fields: Any) -> str:
             "_", " "
         )
         score = entry.get("field_score")
-        if match_type == "fuzzy" and score is not None:
+        detail = entry.get("detail")
+        if detail:
+            parts.append(f"{label}: {detail}")
+        elif match_type == "fuzzy" and score is not None:
             try:
                 parts.append(f"{label}: fuzzy {int(score)}%")
             except (TypeError, ValueError):

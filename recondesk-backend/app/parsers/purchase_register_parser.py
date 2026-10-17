@@ -274,6 +274,7 @@ _BASE_COLUMN_ALIASES: dict[str, list[str]] = {
         "note type", "cn dn", "cndn",
         "voucher type", "vch type", "document type", "doc type",
         "transaction type", "trans type",
+        "document nature", "doc nature", "nature of document", "nature",
     ],
     "note_reason": [
         "reason", "note reason", "remarks", "remark",
@@ -1355,12 +1356,19 @@ def _classify_invoice_type(
         if is_erp_credit_note(note_type_hint, shkzg_hint, is_sales=is_sales):
             return "CREDIT_NOTE"
         hint_clean = str(note_type_hint or "").strip().lower()
-        if re.search(r"credit|\bcn\b|\bcbt\b|return", hint_clean) and not re.search(r"debit|\bdn\b|\bdbt\b", hint_clean):
-            return "CREDIT_NOTE"
-        if re.search(r"debit|\bdn\b|\bdbt\b", hint_clean):
-            return "DEBIT_NOTE"
-        if re.search(r"\b(invoice|inv|tax\s+invoice|tax_invoice)\b", hint_clean):
-            return "INVOICE"
+        if hint_clean:
+            is_cn = bool(re.search(r"credit|\bcn\b|\bcbt\b|return", hint_clean))
+            is_dn = bool(re.search(r"debit|\bdn\b|\bdbt\b", hint_clean))
+            is_inv = bool(re.search(r"\b(invoice|inv|tax\s+invoice|tax_invoice|bill|purchase|purc|regular|standard|kr|re)\b", hint_clean))
+            if is_cn and is_dn:
+                return "AMBIGUOUS_DOC_TYPE"
+            if is_cn:
+                return "CREDIT_NOTE"
+            if is_dn:
+                return "DEBIT_NOTE"
+            if is_inv:
+                return "INVOICE"
+            return "UNKNOWN_DOC_TYPE"
 
     if original_taxable is not None and original_taxable < 0:
         return "CREDIT_NOTE"
@@ -1745,6 +1753,10 @@ def _process_pr_sheet_rows(
             invoice_type = _classify_invoice_type(
                 inv_raw, original_taxable_peek, note_type_hint, shkzg_hint=shkzg_hint, is_sales=False
             )
+            if invoice_type == "AMBIGUOUS_DOC_TYPE":
+                row_errors.append(f"ambiguous document type '{note_type_hint}'")
+            elif invoice_type == "UNKNOWN_DOC_TYPE":
+                row_errors.append(f"unknown document type '{note_type_hint}'")
 
         taxable_amount_paise: int | None = None
         note_amount_paise: int | None = None

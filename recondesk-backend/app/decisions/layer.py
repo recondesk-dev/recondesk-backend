@@ -293,6 +293,18 @@ def _decision_for_row(row: dict[str, Any], scheme_type: str = "regular") -> Deci
     adiff = _row_amount_diff_paise(row)
     pair_np = _row_invoice_normalized_pairs(row)
 
+    if row.get("decision_what") and ("Gross Value differs" in str(row["decision_what"]) or "gross value differs" in str(row["decision_what"]).lower()):
+        return DecisionOutput(
+            what=str(row["decision_what"]),
+            why=str(row.get("decision_why") or ""),
+            next=str(row.get("decision_next") or ""),
+            rule="L1_GROSS_VALUE_DIFF",
+            confidence="HIGH",
+            matched_fields=tuple(dict.fromkeys(ident + amt_meta)),
+            differed_fields=("gross_amount",),
+            normalized_pairs=(),
+        )
+
     if level == 1:
         mf = list(dict.fromkeys(ident + amt_meta))
         tmpl = "L1_DEBIT_NOTE_EXACT" if is_dn else ("L1_CREDIT_NOTE_EXACT" if is_cn else ("L1_RCM_EXACT" if is_rcm else "L1_EXACT"))
